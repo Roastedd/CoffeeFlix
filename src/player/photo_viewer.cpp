@@ -1,0 +1,254 @@
+#include <SDL2/SDL_image.h>
+#include <gif_lib.h>
+#include <vector>
+#include <string.h>
+
+#include "utils/sdl.hpp"
+#include "main.hpp"
+#include "utils.hpp"
+#include "logger/logger.hpp"
+#include "player/photo_viewer.hpp"
+
+struct GIFFrame {
+    SDL_Texture* texture;
+    int delay_ms;
+};
+
+static std::vector<GIFFrame> gif_frames;
+static int current_gif_frame;
+static Uint32 last_frame_time;
+
+float scale;
+#define MIN_ZOOM_SCALE 0.5f
+#define MAX_ZOOM_SCALE 5.0f
+
+SDL_Rect dst;
+bool dst_set;
+
+void photo_viewer_init() {
+	current_gif_frame = 0;
+	last_frame_time = 0;
+	scale = 1.0f;
+
+	dst = { 0, 0, 0, 0 };
+	dst_set = false;
+}
+
+void clamp_dst() {
+    if (dst.w > SCREEN_WIDTH) {
+        if (dst.x > 0) dst.x = 0;
+        if (dst.x < SCREEN_WIDTH - dst.w) dst.x = SCREEN_WIDTH - dst.w;
+    } else {
+        if (dst.x < 0) dst.x = 0;
+        if (dst.x > SCREEN_WIDTH - dst.w) dst.x = SCREEN_WIDTH - dst.w;
+    }
+
+    if (dst.h > SCREEN_HEIGHT) {
+        if (dst.y > 0) dst.y = 0;
+        if (dst.y < SCREEN_HEIGHT - dst.h) dst.y = SCREEN_HEIGHT - dst.h;
+    } else {
+        if (dst.y < 0) dst.y = 0;
+        if (dst.y > SCREEN_HEIGHT - dst.h) dst.y = SCREEN_HEIGHT - dst.h;
+    }
+}
+
+bool load_gif(const char* filepath, SDL_Renderer* renderer) {
+    int err = 0;
+    GifFileType* gif = DGifOpenFileName(filepath, &err);
+    if (!gif) {
+    	log_message(LOG_ERROR, "Photo Viewer", "Failed to open: %s (error code: %d)", filepath, err);
+        return false;
+    }
+
+    if (DGifSlurp(gif) != GIF_OK) {
+    	log_message(LOG_ERROR, "Photo Viewer", "Failed to read data: %s", filepath);
+        DGifCloseFile(gif, &err);
+        return false;
+    }
+
+    gif_frames.clear();
+
+    SDL_Surface* canvas = SDL_CreateRGBSurface(0, gif->SWidth, gif->SHeight, 32,
+                                               0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
+    if (!canvas) {
+        DGifCloseFile(gif, &err);
+        return false;
+    }
+    SDL_FillRect(canvas, nullptr, SDL_MapRGBA(canvas->format, 0, 0, 0, 0));
+
+    SDL_Surface* backup = SDL_CreateRGBSurface(0, gif->SWidth, gif->SHeight, 32,
+                                               0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
+
+    GifColorType* globalColors = gif->SColorMap ? gif->SColorMap->Colors : nullptr;
+
+    for (int i = 0; i < gif->ImageCount; ++i) {
+        SavedImage& frame = gif->SavedImages[i];
+        GifImageDesc& desc = frame.ImageDesc;
+
+        GifColorType* colors = desc.ColorMap ? desc.ColorMap->Colors : globalColors;
+        if (!colors) continue;
+
+        int delay = 100;
+        int transparentIndex = -1;
+        int disposal = 0;
+        for (int j = 0; j < frame.ExtensionBlockCount; ++j) {
+            ExtensionBlock& ext = frame.ExtensionBlocks[j];
+            if (ext.Function == GRAPHICS_EXT_FUNC_CODE && ext.ByteCount >= 4) {
+                delay = ((ext.Bytes[2] << 8) | ext.Bytes[1]) * 10;
+                delay = delay < 20 ? 20 : delay; // enforce min delay
+                transparentIndex = (ext.Bytes[0] & 0x01) ? (unsigned char)ext.Bytes[3] : -1;
+                disposal = (ext.Bytes[0] >> 2) & 0x07;
+            }
+        }
+
+        if (i > 0) {
+            if (disposal == 2) {
+                SDL_Rect r = { desc.Left, desc.Top, desc.Width, desc.Height };
+                SDL_FillRect(canvas, &r, SDL_MapRGBA(canvas->format, 0, 0, 0, 0));
+            } else if (disposal == 3 && backup) {
+                SDL_BlitSurface(backup, nullptr, canvas, nullptr);
+            }
+        }
+
+        if (disposal == 3 && backup) {
+            SDL_BlitSurface(canvas, nullptr, backup, nullptr);
+        }
+
+        Uint32* pixels = (Uint32*)canvas->pixels;
+        for (int y = 0; y < desc.Height; ++y) {
+            for (int x = 0; x < desc.Width; ++x) {
+                int idx = y * desc.Width + x;
+                int color_idx = frame.RasterBits[idx];
+                if (color_idx == transparentIndex) continue;
+
+                GifColorType c = colors[color_idx];
+                int px = desc.Left + x;
+                int py = desc.Top + y;
+
+                if (px < gif->SWidth && py < gif->SHeight) {
+                    Uint32 color = SDL_MapRGBA(canvas->format, c.Red, c.Green, c.Blue, 255);
+                    pixels[py * gif->SWidth + px] = color;
+                }
+            }
+        }
+
+        SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, canvas);
+        if (!tex) continue;
+
+        gif_frames.push_back({ tex, delay });
+    }
+
+    SDL_FreeSurface(canvas);
+    SDL_FreeSurface(backup);
+    DGifCloseFile(gif, &err);
+
+    current_gif_frame = 0;
+    last_frame_time = SDL_GetTicks();
+    return !gif_frames.empty();
+}
+
+void photo_viewer_open_picture(const char* filepath) {
+    photo_viewer_cleanup();
+
+    const char* ext = strrchr(filepath, '.');
+    if (ext && strcasecmp(ext, ".gif") == 0) {
+        if (load_gif(filepath, sdl_get()->sdl_renderer)) {
+            int tex_w, tex_h;
+            SDL_QueryTexture(gif_frames[0].texture, nullptr, nullptr, &tex_w, &tex_h);
+            dst = calculate_aspect_fit_rect(tex_w, tex_h);
+            scale = (float)dst.w / tex_w;
+            dst_set = true;
+            return;
+        } else {
+        	log_message(LOG_ERROR, "Photo Viewer", "Failed to load animated GIF: %s", filepath);
+            return;
+        }
+    }
+
+    SDL_Surface* surface = IMG_Load(filepath);
+    if (!surface) {
+    	log_message(LOG_ERROR, "Photo Viewer", "Failed to load image: %s", IMG_GetError());
+        return;
+    }
+
+    sdl_get()->sdl_texture = SDL_CreateTextureFromSurface(sdl_get()->sdl_renderer, surface);
+    SDL_FreeSurface(surface);
+
+    if (!sdl_get()->sdl_texture) {
+    	log_message(LOG_ERROR, "Photo Viewer", "Failed to create texture: %s", SDL_GetError());
+        return;
+    }
+
+    int tex_w, tex_h;
+    SDL_QueryTexture(sdl_get()->sdl_texture, nullptr, nullptr, &tex_w, &tex_h);
+    dst = calculate_aspect_fit_rect(tex_w, tex_h);
+    scale = (float)dst.w / tex_w;
+    dst_set = true;
+}
+
+void photo_texture_zoom(float delta_zoom) {
+    scale += delta_zoom;
+    if (scale > MAX_ZOOM_SCALE) scale = MAX_ZOOM_SCALE;
+    if (scale < MIN_ZOOM_SCALE) scale = MIN_ZOOM_SCALE;
+
+    int tex_w, tex_h;
+    if (!gif_frames.empty()) {
+        SDL_QueryTexture(gif_frames[current_gif_frame].texture, nullptr, nullptr, &tex_w, &tex_h);
+    } else if (sdl_get()->sdl_texture) {
+        SDL_QueryTexture(sdl_get()->sdl_texture, nullptr, nullptr, &tex_w, &tex_h);
+    } else {
+        return;
+    }
+
+    dst.w = (int)(tex_w * scale);
+    dst.h = (int)(tex_h * scale);
+
+    clamp_dst();
+    dst_set = true;
+}
+
+void photo_viewer_pan(int delta_x, int delta_y) {
+    dst.x += delta_x;
+    dst.y += delta_y;
+    clamp_dst();
+}
+
+void photo_viewer_render() {
+    draw_checkerboard_pattern(sdl_get()->sdl_renderer, SCREEN_WIDTH, SCREEN_HEIGHT, 40);
+
+    SDL_Texture* tex = nullptr;
+    if (!gif_frames.empty()) {
+        Uint32 now = SDL_GetTicks();
+        if (now - last_frame_time >= (Uint32)gif_frames[current_gif_frame].delay_ms) {
+            current_gif_frame = (current_gif_frame + 1) % gif_frames.size();
+            last_frame_time = now;
+        }
+        tex = gif_frames[current_gif_frame].texture;
+    } else {
+        tex = sdl_get()->sdl_texture;
+    }
+
+    if (!tex) return;
+
+    if (!dst_set) {
+        int tex_w, tex_h;
+        SDL_QueryTexture(tex, nullptr, nullptr, &tex_w, &tex_h);
+        dst = calculate_aspect_fit_rect(tex_w, tex_h);
+        scale = (float)dst.w / tex_w;
+        dst_set = true;
+    }
+
+    SDL_RenderCopy(sdl_get()->sdl_renderer, tex, nullptr, &dst);
+}
+
+void photo_viewer_cleanup() {
+    for (auto& frame : gif_frames) {
+        if (frame.texture) SDL_DestroyTexture(frame.texture);
+    }
+    gif_frames.clear();
+
+    if (sdl_get()->sdl_texture) {
+        SDL_DestroyTexture(sdl_get()->sdl_texture);
+        sdl_get()->sdl_texture = nullptr;
+    }
+}
