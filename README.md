@@ -116,8 +116,8 @@ ffmpeg -i <input> \
 * ❗ **MKV Codec Support**
   MKV files now support multiple codecs: **H.264** (best performance), **VP8/VP9** (software decoding), **HEVC/H.265** (experimental), and **MPEG1/2/4**. Performance varies by codec and resolution - H.264 is recommended for best results. Files with unsupported codecs will show a clear error message.
 
-* ❗ **Inconsistent FLAC Support**
-  Some `.flac` audio files play fine, while others may fail to load or crash the app. This is due to partial support in the current audio pipeline.
+* ❗ **FLAC Audio Support**
+  FLAC files are now supported with proper validation. **16-bit and 24-bit FLAC** files work reliably. Files with higher bit depths (32-bit) or excessive sample rates (>192kHz) will be rejected with clear error messages. Multichannel FLAC is automatically downmixed to stereo.
 
 ---
 
