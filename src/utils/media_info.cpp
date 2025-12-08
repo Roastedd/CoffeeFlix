@@ -8,8 +8,9 @@ media_info* media_info_get() {
     std::lock_guard<std::mutex> lock(media_info_mutex);
 
     if (!current_media_info) {
-        printf("[Media Info] current_media_info is null!\n");
-        while (1);  // Crash intentionally for debugging
+        printf("[Media Info] ERROR: current_media_info is null! Creating emergency fallback.\n");
+        // Create emergency fallback instead of crashing
+        current_media_info = std::make_unique<media_info>();
     }
 
     #if defined(DEBUG_AUDIO) && defined(DEBUG_VIDEO)
@@ -36,8 +37,8 @@ media_info media_info_get_copy() {
     std::lock_guard<std::mutex> lock(media_info_mutex);
 
     if (!current_media_info) {
-        printf("[Media Info] current_media_info is null!\n");
-        while (1);
+        printf("[Media Info] ERROR: current_media_info is null in get_copy! Creating fallback.\n");
+        current_media_info = std::make_unique<media_info>();
     }
 
     #if defined(DEBUG_AUDIO) && defined(DEBUG_VIDEO)
@@ -64,8 +65,8 @@ void media_info_set(std::unique_ptr<media_info> new_info) {
     std::lock_guard<std::mutex> lock(media_info_mutex);
 
     if (!new_info) {
-        printf("[Media Info] new_info passed to set is null!\n");
-        while (1);
+        printf("[Media Info] ERROR: new_info passed to set is null! Keeping existing.\n");
+        return;
     }
 
     current_media_info = std::move(new_info);

@@ -33,13 +33,18 @@ void scene_video_player_input(InputState& input) {
         app_state_set(STATE_MENU_VIDEO_FILES);
         scan_directory(MEDIA_PATH_VIDEO);
     } else if (input_pressed(input, BTN_LEFT)) {
-#ifdef DEBUG
-//        video_player_seek(-5.0f);
-#endif
+        // Seek backward 5 seconds
+        double current_time = media_info_get()->current_video_playback_time;
+        double new_time = std::max(0.0, current_time - 5.0);
+        video_player_seek(new_time);
+        audio_player_seek(-5.0f);
     } else if (input_pressed(input, BTN_RIGHT)) {
-#ifdef DEBUG
-//        video_player_seek(5.0f);
-#endif
+        // Seek forward 5 seconds
+        double current_time = media_info_get()->current_video_playback_time;
+        double total_time = media_info_get()->total_video_playback_time;
+        double new_time = std::min((double)total_time, current_time + 5.0);
+        video_player_seek(new_time);
+        audio_player_seek(5.0f);
     } else if (input_pressed(input, BTN_X)) {
         if (media_info_get()->total_audio_track_count == 1) return;
 
