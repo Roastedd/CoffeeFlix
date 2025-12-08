@@ -346,19 +346,91 @@ int video_player_init(const char* filepath) {
     AVStream* stream = fmt_ctx->streams[video_stream_index];
     video_time_base = stream->time_base;
 
+    // Log container and codec information
+    const char* container_name = fmt_ctx->iformat ? fmt_ctx->iformat->name : "unknown";
+    const char* codec_name = avcodec_get_name(stream->codecpar->codec_id);
+    log_message(LOG_OK, "Video Player", "Container: %s, Codec: %s, Resolution: %dx%d", 
+                container_name, codec_name, 
+                stream->codecpar->width, stream->codecpar->height);
+
     const AVCodec* codec = nullptr;
-    if (stream->codecpar->codec_id == AV_CODEC_ID_H264) {
-        if (stream->codecpar->height == 720) {
-            codec = avcodec_find_decoder_by_name("h264_wiiu");
-            log_message(LOG_OK, "Video Player", "Using hardware decoding");
-        } else {
-            codec = avcodec_find_decoder_by_name("h264");
-            log_message(LOG_OK, "Video Player", "Using software decoding");
-        }
+    bool using_hardware = false;
+    
+    // Codec selection with hardware acceleration support
+    switch (stream->codecpar->codec_id) {
+        case AV_CODEC_ID_H264:
+            if (stream->codecpar->height == 720) {
+                codec = avcodec_find_decoder_by_name("h264_wiiu");
+                if (codec) {
+                    using_hardware = true;
+                    log_message(LOG_OK, "Video Player", "Using H.264 hardware decoding");
+                }
+            }
+            if (!codec) {
+                codec = avcodec_find_decoder_by_name("h264");
+                log_message(LOG_OK, "Video Player", "Using H.264 software decoding");
+            }
+            break;
+            
+        case AV_CODEC_ID_VP8:
+            codec = avcodec_find_decoder(stream->codecpar->codec_id);
+            if (codec) {
+                log_message(LOG_OK, "Video Player", "Using VP8 software decoding");
+            }
+            break;
+            
+        case AV_CODEC_ID_VP9:
+            codec = avcodec_find_decoder(stream->codecpar->codec_id);
+            if (codec) {
+                log_message(LOG_OK, "Video Player", "Using VP9 software decoding");
+                // VP9 is computationally expensive, warn about performance
+                if (stream->codecpar->width > 854 || stream->codecpar->height > 480) {
+                    log_message(LOG_ERROR, "Video Player", "Warning: VP9 at this resolution may not play smoothly");
+                }
+            }
+            break;
+            
+        case AV_CODEC_ID_HEVC:
+            // Try hardware decoder first, then software
+            codec = avcodec_find_decoder_by_name("hevc_wiiu");
+            if (codec) {
+                using_hardware = true;
+                log_message(LOG_OK, "Video Player", "Using HEVC/H.265 hardware decoding");
+            } else {
+                codec = avcodec_find_decoder(stream->codecpar->codec_id);
+                if (codec) {
+                    log_message(LOG_OK, "Video Player", "Using HEVC/H.265 software decoding");
+                    // HEVC software decoding is very slow
+                    if (stream->codecpar->width > 640 || stream->codecpar->height > 480) {
+                        log_message(LOG_ERROR, "Video Player", "Warning: HEVC software decoding may be too slow");
+                    }
+                }
+            }
+            break;
+            
+        case AV_CODEC_ID_MPEG4:
+        case AV_CODEC_ID_MSMPEG4V3:
+        case AV_CODEC_ID_MPEG2VIDEO:
+        case AV_CODEC_ID_MPEG1VIDEO:
+            codec = avcodec_find_decoder(stream->codecpar->codec_id);
+            if (codec) {
+                log_message(LOG_OK, "Video Player", "Using MPEG software decoding");
+            }
+            break;
+            
+        default:
+            // Try to find any decoder for this codec
+            codec = avcodec_find_decoder(stream->codecpar->codec_id);
+            if (codec) {
+                log_message(LOG_OK, "Video Player", "Using generic decoder for codec: %s", codec_name);
+            }
+            break;
     }
-    if (!codec) codec = avcodec_find_decoder(stream->codecpar->codec_id);
+    
     if (!codec) {
-        log_message(LOG_ERROR, "Video Player", "Codec not found");
+        log_message(LOG_ERROR, "Video Player", "Unsupported video codec: %s (0x%x)", 
+                    codec_name, stream->codecpar->codec_id);
+        log_message(LOG_ERROR, "Video Player", "Supported codecs: H.264, VP8, VP9, HEVC (experimental), MPEG1/2/4");
         avformat_close_input(&fmt_ctx);
         return -1;
     }

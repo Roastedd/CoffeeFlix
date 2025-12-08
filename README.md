@@ -113,8 +113,8 @@ ffmpeg -i <input> \
 * ❗ **GamePad Required**
   Currently, the app cannot be used without the Wii U GamePad. Other input methods like Pro Controller or Wiimote are not supported yet.
 
-* ❗ **Limited MKV Support**
-  Not all `.mkv` files will work. Only those encoded with **H.264 video** and compatible audio formats are expected to play properly.
+* ❗ **MKV Codec Support**
+  MKV files now support multiple codecs: **H.264** (best performance), **VP8/VP9** (software decoding), **HEVC/H.265** (experimental), and **MPEG1/2/4**. Performance varies by codec and resolution - H.264 is recommended for best results. Files with unsupported codecs will show a clear error message.
 
 * ❗ **Inconsistent FLAC Support**
   Some `.flac` audio files play fine, while others may fail to load or crash the app. This is due to partial support in the current audio pipeline.
