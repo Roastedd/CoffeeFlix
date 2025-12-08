@@ -94,11 +94,32 @@ static void audio_decode_loop() {
 
                 int bytes_per_sample = av_get_bytes_per_sample(AV_SAMPLE_FMT_S16);
                 size_t needed_bytes = (size_t)max_samples * out_channels * bytes_per_sample;
-                if (out_buf.size() < needed_bytes) out_buf.resize(needed_bytes);
+                
+                // Safety check: prevent excessive memory allocation
+                constexpr size_t MAX_BUFFER_SIZE = 8 * 1024 * 1024; // 8 MB limit
+                if (needed_bytes > MAX_BUFFER_SIZE) {
+                    log_message(LOG_ERROR, "Audio Player", "Buffer size too large: %zu bytes (max: %zu)", 
+                                needed_bytes, MAX_BUFFER_SIZE);
+                    break;
+                }
+                
+                try {
+                    if (out_buf.size() < needed_bytes) {
+                        out_buf.resize(needed_bytes);
+                    }
+                } catch (const std::bad_alloc& e) {
+                    log_message(LOG_ERROR, "Audio Player", "Memory allocation failed for audio buffer");
+                    break;
+                }
 
                 uint8_t* out_ptr = out_buf.data();
                 int out_samples = swr_convert(swr_ctx, &out_ptr, max_samples,
                                               (const uint8_t**)frame->data, frame->nb_samples);
+
+                if (out_samples < 0) {
+                    log_message(LOG_ERROR, "Audio Player", "Audio resampling failed");
+                    break;
+                }
 
                 if (out_samples > 0 && audio_playing.load(std::memory_order_acquire) && audio_device != 0) {
                     int bytes = out_samples * out_channels * bytes_per_sample;
@@ -174,12 +195,22 @@ int audio_player_init(const char* filepath) {
         }
     }
 
-    if (avformat_open_input(&fmt_ctx, filepath, nullptr, nullptr) != 0) return -1;
-    if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) return -1;
+    if (avformat_open_input(&fmt_ctx, filepath, nullptr, nullptr) != 0) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to open audio file");
+        return -1;
+    }
+    
+    if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to find stream info");
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
 
     int found_index = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     if (found_index < 0) {
+        log_message(LOG_ERROR, "Audio Player", "No audio stream found");
         audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
         return 0;
     }
 
@@ -190,12 +221,88 @@ int audio_player_init(const char* filepath) {
     audio_enabled = true;
 
     AVCodecParameters* codecpar = fmt_ctx->streams[audio_stream_index]->codecpar;
+    const char* codec_name = avcodec_get_name(codecpar->codec_id);
+    
+    // Log audio format information
+    log_message(LOG_OK, "Audio Player", "Format: %s, Codec: %s, Sample Rate: %d Hz, Channels: %d, Bit Depth: %d", 
+                fmt_ctx->iformat ? fmt_ctx->iformat->name : "unknown",
+                codec_name,
+                codecpar->sample_rate,
+                codecpar->channels,
+                codecpar->bits_per_coded_sample);
+    
+    // Validate audio parameters before proceeding
+    if (codecpar->sample_rate <= 0 || codecpar->sample_rate > 192000) {
+        log_message(LOG_ERROR, "Audio Player", "Invalid sample rate: %d Hz (must be 1-192000)", codecpar->sample_rate);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
+    
+    if (codecpar->channels <= 0 || codecpar->channels > 8) {
+        log_message(LOG_ERROR, "Audio Player", "Invalid channel count: %d (must be 1-8)", codecpar->channels);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
+    
+    // Special validation for FLAC files
+    if (codecpar->codec_id == AV_CODEC_ID_FLAC) {
+        log_message(LOG_OK, "Audio Player", "Detected FLAC audio");
+        
+        // Check bit depth - high bit depths can cause issues
+        if (codecpar->bits_per_coded_sample > 24) {
+            log_message(LOG_ERROR, "Audio Player", "FLAC bit depth %d is too high (max supported: 24-bit)", 
+                        codecpar->bits_per_coded_sample);
+            log_message(LOG_ERROR, "Audio Player", "Please convert to 16-bit or 24-bit FLAC");
+            audio_enabled = false;
+            avformat_close_input(&fmt_ctx);
+            return -1;
+        }
+        
+        // Warn about high sample rates
+        if (codecpar->sample_rate > 96000) {
+            log_message(LOG_ERROR, "Audio Player", "Warning: High sample rate (%d Hz) may cause performance issues", 
+                        codecpar->sample_rate);
+        }
+        
+        // Warn about multichannel FLAC
+        if (codecpar->channels > 2) {
+            log_message(LOG_OK, "Audio Player", "Note: %d-channel FLAC will be downmixed to stereo", codecpar->channels);
+        }
+    }
+    
     const AVCodec* codec = avcodec_find_decoder(codecpar->codec_id);
-    if (!codec) return -1;
+    if (!codec) {
+        log_message(LOG_ERROR, "Audio Player", "Unsupported audio codec: %s", codec_name);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
 
     audio_codec_ctx = avcodec_alloc_context3(codec);
-    if (avcodec_parameters_to_context(audio_codec_ctx, codecpar) < 0) return -1;
-    if (avcodec_open2(audio_codec_ctx, codec, nullptr) < 0) return -1;
+    if (!audio_codec_ctx) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to allocate codec context");
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
+    
+    if (avcodec_parameters_to_context(audio_codec_ctx, codecpar) < 0) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to copy codec parameters");
+        avcodec_free_context(&audio_codec_ctx);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
+    
+    if (avcodec_open2(audio_codec_ctx, codec, nullptr) < 0) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to open codec");
+        avcodec_free_context(&audio_codec_ctx);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
 
     SDL_AudioSpec wanted_spec;
     SDL_zero(wanted_spec);
@@ -206,21 +313,73 @@ int audio_player_init(const char* filepath) {
     wanted_spec.callback = nullptr;
 
     audio_device = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &audio_spec, 0);
-    if (!audio_device) return -1;
+    if (!audio_device) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to open audio device: %s", SDL_GetError());
+        avcodec_free_context(&audio_codec_ctx);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
+    
+    // Get proper channel layout, handling cases where it might not be set
+    int64_t in_channel_layout = audio_codec_ctx->channel_layout;
+    if (in_channel_layout == 0) {
+        in_channel_layout = av_get_default_channel_layout(audio_codec_ctx->channels);
+        log_message(LOG_OK, "Audio Player", "Using default channel layout for %d channels", audio_codec_ctx->channels);
+    }
+    
+    int64_t out_channel_layout = av_get_default_channel_layout(out_channels);
+
+    // Log resampling configuration for debugging
+    log_message(LOG_OK, "Audio Player", "Resampler: %d Hz %s -> %d Hz %s", 
+                audio_codec_ctx->sample_rate, 
+                av_get_sample_fmt_name(audio_codec_ctx->sample_fmt),
+                out_sample_rate,
+                av_get_sample_fmt_name(AV_SAMPLE_FMT_S16));
 
     swr_ctx = swr_alloc_set_opts(
         nullptr,
-        av_get_default_channel_layout(out_channels),
+        out_channel_layout,
         AV_SAMPLE_FMT_S16,
         out_sample_rate,
-        av_get_default_channel_layout(audio_codec_ctx->channels),
+        in_channel_layout,
         audio_codec_ctx->sample_fmt,
         audio_codec_ctx->sample_rate,
         0, nullptr
     );
-    if (!swr_ctx || swr_init(swr_ctx) < 0) return -1;
+    
+    if (!swr_ctx) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to allocate resampler context");
+        SDL_CloseAudioDevice(audio_device);
+        audio_device = 0;
+        avcodec_free_context(&audio_codec_ctx);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
+    
+    if (swr_init(swr_ctx) < 0) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to initialize resampler");
+        swr_free(&swr_ctx);
+        SDL_CloseAudioDevice(audio_device);
+        audio_device = 0;
+        avcodec_free_context(&audio_codec_ctx);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
 
     audio_frame = av_frame_alloc();
+    if (!audio_frame) {
+        log_message(LOG_ERROR, "Audio Player", "Failed to allocate audio frame");
+        swr_free(&swr_ctx);
+        SDL_CloseAudioDevice(audio_device);
+        audio_device = 0;
+        avcodec_free_context(&audio_codec_ctx);
+        audio_enabled = false;
+        avformat_close_input(&fmt_ctx);
+        return -1;
+    }
 
     collect_audio_tracks(fmt_ctx);
 
