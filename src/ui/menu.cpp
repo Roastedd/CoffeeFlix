@@ -234,6 +234,19 @@ void ui_render() {
 }
 
 void ui_shutdown() {
-    ui_scene_shutdown();
-    nk_sdl_shutdown();
+    log_message(LOG_OK, "UI", "Shutting down UI system");
+    
+    try {
+        ui_scene_shutdown();
+    } catch (...) {
+        log_message(LOG_ERROR, "UI", "Exception during scene shutdown");
+    }
+    
+    try {
+        nk_sdl_shutdown();
+    } catch (...) {
+        log_message(LOG_ERROR, "UI", "Exception during nuklear shutdown");
+    }
+    
+    log_message(LOG_OK, "UI", "UI shutdown complete");
 }

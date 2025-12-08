@@ -35,6 +35,8 @@ Made with ❤️ in 🇩🇪
 2. Select your desired media type from the sidebar.
 3. Use the file browser to locate and select and play your media.
 
+> 📋 **For Developers**: Check out our [Development Roadmap](DEVELOPMENT_ROADMAP.md) for planned features and contributing guidelines.
+
 ### 🎥 Controls – Video Player
 
 | Button | Action                |
@@ -42,6 +44,7 @@ Made with ❤️ in 🇩🇪
 | `A`    | Play / Pause          |
 | `B`    | Return to file browser|
 | `X`    | Change audio track    |
+| `D-Pad L/R` | Seek backward / forward (5s) |
 
 ### 🎵 Controls – Audio Player
 
@@ -105,7 +108,7 @@ ffmpeg -i <input> \
   Playback may fall out of sync, especially with high-resolution or complex video files. Re-encoding with the recommended FFmpeg settings may help.
 
 * ❗ **App Crashes on Exit**
-  In some cases, the application may crash or freeze when returning to the Wii U system menu.
+  Improved cleanup procedures have reduced exit crashes. If crashes persist, use the Home button to return to the system menu before closing the app completely.
 
 * ❗ **Unstable / Experimental Behavior**
   CaféMP is in early development. Expect occasional hangs, crashes, or features not working as intended.
