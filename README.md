@@ -87,12 +87,13 @@ ffmpeg -i <input> \
 * 🎥 Video playback (common formats, up to 720p)
 * 🎵 Audio playback (common formats)
 * 🖼️ Image viewer (common formats)
+* ⏩ Video seeking (D-Pad Left/Right: 5-second intervals)
+* ⏮️ Audio seeking (D-Pad Left/Right: 5-second skip/rewind)
 
 ---
 
 ## 🔜 Planned Features
 
-* ⏩ Skip/Rewind support for video
 * 🌐 DLNA / Jellyfin streaming
 * 💾 USB drive support (ext4, exFAT)
 * 📊 Audio visualizations
@@ -107,8 +108,8 @@ ffmpeg -i <input> \
 * ❗ **Audio/Video Desync**
   Playback may fall out of sync, especially with high-resolution or complex video files. Re-encoding with the recommended FFmpeg settings may help.
 
-* ❗ **App Crashes on Exit**
-  Improved cleanup procedures have reduced exit crashes. If crashes persist, use the Home button to return to the system menu before closing the app completely.
+* ❗ **App Stability on Exit**
+  Significantly improved cleanup procedures have reduced exit crashes. Proper resource cleanup and thread management now prevent most crashes when returning to the Wii U system menu.
 
 * ❗ **Unstable / Experimental Behavior**
   CaféMP is in early development. Expect occasional hangs, crashes, or features not working as intended.

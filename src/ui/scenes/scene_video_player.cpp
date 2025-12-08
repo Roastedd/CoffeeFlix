@@ -1,4 +1,5 @@
 #include <string>
+#include <atomic>
 
 #include "input/input_actions.hpp"
 #include "utils/app_state.hpp"
@@ -10,7 +11,8 @@
 
 #include "ui/scenes/scene_video_player.hpp"
 
-bool show_hud = false;
+// Thread-safe global variable for HUD visibility
+static std::atomic<bool> show_hud{false};
 
 void scene_video_player_init(std::string full_path) {
 	video_player_init(full_path.c_str());
