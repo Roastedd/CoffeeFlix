@@ -318,12 +318,16 @@ static void decode_loop() {
 
 int video_player_init(const char* filepath) {
     if (thread_running.load()) {
-        log_message(LOG_ERROR, "Video Player", "Already initialized");
-        return -1;
+        log_message(LOG_WARNING, "Video Player", "Already initialized, cleaning up first");
+        video_player_cleanup();
     }
 
     avformat_network_init();
+    
+    // Ensure clean state before initialization
     fmt_ctx = nullptr;
+    video_codec_ctx = nullptr;
+    sws_ctx = nullptr;
 
     if (avformat_open_input(&fmt_ctx, filepath, nullptr, nullptr) < 0) {
         log_message(LOG_ERROR, "Video Player", "Failed to open input file");
@@ -482,8 +486,14 @@ int video_player_init(const char* filepath) {
     }
 
     clear_frame_queue();
-    if (sws_ctx) { sws_freeContext(sws_ctx); sws_ctx = nullptr; }
-    sws_width = sws_height = 0;
+    // Free existing SwsContext before creating new one
+    if (sws_ctx) {
+        sws_freeContext(sws_ctx);
+        sws_ctx = nullptr;
+        log_message(LOG_OK, "Video Player", "Freed previous SwsContext");
+    }
+    sws_width = 0;
+    sws_height = 0;
 
     start_time_us = get_time_us();
     pause_start_us = start_time_us;
@@ -573,25 +583,53 @@ void video_player_update() {
 }
 
 void video_player_cleanup() {
+    log_message(LOG_OK, "Video Player", "Starting cleanup");
+    
+    // Stop audio first to prevent access to video context
     audio_player_cleanup();
 
+    // Signal threads to stop
     thread_running = false;
     playback_running = false;
     dest_rect_initialised = false;
 
-    if (decode_thread.joinable())
+    // Wait for decode thread to finish
+    if (decode_thread.joinable()) {
+        log_message(LOG_OK, "Video Player", "Waiting for decode thread");
         decode_thread.join();
+    }
 
+    // Clear frame queue before freeing contexts
     clear_frame_queue();
 
-    if (video_codec_ctx) { avcodec_free_context(&video_codec_ctx); video_codec_ctx = nullptr; }
-    if (fmt_ctx) { avformat_close_input(&fmt_ctx); fmt_ctx = nullptr; }
+    // Free codec context (also closes codec internally)
+    if (video_codec_ctx) {
+        avcodec_free_context(&video_codec_ctx);
+        video_codec_ctx = nullptr;
+        log_message(LOG_OK, "Video Player", "Freed codec context");
+    }
+    
+    // Close input format (frees all streams and I/O)
+    if (fmt_ctx) {
+        avformat_close_input(&fmt_ctx);
+        fmt_ctx = nullptr;
+        log_message(LOG_OK, "Video Player", "Closed format context");
+    }
 
+    // Free current frame textures
     free_current_frame_info();
 
-    if (sws_ctx) { sws_freeContext(sws_ctx); sws_ctx = nullptr; }
+    // Free SwsContext with proper cleanup
+    if (sws_ctx) {
+        sws_freeContext(sws_ctx);
+        sws_ctx = nullptr;
+        sws_width = 0;
+        sws_height = 0;
+        log_message(LOG_OK, "Video Player", "Freed SwsContext");
+    }
 
+    // Deinitialize network (safe to call multiple times)
     avformat_network_deinit();
 
-    log_message(LOG_OK, "Video Player", "Cleaned up");
+    log_message(LOG_OK, "Video Player", "Cleanup complete");
 }

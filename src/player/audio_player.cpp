@@ -187,6 +187,12 @@ std::vector<AudioTrackInfo> get_audio_tracks() {
 
 int audio_player_init(const char* filepath) {
     log_message(LOG_OK, "Audio Player", "Starting Audio Player");
+    
+    // Cleanup if already initialized to prevent memory leaks
+    if (audio_enabled || audio_thread_running.load()) {
+        log_message(LOG_WARNING, "Audio Player", "Already initialized, cleaning up first");
+        audio_player_cleanup();
+    }
 
     if (SDL_WasInit(SDL_INIT_AUDIO) == 0) {
         if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
@@ -194,6 +200,12 @@ int audio_player_init(const char* filepath) {
             return -1;
         }
     }
+    
+    // Ensure clean state
+    fmt_ctx = nullptr;
+    audio_codec_ctx = nullptr;
+    swr_ctx = nullptr;
+    audio_frame = nullptr;
 
     if (avformat_open_input(&fmt_ctx, filepath, nullptr, nullptr) != 0) {
         log_message(LOG_ERROR, "Audio Player", "Failed to open audio file");
@@ -585,32 +597,74 @@ double audio_player_get_total_play_time() {
 }
 
 void audio_player_cleanup() {
-    if (!audio_enabled) return;
+    log_message(LOG_OK, "Audio Player", "Starting cleanup");
+    
+    if (!audio_enabled) {
+        log_message(LOG_OK, "Audio Player", "Audio not enabled, skipping cleanup");
+        return;
+    }
 
+    // Stop decode thread first
     audio_thread_running = false;
-    if (audio_thread.joinable()) audio_thread.join();
+    if (audio_thread.joinable()) {
+        log_message(LOG_OK, "Audio Player", "Waiting for audio thread");
+        audio_thread.join();
+    }
 
     std::lock_guard<std::mutex> lock(audio_mutex);
 
+    // Close audio device
     if (audio_device != 0) {
         SDL_PauseAudioDevice(audio_device, 1);
         SDL_ClearQueuedAudio(audio_device);
         SDL_CloseAudioDevice(audio_device);
         audio_device = 0;
+        log_message(LOG_OK, "Audio Player", "Closed audio device");
     }
 
-    if (audio_frame) { av_frame_free(&audio_frame); audio_frame = nullptr; }
-    if (swr_ctx) { swr_free(&swr_ctx); swr_ctx = nullptr; }
-    if (audio_codec_ctx) { avcodec_free_context(&audio_codec_ctx); audio_codec_ctx = nullptr; }
-    if (fmt_ctx) { avformat_close_input(&fmt_ctx); fmt_ctx = nullptr; }
+    // Free FFmpeg structures in proper order
+    if (audio_frame) {
+        av_frame_free(&audio_frame);
+        audio_frame = nullptr;
+    }
+    
+    if (swr_ctx) {
+        swr_free(&swr_ctx);
+        swr_ctx = nullptr;
+        log_message(LOG_OK, "Audio Player", "Freed SwrContext");
+    }
+    
+    if (audio_codec_ctx) {
+        avcodec_free_context(&audio_codec_ctx);
+        audio_codec_ctx = nullptr;
+        log_message(LOG_OK, "Audio Player", "Freed codec context");
+    }
+    
+    if (fmt_ctx) {
+        avformat_close_input(&fmt_ctx);
+        fmt_ctx = nullptr;
+        log_message(LOG_OK, "Audio Player", "Closed format context");
+    }
 
-    if (SDL_WasInit(SDL_INIT_AUDIO)) SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    // Only quit SDL audio if it was initialized
+    if (SDL_WasInit(SDL_INIT_AUDIO)) {
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    }
 
+    // Reset all state variables
     audio_enabled = false;
-    audio_playing.store(false);
+    audio_playing.store(false, std::memory_order_release);
     audio_stream_index = -1;
     current_audio_track_id = -1;
-    current_play_time.store(0.0f);
+    current_play_time.store(0.0f, std::memory_order_release);
+    
+    // Clear audio tracks
+    {
+        std::lock_guard<std::mutex> tracks_lock(audioTracksMutex);
+        audioTracks.clear();
+    }
+    
+    log_message(LOG_OK, "Audio Player", "Cleanup complete");
 }
 
 int audio_player_get_current_track_id() {
