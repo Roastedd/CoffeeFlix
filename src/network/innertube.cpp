@@ -593,6 +593,22 @@ SearchResults parse_search_response(const std::string& json_response) {
                 json_t* simple_text = json_object_get(view_count_obj, "simpleText");
                 if (simple_text && json_is_string(simple_text)) {
                     result_item.view_count_text = json_string_value(simple_text);
+                    
+                    // Parse view count
+                    std::string count_str = result_item.view_count_text;
+                    std::string num_str;
+                    for (char c : count_str) {
+                        if (c >= '0' && c <= '9') {
+                            num_str += c;
+                        }
+                    }
+                    if (!num_str.empty()) {
+                        try {
+                            result_item.view_count = std::stoll(num_str);
+                        } catch (...) {
+                            result_item.view_count = 0;
+                        }
+                    }
                 }
             }
             
