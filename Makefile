@@ -17,6 +17,10 @@ APP_NAME       := Café Media Player Dev
 APP_SHORTNAME  := CaféMP Dev
 APP_AUTHOR     := whateveritwas
 
+# Optimization flags
+CFLAGS   += -O3
+CXXFLAGS += -O3
+
 include $(DEVKITPRO)/wut/share/wut_rules
 
 #-------------------------------------------------------------------------------
