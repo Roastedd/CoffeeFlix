@@ -1,12 +1,12 @@
-# CaféMP – Experimental Media Player for the Nintendo Wii U
+# CoffeeFlix – Premium Media Player for the Nintendo Wii U
 
 ## 🎬 About
 
-**CaféMP** is a feature-rich, open-source media player for the Wii U, supporting local media playback and YouTube streaming. It handles most common video and audio formats with **H.264 hardware acceleration up to 1080p**.
+**CoffeeFlix** is a feature-rich, open-source media player for the Wii U, supporting local media playback and YouTube streaming. It handles most common video and audio formats with **H.264 hardware acceleration up to 1080p**. Crafted with a coffee-themed aesthetic for an elegant viewing experience.
 
 This is an **actively developed project**—most features are stable, but some experimental functionality may have occasional issues.
 
-Made with ❤️ in 🇩🇪
+Made with ❤️ and ☕ 
 
 > ℹ️ **Note:** Best performance with H.264 videos. 1080p requires hardware acceleration, 720p works perfectly for all content.
 
@@ -17,21 +17,21 @@ Made with ❤️ in 🇩🇪
 1. [Download the latest release](https://github.com/whateveritwas/cafemp/releases/latest).
 2. Extract the ZIP file to the **root of your SD card**.
 3. Place your media files into:  
-   `sd:/wiiu/apps/cafemp/`
+   `sd:/wiiu/apps/coffeeflix/`
 
 **or**
 
 <p align="left">
-  <a href="https://hb-app.store/wiiu/cafmediaplayer">
+  <a href="https://hb-app.store/wiiu/coffeeflix">
     <img src="branding/hbasbadge-wiiu.png" alt="Get it on the Homebrew App Store!" width="25%">
   </a>
 </p>
 
 ---
 
-## 🎮 Using CaféMP
+## 🎮 Using CoffeeFlix
 
-1. Launch **CaféMP** from the Wii U main menu or Homebrew Launcher.
+1. Launch **CoffeeFlix** from the Wii U main menu or Homebrew Launcher.
 2. Select your desired media type from the sidebar.
 3. Use the file browser to locate and select and play your media.
 
@@ -150,7 +150,7 @@ ffmpeg -i <input> \
   Significantly improved cleanup procedures have reduced exit crashes. Proper resource cleanup and thread management now prevent most crashes when returning to the Wii U system menu.
 
 * ❗ **Unstable / Experimental Behavior**
-  CaféMP is in early development. Expect occasional hangs, crashes, or features not working as intended.
+  CoffeeFlix is in early development. Expect occasional hangs, crashes, or features not working as intended.
 
 * ✅ **Controller Support**
   All Wii U controllers now supported: GamePad, Wii Remote, Wii Remote + Nunchuk, and Pro Controller with full D-Pad/stick navigation.
@@ -167,7 +167,7 @@ ffmpeg -i <input> \
   - **MP3/AAC/Vorbis/Opus**: Full support with excellent performance
 
 * ℹ️ **YouTube Playback**
-  - Streams via Invidious API (quality: 360p/480p/720p/1080p)
+  - Streams via YouTube InnerTube API (quality: 360p/480p/720p/1080p)
   - Best with 720p setting for H.264 hardware acceleration
   - Network connection required, performance depends on internet speed
 

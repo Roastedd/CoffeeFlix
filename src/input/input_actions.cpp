@@ -68,22 +68,25 @@ void input_poll(InputState& state) {
     if (wpad_connected && extType == WPAD_EXT_PRO_CONTROLLER) {
         state.using_pro_controller = true;
         WPADRead(WPAD_CHAN_0, &wpad_pro.core);
+        
+        // Calculate trigger (buttons pressed this frame but not last frame)
+        uint32_t wpad_trigger = wpad_pro.buttons & ~s_last_wpad_buttons;
 
         // Use trigger for single-shot button presses
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_A) set_button(state, BTN_A);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_B) set_button(state, BTN_B);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_X) set_button(state, BTN_X);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_Y) set_button(state, BTN_Y);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_PLUS) set_button(state, BTN_PLUS);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_MINUS) set_button(state, BTN_MINUS);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_LEFT) set_button(state, BTN_LEFT);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_RIGHT) set_button(state, BTN_RIGHT);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_UP) set_button(state, BTN_UP);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_DOWN) set_button(state, BTN_DOWN);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_L) set_button(state, BTN_L);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_ZL) set_button(state, BTN_ZL);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_R) set_button(state, BTN_R);
-        if (wpad_pro.trigger & WPAD_PRO_BUTTON_ZR) set_button(state, BTN_ZR);
+        if (wpad_trigger & WPAD_PRO_BUTTON_A) set_button(state, BTN_A);
+        if (wpad_trigger & WPAD_PRO_BUTTON_B) set_button(state, BTN_B);
+        if (wpad_trigger & WPAD_PRO_BUTTON_X) set_button(state, BTN_X);
+        if (wpad_trigger & WPAD_PRO_BUTTON_Y) set_button(state, BTN_Y);
+        if (wpad_trigger & WPAD_PRO_BUTTON_PLUS) set_button(state, BTN_PLUS);
+        if (wpad_trigger & WPAD_PRO_BUTTON_MINUS) set_button(state, BTN_MINUS);
+        if (wpad_trigger & WPAD_PRO_BUTTON_LEFT) set_button(state, BTN_LEFT);
+        if (wpad_trigger & WPAD_PRO_BUTTON_RIGHT) set_button(state, BTN_RIGHT);
+        if (wpad_trigger & WPAD_PRO_BUTTON_UP) set_button(state, BTN_UP);
+        if (wpad_trigger & WPAD_PRO_BUTTON_DOWN) set_button(state, BTN_DOWN);
+        if (wpad_trigger & WPAD_PRO_BUTTON_L) set_button(state, BTN_L);
+        if (wpad_trigger & WPAD_PRO_BUTTON_ZL) set_button(state, BTN_ZL);
+        if (wpad_trigger & WPAD_PRO_BUTTON_R) set_button(state, BTN_R);
+        if (wpad_trigger & WPAD_PRO_BUTTON_ZR) set_button(state, BTN_ZR);
         
         // Use hold for continuous actions
         if (wpad_pro.buttons & WPAD_PRO_BUTTON_A) set_hold(state, BTN_A);
@@ -94,6 +97,8 @@ void input_poll(InputState& state) {
         if (wpad_pro.buttons & WPAD_PRO_BUTTON_RIGHT) set_hold(state, BTN_RIGHT);
         if (wpad_pro.buttons & WPAD_PRO_BUTTON_UP) set_hold(state, BTN_UP);
         if (wpad_pro.buttons & WPAD_PRO_BUTTON_DOWN) set_hold(state, BTN_DOWN);
+        
+        s_last_wpad_buttons = wpad_pro.buttons;
 
         state.left_stick.x  = wpad_pro.leftStick.x;
         state.left_stick.y  = wpad_pro.leftStick.y;

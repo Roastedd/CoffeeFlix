@@ -69,7 +69,7 @@ HttpResponse get(const std::string& url, int timeout_seconds) {
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     
     // Set user agent
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "CafeMP/1.0 (Nintendo Wii U)");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "CoffeeFlix/1.0 (Nintendo Wii U)");
     
     // Enable SSL/TLS support (important for HTTPS!)
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // Don't verify cert (Wii U may not have CA bundle)
@@ -143,7 +143,7 @@ HttpResponse post(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     
     // Set user agent
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "CafeMP/1.0 (Nintendo Wii U)");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "CoffeeFlix/1.0 (Nintendo Wii U)");
     
     // Enable SSL/TLS support
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
