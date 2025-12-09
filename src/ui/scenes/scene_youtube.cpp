@@ -60,14 +60,17 @@ std::string format_duration(int seconds) {
 
 // Helper to format view count
 std::string format_views(int64_t views) {
+    char buf[32];
     if (views >= 1000000000) {
-        return std::to_string(views / 1000000000) + "B views";
+        snprintf(buf, sizeof(buf), "%.1fB views", views / 1000000000.0);
     } else if (views >= 1000000) {
-        return std::to_string(views / 1000000) + "M views";
+        snprintf(buf, sizeof(buf), "%.1fM views", views / 1000000.0);
     } else if (views >= 1000) {
-        return std::to_string(views / 1000) + "K views";
+        snprintf(buf, sizeof(buf), "%.1fK views", views / 1000.0);
+    } else {
+        return std::to_string(views) + " views";
     }
-    return std::to_string(views) + " views";
+    return std::string(buf);
 }
 
 void scene_youtube_render(struct nk_context *ctx) {
@@ -301,7 +304,9 @@ void scene_youtube_render(struct nk_context *ctx) {
                                     // Author + views
                                     nk_layout_row_dynamic(ctx, 15 * UI_SCALE, 1);
                                     std::string metadata = result.author;
-                                    if (!result.view_count_text.empty()) {
+                                    if (result.view_count > 0) {
+                                        metadata += " • " + format_views(result.view_count);
+                                    } else if (!result.view_count_text.empty()) {
                                         metadata += " • " + result.view_count_text;
                                     }
                                     if (metadata.length() > 45) {
