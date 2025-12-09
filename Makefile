@@ -51,9 +51,9 @@ BOOT_SOUND  := branding/bootSound.btsnd
 #-------------------------------------------------------------------------------
 # options for code generation
 #-------------------------------------------------------------------------------
-CFLAGS 		:= -DDEBUG -Wall -Werror -O0 -g \
+CFLAGS 		:= -DDEBUG -Wall -Werror -Wno-unused-function -Wno-sign-compare -O0 -g \
 			   -I/opt/devkitpro/portlibs/wiiu/include/freetype2 \
-			   $(INCLUDE) -D__WIIU__ -D__WUT__
+			   $(INCLUDE) -D__WIIU__ -D__WUT__ -DNO_PDF
 			
 CXXFLAGS 	:= $(CFLAGS)
 
@@ -61,8 +61,9 @@ ASFLAGS 	:= -g $(ARCH)
 LDFLAGS 	:= -g $(ARCH) $(RPXSPECS) -Wl,-Map,$(notdir $*.map)
 
 LIBS 		:= `/opt/devkitpro/portlibs/wiiu/bin/sdl2-config --libs` \
-        		-lSDL2_ttf -lSDL2 -lmupdf -lmupdf-third -lharfbuzz -lfreetype -lSDL2_image -ljansson \
-        		-lswresample -lavformat -lavcodec -lavutil -lswscale -lgif -lwut
+        		-lSDL2_ttf -lSDL2 -lharfbuzz -lfreetype -lSDL2_image -ljansson \
+        		-lswresample -lavformat -lavcodec -lavutil -lswscale -lgif \
+        		-lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut
         
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level

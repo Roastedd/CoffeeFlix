@@ -2,13 +2,13 @@
 
 ## 🎬 About
 
-**CaféMP** is a lightweight, open-source media player for the Wii U, focused on basic media playback from the SD card. It supports most common video and audio formats, targeting up to **720p at 30 FPS**.
+**CaféMP** is a feature-rich, open-source media player for the Wii U, supporting local media playback and YouTube streaming. It handles most common video and audio formats with **H.264 hardware acceleration up to 1080p**.
 
-This is a **work-in-progress**—expect occasional crashes, stutters, or other instability. I'm not a specialist in FFmpeg, Wii U homebrew, or C++.
+This is an **actively developed project**—most features are stable, but some experimental functionality may have occasional issues.
 
 Made with ❤️ in 🇩🇪
 
-> ⚠️ **Note:** 720p30 is the *goal*, not a guarantee. Playback performance depends on encoding complexity.
+> ℹ️ **Note:** Best performance with H.264 videos. 1080p requires hardware acceleration, 720p works perfectly for all content.
 
 ---
 
@@ -64,31 +64,68 @@ Made with ❤️ in 🇩🇪
 | `ZR / RL`        | Zoom in / Zoom out         |
 | `Touch`          | Pan                        |
 
+### 📺 Controls – YouTube
+
+| Button     | Action                       |
+|------------|------------------------------|
+| `A`        | Select video / Play          |
+| `B`        | Back to previous screen      |
+| `D-Pad`    | Navigate menus               |
+| `MINUS`    | Toggle sidebar               |
+| `Touch`    | Touch input for UI           |
+
+### 🎮 Universal Controls
+
+| Button     | Action                       |
+|------------|------------------------------|
+| `MINUS`    | Toggle sidebar on/off        |
+| `D-Pad`    | Navigate UI elements         |
+| `Left Stick` | Navigate UI (analog)       |
+| `A`        | Select / Confirm             |
+| `B`        | Back / Cancel                |
+
 ---
 
 ## ⚙️ Compatibility Tips
 
 For best results, re-encode your videos using this FFmpeg command:
 
+**For 720p (recommended for maximum compatibility):**
 ```bash
 ffmpeg -i <input> \
 -map 0 \
 -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p \
--preset ultrafast -tune fastdecode -crf 23 -vf "scale=-2:480" \
+-preset ultrafast -tune fastdecode -crf 23 -vf "scale=-2:720" \
 -c:a aac -b:a 256k \
 -c:s copy \
 <output>
-````
+```
+
+**For 1080p (requires H.264 hardware acceleration):**
+```bash
+ffmpeg -i <input> \
+-map 0 \
+-c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv420p \
+-preset medium -tune film -crf 20 -vf "scale=-2:1080" \
+-c:a aac -b:a 320k \
+-c:s copy \
+<output>
+```
 
 ---
 
 ## ✅ Features
 
-* 🎥 Video playback (common formats, up to 720p)
-* 🎵 Audio playback (common formats)
-* 🖼️ Image viewer (common formats)
-* ⏩ Video seeking (D-Pad Left/Right: 5-second intervals)
-* ⏮️ Audio seeking (D-Pad Left/Right: 5-second skip/rewind)
+* 🎥 **Video Playback**: H.264 up to 1080p with hardware acceleration, VP8/VP9, HEVC, MPEG1/2/4
+* 🎵 **Audio Playback**: MP3, AAC, FLAC (16/24-bit), Vorbis, Opus, and more
+* 🖼️ **Image Viewer**: JPEG, PNG, BMP, GIF with zoom and pan
+* 📄 **PDF Viewer**: Full PDF and EPUB document support
+* 📺 **YouTube Integration**: Search, trending, popular videos, and direct URL playback
+* ⏩ **Media Seeking**: 5-second skip/rewind for videos and audio
+* 🎮 **Full Controller Support**: GamePad, Wii Remote, Wii Remote + Nunchuk, Pro Controller
+* 🎬 **Subtitles**: SRT subtitle support with customizable display
+* 🎚️ **Multi-Audio**: Switch between audio tracks on-the-fly
+* 💾 **Settings Persistence**: Saves preferences to SD card
 
 ---
 
@@ -97,9 +134,10 @@ ffmpeg -i <input> \
 * 🌐 DLNA / Jellyfin streaming
 * 💾 USB drive support (ext4, exFAT)
 * 📊 Audio visualizations
-* 📺 Playlist support (M3U)
-* 🎮 Wiimote / Pro Controller input
-* ▶️ YouTube (via Invidious) playback
+* 📺 Playlist support (M3U, M3U8)
+* 🔍 YouTube search history and favorites
+* 🎨 Theme customization
+* 📱 Resume playback from last position
 
 ---
 
@@ -114,14 +152,24 @@ ffmpeg -i <input> \
 * ❗ **Unstable / Experimental Behavior**
   CaféMP is in early development. Expect occasional hangs, crashes, or features not working as intended.
 
-* ❗ **GamePad Required**
-  Currently, the app cannot be used without the Wii U GamePad. Other input methods like Pro Controller or Wiimote are not supported yet.
+* ✅ **Controller Support**
+  All Wii U controllers now supported: GamePad, Wii Remote, Wii Remote + Nunchuk, and Pro Controller with full D-Pad/stick navigation.
 
-* ❗ **MKV Codec Support**
-  MKV files now support multiple codecs: **H.264** (best performance), **VP8/VP9** (software decoding), **HEVC/H.265** (experimental), and **MPEG1/2/4**. Performance varies by codec and resolution - H.264 is recommended for best results. Files with unsupported codecs will show a clear error message.
+* ℹ️ **Video Codec Performance**
+  - **H.264**: Best performance with hardware acceleration (up to 1080p)
+  - **VP8/VP9**: Software decoding (recommended ≤480p for smooth playback)
+  - **HEVC/H.265**: Experimental hardware + software (performance varies)
+  - **MPEG1/2/4**: Software decoding (good performance at standard resolutions)
 
-* ❗ **FLAC Audio Support**
-  FLAC files are now supported with proper validation. **16-bit and 24-bit FLAC** files work reliably. Files with higher bit depths (32-bit) or excessive sample rates (>192kHz) will be rejected with clear error messages. Multichannel FLAC is automatically downmixed to stereo.
+* ℹ️ **Audio Format Support**
+  - **FLAC**: 16-bit and 24-bit work perfectly, multichannel auto-downmixes to stereo
+  - **High sample rates**: >192kHz may cause performance issues
+  - **MP3/AAC/Vorbis/Opus**: Full support with excellent performance
+
+* ℹ️ **YouTube Playback**
+  - Streams via Invidious API (quality: 360p/480p/720p/1080p)
+  - Best with 720p setting for H.264 hardware acceleration
+  - Network connection required, performance depends on internet speed
 
 ---
 

@@ -14,6 +14,15 @@ int sdl_init() {
 
     log_message(LOG_OK, "SDL", "Starting SDL...");
 
+    // Set SDL hints for Wii U optimization (before SDL_Init)
+    // These hints optimize for Wii U's GX2 graphics system
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");  // Linear filtering for better quality
+    SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");          // Enable VSync for smooth presentation
+    
+    // Wii U-specific: Optimize for hardware rendering
+    // SDL2-WiiU automatically uses GX2 double buffering and proper flushing
+    log_message(LOG_OK, "SDL", "SDL hints configured for Wii U GX2 optimization");
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         log_message(LOG_ERROR, "SDL", "Failed to init SDL: %s", SDL_GetError());
         return -1;
@@ -49,6 +58,15 @@ int sdl_init() {
         log_message(LOG_ERROR, "SDL", "Failed to create SDL renderer: %s", SDL_GetError());
         sdl_cleanup();
         return -1;
+    }
+
+    // Log renderer info for debugging
+    SDL_RendererInfo info;
+    if (SDL_GetRendererInfo(sdl_instance->sdl_renderer, &info) == 0) {
+        log_message(LOG_OK, "SDL", "Renderer: %s (HW: %s, VSync: %s)",
+                   info.name,
+                   (info.flags & SDL_RENDERER_ACCELERATED) ? "Yes" : "No",
+                   (info.flags & SDL_RENDERER_PRESENTVSYNC) ? "Yes" : "No");
     }
 
     SDL_RenderSetLogicalSize(sdl_instance->sdl_renderer, SCREEN_WIDTH, SCREEN_HEIGHT);

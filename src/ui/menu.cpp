@@ -26,8 +26,14 @@
 #include "ui/scenes/scene_file_browser.hpp"
 #include "ui/scenes/scene_main_menu.hpp"
 #include "ui/scenes/scene_pdf_viewer.hpp"
+#include "ui/scenes/scene_settings.hpp"
 #include "ui/scenes/scene_photo_viewer.hpp"
 #include "ui/scenes/scene_video_player.hpp"
+#include "ui/scenes/scene_youtube.hpp"
+#include "ui/scenes/scene_settings.hpp"
+#include "ui/apple_theme.hpp"
+#include "ui/focus_system.hpp"
+#include "ui/widgets/widget_sidebar.hpp"
 
 #include "utils/sdl.hpp"
 #include "utils/media_info.hpp"
@@ -57,7 +63,7 @@ InputState input {};
 
 void ui_init() {
     ctx = nk_sdl_init(sdl_get()->sdl_window, sdl_get()->sdl_renderer);
-    ctx->style.window.scrollbar_size.x = 32 * UI_SCALE;
+    ctx->style.window.scrollbar_size.x = 40 * UI_SCALE;  // Larger scrollbar for touch
 
     {
         struct nk_font_atlas *atlas;
@@ -65,46 +71,56 @@ void ui_init() {
         struct nk_font *font;
 
         nk_sdl_font_stash_begin(&atlas);
-        font = nk_font_atlas_add_from_file(atlas, FONT_PATH, 32 * UI_SCALE, &config);
+        // Use larger font size for better readability on Wii U displays
+        font = nk_font_atlas_add_from_file(atlas, FONT_PATH, BASE_FONT_SIZE * UI_SCALE, &config);
         nk_sdl_font_stash_end();
 
         nk_style_set_font(ctx, &font->handle);
     }
+    
+    // Apply Apple-inspired theme
+    AppleTheme::apply_theme(ctx, UI_SCALE);
+    log_message(LOG_OK, "UI", "Applied Apple design theme with UI_SCALE=%.2f", UI_SCALE);
+    
+    // Initialize focus system for navigation
+    focus_system_init();
+    log_message(LOG_OK, "UI", "Focus system initialized");
 
     ui_scene_register(STATE_MENU, {
         [](){},
-        [](InputState& input){},
+        [](InputState& input){ scene_main_menu_input(input); },
         [](nk_context* ctx){ scene_main_menu_render(ctx); },
         [](){}
     });
 
     ui_scene_register(STATE_MENU_VIDEO_FILES, {
         [](){},
-        [](InputState& input){},
+        [](InputState& input){ scene_file_browser_input(input); },
         [](nk_context* ctx){ scene_file_browser_render(ctx); },
         [](){}
     });
 
     ui_scene_register(STATE_MENU_AUDIO_FILES, {
         [](){},
-        [](InputState& input){},
+        [](InputState& input){ scene_file_browser_input(input); },
         [](nk_context* ctx){ scene_file_browser_render(ctx); },
         [](){}
     });
 
     ui_scene_register(STATE_MENU_IMAGE_FILES, {
         [](){},
-        [](InputState& input){},
+        [](InputState& input){ scene_file_browser_input(input); },
         [](nk_context* ctx){ scene_file_browser_render(ctx); },
         [](){}
     });
 
     ui_scene_register(STATE_MENU_PDF_FILES, {
         [](){},
-        [](InputState& input){},
+        [](InputState& input){ scene_file_browser_input(input); },
         [](nk_context* ctx){ scene_file_browser_render(ctx); },
         [](){}
     });
+
 #ifdef DEBUG
     ui_scene_register(STATE_MENU_EASTER_EGG, {
         [](){ easter_egg_init(); },
@@ -113,10 +129,17 @@ void ui_init() {
         [](){ easter_egg_shutdown(); }
     });
 #endif
+    ui_scene_register(STATE_MENU_YOUTUBE, {
+        [](){},
+        [](InputState& input){ scene_youtube_input(input); },
+        [](nk_context* ctx){ scene_youtube_render(ctx); },
+        [](){}
+    });
+    
     ui_scene_register(STATE_MENU_SETTINGS, {
-        [](){ app_state_set(STATE_MENU); },
+        [](){},
         [](InputState& input){},
-        [](nk_context* ctx){},
+        [](nk_context* ctx){ scene_settings_render(ctx); },
         [](){}
     });
 
@@ -216,9 +239,30 @@ void ui_render() {
     nk_input_begin(ctx);
 
     input_poll(input);
-
+    
+    // Handle focus system navigation (L/R to switch between sidebar and content)
+    focus_system_handle_input(input);
+    focus_system_navigate(input);
+    
+    // Feed touch input to Nuklear
     nk_input_motion(ctx, (int)input.touch.x, (int)input.touch.y);
     nk_input_button(ctx, NK_BUTTON_LEFT, (int)input.touch.x, (int)input.touch.y, input.touch.touched);
+    
+    // Feed gamepad D-pad/stick navigation to Nuklear
+    // Use pressed state for discrete navigation
+    bool up_pressed = input_pressed(input, BTN_UP);
+    bool down_pressed = input_pressed(input, BTN_DOWN);
+    bool left_pressed = input_pressed(input, BTN_LEFT);
+    bool right_pressed = input_pressed(input, BTN_RIGHT);
+    bool a_pressed = input_pressed(input, BTN_A);
+    bool b_pressed = input_pressed(input, BTN_B);
+    
+    nk_input_key(ctx, NK_KEY_UP, up_pressed);
+    nk_input_key(ctx, NK_KEY_DOWN, down_pressed);
+    nk_input_key(ctx, NK_KEY_LEFT, left_pressed);
+    nk_input_key(ctx, NK_KEY_RIGHT, right_pressed);
+    nk_input_key(ctx, NK_KEY_ENTER, a_pressed);
+    nk_input_key(ctx, NK_KEY_BACKSPACE, b_pressed);
 
     nk_input_end(ctx);
 

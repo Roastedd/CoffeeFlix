@@ -16,4 +16,16 @@ void video_player_seek(double seconds);
 void video_player_update();
 void video_player_cleanup();
 
+double video_player_get_total_playback_time();
+double video_player_get_current_playback_time();
+
+// Performance statistics
+struct video_stats {
+    int frames_decoded;
+    int frames_dropped;
+    int width;
+    int height;
+};
+void video_player_get_stats(video_stats* stats);
+
 #endif

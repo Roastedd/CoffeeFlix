@@ -7,9 +7,11 @@
 // #define SCREEN_HEIGHT 1080
 // #define UI_SCALE 1.5
 
+// Optimized for Wii U gamepad (854x480) and TV (1280x720)
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 720
-#define UI_SCALE 1.2
+#define UI_SCALE 1.35  // Clean layout that fits without overflow
+#define BASE_FONT_SIZE 30  // Clear, readable text
 
 #ifndef LEGACY
 #define FONT_PATH "/vol/content/Roboto-Regular.ttf"

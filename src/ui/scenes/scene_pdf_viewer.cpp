@@ -1,3 +1,5 @@
+#ifndef NO_PDF
+
 #include <string>
 
 #include "player/pdf_viewer.hpp"
@@ -39,3 +41,17 @@ void scene_pdf_viewer_input(InputState& input) {
 		pdf_viewer_show_tooltip = false;
 	}
 }
+
+#else // NO_PDF
+
+// Stub implementations when PDF support is disabled
+#include <string>
+#include "ui/scenes/scene_pdf_viewer.hpp"
+
+bool pdf_viewer_show_tooltip = false;
+
+void scene_pdf_viewer_init(std::string full_path) { (void)full_path; }
+void scene_pdf_viewer_render(struct nk_context *ctx) { (void)ctx; }
+void scene_pdf_viewer_input(InputState& input) { (void)input; }
+
+#endif // NO_PDF
