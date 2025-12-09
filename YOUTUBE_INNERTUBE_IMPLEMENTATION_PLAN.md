@@ -35,7 +35,7 @@ The InnerTube API implementation is **100% complete** with a completely redesign
 
 ## Executive Summary
 
-Based on research of FourthTube (3DS homebrew), we implemented YouTube streaming using YouTube's official InnerTube API instead of unreliable Invidious instances. This is more stable and future-proof.
+Based on research of FourthTube (3DS homebrew), we implemented YouTube streaming using YouTube's official InnerTube API. This is more stable and future-proof.
 
 ---
 
@@ -296,18 +296,18 @@ InnerTube::VideoStream select_best_stream(const InnerTube::VideoInfo& video) {
 
 ---
 
-## Comparison: Invidious vs InnerTube (ACHIEVED)
+## InnerTube API Benefits
 
-| Feature | Invidious | InnerTube API (Implemented) |
-|---------|-----------|---------------|
-| **Reliability** | ❌ Instances go down frequently | ✅ Official YouTube API - Always available |
-| **URL Validity** | ❌ Expire quickly, broken often | ✅ Direct from YouTube - Valid for hours |
-| **Rate Limiting** | ❌ Shared limits across users | ✅ Per-client limits - Rarely hit |
-| **Maintenance** | ❌ Third-party dependency | ✅ Self-contained - No external dependencies |
-| **Speed** | ❌ Proxy delays | ✅ Direct connection - Fast |
-| **Format Support** | ⚠️ Limited control | ✅ Full format selection - Choose quality |
-| **Search** | ⚠️ Often broken | ✅ Full search + pagination working |
-| **Trending** | ❌ Not available | ✅ Working perfectly |
+| Feature | InnerTube API (Implemented) |
+|---------|---------------|
+| **Reliability** | ✅ Official YouTube API - Always available |
+| **URL Validity** | ✅ Direct from YouTube - Valid for hours |
+| **Rate Limiting** | ✅ Per-client limits - Rarely hit |
+| **Maintenance** | ✅ Self-contained - No external dependencies |
+| **Speed** | ✅ Direct connection - Fast |
+| **Format Support** | ✅ Full format selection - Choose quality |
+| **Search** | ✅ Full search + pagination working |
+| **Trending** | ✅ Working perfectly |
 
 ---
 
@@ -673,10 +673,6 @@ void search_youtube(const std::string& query) {
 
 ---
 
-## Comparison: Invidious vs InnerTube (Implemented)
-
----
-
 ## Potential Issues & Solutions
 
 ### **Issue 1: Bot Detection**
@@ -738,19 +734,8 @@ void search_youtube(const std::string& query) {
 
 ---
 
-## Comparison with Current Implementation
+## InnerTube Implementation
 
-### **Current (Invidious)**
-```cpp
-// Try multiple instances
-for (int i = 0; i < INSTANCE_COUNT; i++) {
-    // Often fails due to instance downtime
-    // URLs expire quickly
-    // Inconsistent availability
-}
-```
-
-### **New (InnerTube)**
 ```cpp
 // Single official endpoint
 HttpResponse resp = http_post_json(
@@ -829,9 +814,9 @@ By using YouTube's official InnerTube API instead of unreliable Invidious instan
 ## References
 
 - **FourthTube Source:** https://github.com/erievs/FourthTube (3DS YouTube client inspiration)
-- **InnerTube API Research:** https://github.com/iv-org/invidious/issues
+- **InnerTube API Research:** Community reverse engineering projects
 - **YouTube Client Spoofing:** Various reverse engineering projects
-- **FFmpeg Wii U:** Integrated in CafeMP video player
+- **FFmpeg Wii U:** Integrated in CoffeeFlix video player
 - **Implementation Files:**
   - `src/network/innertube.hpp` - API interface (251 lines)
   - `src/network/innertube.cpp` - Complete implementation (950 lines)
@@ -843,10 +828,9 @@ By using YouTube's official InnerTube API instead of unreliable Invidious instan
 
 ✅ **The InnerTube API implementation is COMPLETE and working!**
 
-This implementation makes YouTube streaming on Wii U **reliable, fast, and future-proof**. By using YouTube's official InnerTube API (the same API used by mobile YouTube), we've eliminated third-party dependencies and gained direct access to video streams.
+This implementation makes YouTube streaming on Wii U **reliable, fast, and future-proof**. By using YouTube's official InnerTube API (the same API used by mobile YouTube), we've gained direct access to video streams.
 
 **Key Achievements:**
-- ✅ Zero reliance on Invidious instances
 - ✅ Direct YouTube API access with proper client spoofing
 - ✅ Full search, trending, and playback support
 - ✅ Quality selection (360p, 480p, 720p, Auto)

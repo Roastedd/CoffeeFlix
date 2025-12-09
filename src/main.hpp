@@ -28,14 +28,14 @@
 #define MEDIA_PATH_PDF "/vol/external01/wiiu/apps/cafemp/Library/"
 #define SETTINGS_PATH "/vol/external01/wiiu/apps/cafemp/settings.json"
 
-#define VERSION_STRING_NUMBER "v0.6.0.this.is.pain"
+#define VERSION_STRING_NUMBER "v1.0.0"
 
 #ifdef DEBUG
-#define VERSION_STRING "CaféMP " VERSION_STRING_NUMBER " (Build: " __DATE__ " " __TIME__ ")"
+#define VERSION_STRING "CoffeeFlix " VERSION_STRING_NUMBER " (Build: " __DATE__ " " __TIME__ ")"
 #elif LEGACY
-#define VERSION_STRING "CaféMP Legacy " VERSION_STRING_NUMBER
+#define VERSION_STRING "CoffeeFlix Legacy " VERSION_STRING_NUMBER
 #else
-#define VERSION_STRING "CaféMP " VERSION_STRING_NUMBER
+#define VERSION_STRING "CoffeeFlix " VERSION_STRING_NUMBER
 #endif
 
 #define TOOLTIP_BAR_HEIGHT (48)

@@ -45,7 +45,7 @@ INCLUDES    := $(SOURCES)
 CONTENT     := content/
 ICON        := branding/icon.png
 TV_SPLASH   := branding/splash_tv.png
-DRC_SPLASH  := branding/splash_drc.png
+DRC_SPLASH  := branding/splash_drc_ai.png
 BOOT_SOUND  := branding/bootSound.btsnd
 
 #-------------------------------------------------------------------------------

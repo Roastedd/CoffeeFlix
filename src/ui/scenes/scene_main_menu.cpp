@@ -77,7 +77,7 @@ void scene_main_menu_render(struct nk_context *ctx) {
             nk_layout_row_push(ctx, 0.5f);
             struct nk_style_text old_text = ctx->style.text;
             ctx->style.text.color = AppleTheme::SYSTEM_ORANGE;  // Warm coffee color
-            nk_label(ctx, "Welcome to CafeMP", NK_TEXT_CENTERED);
+            nk_label(ctx, "Welcome to CoffeeFlix", NK_TEXT_CENTERED);
             ctx->style.text = old_text;
 
             nk_layout_row_push(ctx, 0.25f);
