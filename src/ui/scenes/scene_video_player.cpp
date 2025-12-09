@@ -8,28 +8,40 @@
 #include "player/audio_player.hpp"
 #include "player/video_player.hpp"
 #include "ui/widgets/widget_player_hud.hpp"
+#include "ui/widgets/widget_video_controls.hpp"
 
 #include "ui/scenes/scene_video_player.hpp"
 
-// Thread-safe global variable for HUD visibility
-static std::atomic<bool> show_hud{false};
+// YouTube-style control state
+static video_controls_state controls_state;
 
 void scene_video_player_init(std::string full_path) {
 	video_player_init(full_path.c_str());
     video_player_play(true);
+    
+    // Initialize YouTube-style controls
+    widget_video_controls_init(&controls_state);
 }
 
 void scene_video_player_render(struct nk_context *ctx) {
     video_player_update();
-
-    if (!media_info_get()->playback_status || show_hud) {
-        widget_player_hud_render(ctx, media_info_get());
-    }
+    
+    // Update control animations and auto-hide
+    widget_video_controls_update(&controls_state);
+    
+    // Render YouTube-style controls overlay
+    widget_video_controls_render(ctx, &controls_state, media_info_get());
 }
 
 void scene_video_player_input(InputState& input) {
+    // Show controls on any input
+    if (input.pressed || input.touch.touched) {
+        widget_video_controls_show(&controls_state);
+    }
+    
     if (input_pressed(input, BTN_A)) {
         video_player_play(!media_info_get()->playback_status);
+        widget_video_controls_show_center_indicator(&controls_state);
     } else if (input_pressed(input, BTN_B)) {
         video_player_cleanup();
         app_state_set(STATE_MENU_VIDEO_FILES);
@@ -61,11 +73,7 @@ void scene_video_player_input(InputState& input) {
 
         video_player_play(true);
         audio_player_play(true);
-    } else if (input_touched(input)) {
-		show_hud = true;
-	} else {
-		show_hud = false;
-	}
+    }
 }
 
 void scene_video_player_shutdown() {

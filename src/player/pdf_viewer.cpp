@@ -1,3 +1,5 @@
+#ifndef NO_PDF
+
 #include <SDL2/SDL.h>
 extern "C" {
 #include <mupdf/fitz.h>
@@ -218,3 +220,5 @@ void pdf_viewer_cleanup() {
 
     log_message(LOG_OK, "Pdf Viewer", "Cleaned up");
 }
+
+#endif // NO_PDF

@@ -1,3 +1,5 @@
+#ifndef NO_PDF
+
 #include <harfbuzz/hb.h>     // Core HarfBuzz types and functions
 #include <harfbuzz/hb-ft.h>  // FreeType integration for HarfBuzz
 
@@ -131,3 +133,5 @@ void fzhb_buffer_guess_segment_properties(hb_buffer_t *buffer) {
         hb_buffer_guess_segment_properties(buffer);
     }
 }
+
+#endif // NO_PDF
