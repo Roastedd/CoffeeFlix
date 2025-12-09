@@ -909,6 +909,31 @@ SearchResults parse_browse_response(const std::string& json_response) {
                                             }
                                         }
                                     }
+
+                                    // Get view count
+                                    json_t* view_count_obj = json_object_get(grid_video, "viewCountText");
+                                    if (view_count_obj) {
+                                        json_t* simple_text = json_object_get(view_count_obj, "simpleText");
+                                        if (simple_text && json_is_string(simple_text)) {
+                                            result_item.view_count_text = json_string_value(simple_text);
+                                            
+                                            // Parse view count
+                                            std::string count_str = result_item.view_count_text;
+                                            std::string num_str;
+                                            for (char c : count_str) {
+                                                if (c >= '0' && c <= '9') {
+                                                    num_str += c;
+                                                }
+                                            }
+                                            if (!num_str.empty()) {
+                                                try {
+                                                    result_item.view_count = std::stoll(num_str);
+                                                } catch (...) {
+                                                    result_item.view_count = 0;
+                                                }
+                                            }
+                                        }
+                                    }
                                     
                                     if (!result_item.video_id.empty()) {
                                         results.results.push_back(result_item);
@@ -963,6 +988,31 @@ SearchResults parse_browse_response(const std::string& json_response) {
                         json_t* text = json_object_get(first_run, "text");
                         if (text && json_is_string(text)) {
                             result_item.author = json_string_value(text);
+                        }
+                    }
+                }
+
+                // Get view count
+                json_t* view_count_obj = json_object_get(video_renderer, "viewCountText");
+                if (view_count_obj) {
+                    json_t* simple_text = json_object_get(view_count_obj, "simpleText");
+                    if (simple_text && json_is_string(simple_text)) {
+                        result_item.view_count_text = json_string_value(simple_text);
+                        
+                        // Parse view count
+                        std::string count_str = result_item.view_count_text;
+                        std::string num_str;
+                        for (char c : count_str) {
+                            if (c >= '0' && c <= '9') {
+                                num_str += c;
+                            }
+                        }
+                        if (!num_str.empty()) {
+                            try {
+                                result_item.view_count = std::stoll(num_str);
+                            } catch (...) {
+                                result_item.view_count = 0;
+                            }
                         }
                     }
                 }
