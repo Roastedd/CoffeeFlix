@@ -1,0 +1,63 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Material Design Icons DX
+Upstream-Contact: https://github.com/jossef/material-design-icons-iconfont
+Source: https://github.com/jossef/material-design-icons-iconfont
+Files-Excluded: .github .gitignore dist/*.min.css* docs src/docs src/fonts
+Comment: - The docs folder was removed because it contains minified JavaScript
+           files incompatible with the DFSG, requires the Nuxt.js framework
+           and duplicates upstream's online documentation.
+         - The minified CSS files are incompatible with the DFSG and have been
+           removed, as have the related .min.css.map files.
+         - All other files and directories excluded from the source are cruft.
+
+Files: *
+Copyright: 2019-2023 Jossef Harush
+License: Apache-2.0
+
+Files: dist/fonts/*.eot
+       dist/fonts/*.ttf
+       dist/fonts/*.woff
+       dist/fonts/*.woff2
+Copyright: 2014-2020 Material Design Authors
+           2019-2022 Jossef Harush
+License: Apache-2.0
+
+Files: debian/*
+Copyright: 2019-2023 Hugh McMaster
+License: GPL-2+
+
+License: Apache-2.0
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+ .
+      http://www.apache.org/licenses/LICENSE-2.0
+ .
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ .
+  On Debian GNU/Linux systems, the complete text of the Apache License
+  Version 2.0 can be found in `/usr/share/common-licenses/Apache-2.0'.
+
+License: GPL-2+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+ .
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+ .
+  You should have received a copy of the GNU General Public License
+  along with this program;  if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston,
+  MA 02110-1301, USA.
+ .
+  On Debian GNU/Linux systems, the complete text of the GNU General
+  Public License version 2 can be found in
+  `/usr/share/common-licenses/GPL-2'.

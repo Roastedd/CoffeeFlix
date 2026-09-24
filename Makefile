@@ -39,8 +39,17 @@ TARGET      := coffeeflix
 BUILD       := build
 
 # Find all subdirectories recursively inside src/
-SOURCES     := $(shell find src -type d)
+SOURCES     := $(shell find src -type d -not -path 'src/platform/desktop*')
 DATA        :=
+
+# Objects are named by basename, so two sources with the same file name in
+# different folders would silently overwrite each other: refuse to build.
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+DUPLICATES  := $(shell find src -name '*.cpp' -o -name '*.c' | grep -v 'src/platform/desktop' | xargs -rn1 basename | sort | uniq -d)
+ifneq ($(strip $(DUPLICATES)),)
+$(error Duplicate source file names (rename one of each): $(DUPLICATES))
+endif
+endif
 
 # Include all source subdirectories for headers as well
 INCLUDES    := $(SOURCES)
