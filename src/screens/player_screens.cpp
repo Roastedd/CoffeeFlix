@@ -453,6 +453,12 @@ void play_video(const player::Source& src) {
     audio::play(audio::SFX_OPEN, 0.7f);
 }
 
+void play_video_queue(std::vector<player::Source> queue, int index) {
+    player::open_queue(std::move(queue), index);
+    app::push(std::make_unique<VideoPlayerScreen>());
+    audio::play(audio::SFX_OPEN, 0.7f);
+}
+
 void play_audio(const player::Source& src, bool show) {
     player::open(src);
     if (show) open_now_playing();
