@@ -24,6 +24,7 @@ std::unique_ptr<app::Screen> make_settings();
 }  // namespace screens
 
 namespace player { struct Source; }
+namespace jellyfin { struct Item; }
 
 namespace screens {
 
@@ -35,5 +36,13 @@ void open_now_playing();
 bool now_playing_on_top();
 
 std::unique_ptr<app::Screen> make_photo_viewer(std::vector<std::string> paths, int index);
+std::unique_ptr<app::Screen> make_youtube_search(const std::string& query);
+std::unique_ptr<app::Screen> make_jellyfin_search(const std::string& query);
+std::unique_ptr<app::Screen> make_radio_search(const std::string& query);
+std::unique_ptr<app::Screen> make_podcast_search(const std::string& query);
+std::unique_ptr<app::Screen> make_twitch_search(const std::string& query);
+std::unique_ptr<app::Screen> make_jellyfin_item(const jellyfin::Item& item);
+std::unique_ptr<app::Screen> make_podcast_show(const std::string& feed_url, const std::string& title,
+                                               const std::string& author, const std::string& artwork);
 
 }  // namespace screens

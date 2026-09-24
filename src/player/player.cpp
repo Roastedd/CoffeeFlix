@@ -128,6 +128,7 @@ struct Input {
 struct Session {
     uint32_t id = 0;
     Source src;
+    Source original;  // as requested, for retry()
     std::atomic<bool> abort{false};
     std::atomic<uint32_t> gen{0};
     std::atomic<int> state{OPENING};
@@ -342,6 +343,7 @@ void extract_artwork(Session& s, AVFormatContext* fmt) {
 }
 
 void fill_metadata(Session& s, AVFormatContext* fmt) {
+    std::lock_guard<std::mutex> lk(s.meta_m);
     auto get = [&](const char* k) -> std::string {
         AVDictionaryEntry* e = av_dict_get(fmt->metadata, k, nullptr, 0);
         return e ? e->value : "";
@@ -641,6 +643,21 @@ void audio_loop(std::shared_ptr<Session> sp) {
 
 void open_session(std::shared_ptr<Session> sp) {
     Session& s = *sp;
+    if (s.src.resolve) {
+        std::string err;
+        Source resolved = s.src;
+        bool ok = resolved.resolve(resolved, err);
+        if (s.abort) return;
+        if (!ok) {
+            set_error(s, err.empty() ? "Couldn't load this stream" : err);
+            return;
+        }
+        resolved.resolve = nullptr;
+        {
+            std::lock_guard<std::mutex> lk(s.meta_m);
+            s.src = std::move(resolved);
+        }
+    }
     bool net0 = false, net1 = false;
     s.in[0].fmt = open_input(s, s.src.url, net0);
     if (!s.in[0].fmt) return;
@@ -862,6 +879,7 @@ void start_session(const Source& src, int pref_audio) {
     auto s = std::make_shared<Session>();
     s->id = g_next_id++ & 0xFFFF;
     s->src = src;
+    s->original = src;
     s->pref_audio = pref_audio;
     s->gen = 1;
     s->user_paused = false;
@@ -947,6 +965,17 @@ void close() {
     }).detach();
 }
 
+void retry() {
+    if (!g_s) return;
+    Source src = g_s->original;
+    src.start = std::max(src.start, g_s->last_clock);
+    auto queue = std::move(g_queue);
+    int qi = g_queue_index;
+    start_session(src, -1);
+    g_queue = std::move(queue);
+    g_queue_index = qi;
+}
+
 void set_paused(bool paused) {
     if (!g_s) return;
     Session& s = *g_s;
@@ -1018,7 +1047,11 @@ const std::string& error() {
     return g_s->error;
 }
 
-const Source& source() { return g_s ? g_s->src : g_empty_src; }
+Source source() {
+    if (!g_s) return g_empty_src;
+    std::lock_guard<std::mutex> lk(g_s->meta_m);
+    return g_s->src;
+}
 
 double position() {
     if (!g_s) return 0;

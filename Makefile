@@ -83,7 +83,7 @@ LDFLAGS 	:= -g $(ARCH) $(RPXSPECS) -Wl,--gc-sections -Wl,-Map,$(notdir $*.map)
 PKGCONF 	:= $(DEVKITPRO)/portlibs/wiiu/bin/powerpc-eabi-pkg-config
 LIBS 		:= -lavformat -lavcodec -lswresample -lswscale -lavutil \
 			   $(shell $(PKGCONF) --libs --static SDL2_ttf SDL2_image libcurl jansson) \
-			   -lgif -lbrotlidec -lbrotlicommon -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
+			   -ltinyxml2 -lgif -lbrotlidec -lbrotlicommon -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level

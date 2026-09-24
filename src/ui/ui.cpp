@@ -173,7 +173,12 @@ void do_navigation() {
         for (auto& r : g_cur)
             if (!def && r.layer == top && (r.flags & F_DEFAULT)) def = &r;
         for (auto& r : g_cur)
-            if (!def && r.layer == top) def = &r;
+            if (!def && r.layer == top && !(r.flags & F_SIDE_ENTRY)) def = &r;
+        for (auto& r : g_cur) {
+            if (def || r.layer != top) continue;
+            auto e = g_group_entry.find(r.group);
+            def = (e != g_group_entry.end()) ? find(g_cur, e->second) : &r;
+        }
         if (def) {
             g_focus = def->id;
             g_last_focus_group = def->group;
@@ -703,8 +708,8 @@ static void row_base(const Rect& r, const Item& it, Id id) {
     gfx::fill_rrect(br, 16, gfx::lerp(t.surface, t.surface_focus, it.f));
 }
 
-bool toggle_row(Id id, const Rect& r, const char* label, const char* desc, bool* value, Id group) {
-    Item it = focusable(id, r, group);
+bool toggle_row(Id id, const Rect& r, const char* label, const char* desc, bool* value, Id group, int flags) {
+    Item it = focusable(id, r, group, flags);
     if (it.clicked) {
         *value = !*value;
         audio::play(audio::SFX_TOGGLE);
@@ -727,8 +732,8 @@ bool toggle_row(Id id, const Rect& r, const char* label, const char* desc, bool*
     return it.clicked;
 }
 
-bool value_row(Id id, const Rect& r, const char* label, const char* value, int icon, Id group) {
-    Item it = focusable(id, r, group);
+bool value_row(Id id, const Rect& r, const char* label, const char* value, int icon, Id group, int flags) {
+    Item it = focusable(id, r, group, flags);
     row_base(r, it, id);
     const Theme& t = g_theme;
     Color fg = gfx::lerp(t.text, gfx::rgb(0x15121A), it.f);

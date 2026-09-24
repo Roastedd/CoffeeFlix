@@ -90,7 +90,8 @@ bool card(Id id, const Rect& ir, CardShape shape, const CardInfo& c, Id group, i
     } else {
         uint64_t h = id * 2654435761u;
         float k = (h % 1000) / 1000.0f;
-        gfx::fill_rrect_vgrad(r, rad, gfx::lerp(t.accent, t.accent2, k).alpha(0.55f), Color(40, 30, 50, 230));
+        Color top = c.tint.a ? c.tint : gfx::lerp(t.accent, t.accent2, k).alpha(0.55f);
+        gfx::fill_rrect_vgrad(r, rad, top, Color(40, 30, 50, 230));
         text::icon(c.icon ? c.icon : ic::MOVIE, std::min(r.w, r.h) * 0.36f, r.cx(), r.cy(), Color(255, 255, 255, 210));
     }
 
@@ -284,6 +285,14 @@ void empty_state(const Rect& r, int icon, const char* title, const char* desc) {
     text::icon(icon, 54, cx, y + 60 + bob, t.accent);
     text::draw(font::title, cx, y + 132, title, t.text, text::CENTER);
     if (desc && *desc) text::draw_wrapped(font::body, Rect(r.x + 40, y + 174, r.w - 80, 80), desc, t.text2, 3, text::CENTER);
+}
+
+bool empty_state_action(Id id, const Rect& r, int icon, const char* title, const char* desc, const char* action,
+                        int action_icon) {
+    empty_state(r, icon, title, desc);
+    float w = measure_button(action, action_icon);
+    float y = r.y + 20 + 174 + (desc && *desc ? 64 : 0);
+    return button(id, Rect(r.cx() - w * 0.5f, y, w, 50), action, action_icon, BTN_PRIMARY, 0, F_DEFAULT);
 }
 
 void section_title(float x, float y, const char* title, const char* subtitle) {

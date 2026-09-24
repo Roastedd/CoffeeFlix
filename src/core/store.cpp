@@ -238,6 +238,12 @@ void resume_remove(const std::string& service, const std::string& id) {
     mark_dirty();
 }
 
+void resume_clear() {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_object_clear(section("resume"));
+    mark_dirty();
+}
+
 // --- recent searches ---
 
 std::vector<std::string> recent_searches(const char* service) {

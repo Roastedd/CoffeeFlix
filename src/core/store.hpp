@@ -44,6 +44,7 @@ void resume_save(const Resume& r);  // removes the entry when (nearly) finished
 double resume_position(const std::string& service, const std::string& id);
 std::vector<Resume> resume_list(size_t max = 20);
 void resume_remove(const std::string& service, const std::string& id);
+void resume_clear();
 
 // --- recent searches ---------------------------------------------------------------
 std::vector<std::string> recent_searches(const char* service);

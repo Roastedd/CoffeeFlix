@@ -74,6 +74,22 @@ void release_handle(CURL* h) {
     else curl_easy_cleanup(h);
 }
 
+std::string friendly_error(CURLcode rc) {
+    switch (rc) {
+        case CURLE_COULDNT_RESOLVE_HOST: return "No internet connection (can't find the server)";
+        case CURLE_COULDNT_CONNECT: return "Can't connect to the server";
+        case CURLE_OPERATION_TIMEDOUT: return "The connection timed out";
+        case CURLE_RECV_ERROR:
+        case CURLE_SEND_ERROR:
+        case CURLE_GOT_NOTHING: return "The connection was interrupted";
+        case CURLE_PEER_FAILED_VERIFICATION:
+        case CURLE_SSL_CACERT_BADFILE:
+        case CURLE_SSL_CONNECT_ERROR:
+            return "Secure connection failed (check the console's date and time)";
+        default: return curl_easy_strerror(rc);
+    }
+}
+
 }  // namespace
 
 const char* user_agent() { return "CoffeeFlix/2.0 (Nintendo Wii U)"; }
@@ -171,13 +187,17 @@ Response perform(const Request& req) {
     release_handle(curl);
 
     if (rc != CURLE_OK) {
-        if (sink.overflow) resp.error = "response too large";
-        else if (req.cancel && req.cancel->load()) resp.error = "cancelled";
-        else resp.error = curl_easy_strerror(rc);
+        if (sink.overflow) resp.error = "Response too large";
+        else if (req.cancel && req.cancel->load()) resp.error = "Cancelled";
+        else resp.error = friendly_error(rc);
         log_message(LOG_WARNING, "HTTP", "%s %s -> %s", req.method.c_str(), req.url.substr(0, 96).c_str(),
                     resp.error.c_str());
     } else if (resp.status >= 400) {
-        resp.error = util::fmt("HTTP %ld", resp.status);
+        resp.error = resp.status == 401 || resp.status == 403 ? util::fmt("Access denied (HTTP %ld)", resp.status)
+                     : resp.status == 404                     ? "Not found (HTTP 404)"
+                     : resp.status == 429                     ? "Too many requests, try again later"
+                     : resp.status >= 500                     ? util::fmt("Server error (HTTP %ld)", resp.status)
+                                                              : util::fmt("HTTP error %ld", resp.status);
         log_message(LOG_WARNING, "HTTP", "%s %s -> %ld", req.method.c_str(), req.url.substr(0, 96).c_str(),
                     resp.status);
     }
