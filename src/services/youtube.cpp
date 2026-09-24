@@ -20,7 +20,10 @@ const char* PARAMS_POPULAR_WEEK = "CAMSBAgDEAE%3D";  // sort: views, upload: thi
 
 namespace {
 
-const char* API = "https://www.youtube.com/youtubei/v1/";
+std::string api_base() {
+    static const std::string base = util::env_or("COFFEEFLIX_YT_API", "https://www.youtube.com/youtubei/v1/");
+    return base;
+}
 
 struct Client {
     const char* name;
@@ -92,7 +95,7 @@ json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string&
     };
     std::string vd = visitor();
     if (!vd.empty()) headers.emplace_back("X-Goog-Visitor-Id", vd);
-    http::Response r = http::post_json(std::string(API) + endpoint + "?prettyPrint=false", payload, headers, 20);
+    http::Response r = http::post_json(api_base() + endpoint + "?prettyPrint=false", payload, headers, 20);
     if (!r.ok()) {
         error = r.error.empty() ? "YouTube request failed" : r.error;
         return json::Doc();

@@ -74,6 +74,7 @@ HomeItem from_resume(const store::Resume& r) {
         h.icon = r.video ? ic::MOVIE : ic::MUSIC;
         h.service = r.service == "smb" ? "Network" : "My Media";
         h.image = h.hero = r.image;
+        if (h.image.empty() && r.video && r.service == "local") h.image = h.hero = "thumb://" + r.id;
         h.open = [r] {
             player::Source s;
             s.url = r.id;

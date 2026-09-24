@@ -264,7 +264,8 @@ AVCodecContext* open_decoder(AVStream* st, bool allow_hw, bool* used_hw) {
         codec = avcodec_find_decoder_by_name("h264_wiiu");
         if (codec && used_hw) *used_hw = true;
     }
-    if (!codec) codec = avcodec_find_decoder(p->codec_id);
+    // By name for H.264 so a software fallback never picks h264_wiiu again.
+    if (!codec) codec = p->codec_id == AV_CODEC_ID_H264 ? avcodec_find_decoder_by_name("h264") : avcodec_find_decoder(p->codec_id);
     if (!codec) return nullptr;
     AVCodecContext* ctx = avcodec_alloc_context3(codec);
     avcodec_parameters_to_context(ctx, p);
