@@ -2,12 +2,14 @@
 #include <cmath>
 
 #include "audio/mixer.hpp"
+#include "core/store.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
 #include "platform/platform.hpp"
 #include "player/player.hpp"
 #include "screens/screens.hpp"
+#include "screens/youtube_common.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -28,19 +30,29 @@ void draw_time_row(float x, float y, float w, double pos, double dur, bool live)
     if (dur > 0) text::draw(font::small_bold, x + w, y, "-" + util::format_duration(std::max(0.0, dur - pos)), t.text2, text::RIGHT);
 }
 
-// Track picker (audio / subtitles) shown as a side panel.
+// Picker for the audio track, subtitles or stream quality, shown as a side panel.
 struct TrackMenu {
+    enum Kind { AUDIO, SUBTITLES, QUALITY };
     bool open = false;
-    bool subtitles = false;
+    Kind kind = AUDIO;
     std::vector<player::Track> tracks;
     int current = -1;
     double opened_at = 0;
 
-    void show(bool subs) {
-        subtitles = subs;
-        tracks = subs ? player::subtitle_tracks() : player::audio_tracks();
-        if (subs) tracks.insert(tracks.begin(), player::Track{-1, "Off"});
-        current = subs ? player::subtitle_track() : player::audio_track();
+    void show(Kind k) {
+        kind = k;
+        tracks.clear();
+        if (k == QUALITY) {
+            const player::Source& src = player::source();
+            for (auto it = src.qualities.rbegin(); it != src.qualities.rend(); ++it)
+                tracks.push_back(player::Track{*it, util::fmt("%dp", *it)});
+            current = src.quality;
+        } else {
+            bool subs = k == SUBTITLES;
+            tracks = subs ? player::subtitle_tracks() : player::audio_tracks();
+            if (subs) tracks.insert(tracks.begin(), player::Track{-1, "Off"});
+            current = subs ? player::subtitle_track() : player::audio_track();
+        }
         open = true;
         opened_at = ui::time();
         reset_focus();
@@ -56,7 +68,8 @@ struct TrackMenu {
         float pw = 400, x = W - pw * a;
         gfx::fill_rect_hgrad(Rect(x - 80, 0, 80, H), Color(8, 6, 12, 0), Color(8, 6, 12, 230));
         gfx::fill_rect(Rect(x, 0, pw, H), Color(12, 10, 16, 238));
-        text::draw(font::title, x + 36, 60, subtitles ? "Subtitles" : "Audio", t.text);
+        text::draw(font::title, x + 36, 60, kind == SUBTITLES ? "Subtitles" : kind == QUALITY ? "Quality" : "Audio",
+                   t.text);
         Id g = id("trackmenu");
         float y = 120;
         for (size_t i = 0; i < tracks.size(); i++) {
@@ -68,8 +81,16 @@ struct TrackMenu {
             if (tracks[i].index == current) text::icon(ic::CHECK, 24, r.x + 26, r.cy(), gfx::lerp(t.accent, fg, it.f));
             text::draw_fit(font::body_bold, r.x + 52, r.cy() - 12, r.w - 70, tracks[i].label, fg);
             if (it.clicked) {
-                if (subtitles) player::set_subtitle_track(tracks[i].index);
-                else player::set_audio_track(tracks[i].index);
+                if (kind == SUBTITLES) {
+                    player::set_subtitle_track(tracks[i].index);
+                } else if (kind == AUDIO) {
+                    player::set_audio_track(tracks[i].index);
+                } else {
+                    // Kept as the default for this service too (the same setting as in Settings).
+                    const player::Source& src = player::source();
+                    if (!src.quality_setting.empty()) store::set_int(src.quality_setting.c_str(), tracks[i].index);
+                    player::set_quality(tracks[i].index);
+                }
                 open = false;
                 reset_focus();
             }
@@ -181,8 +202,8 @@ private:
         // Quick controls that work regardless of focus.
         if (in.pressed_(BTN_ZR) || in.pressed_(BTN_R)) seek_by(30);
         if (in.pressed_(BTN_ZL) || in.pressed_(BTN_L)) seek_by(-30);
-        if (in.pressed_(BTN_Y) && !player::subtitle_tracks().empty()) menu_.show(true);
-        if (in.pressed_(BTN_X) && player::audio_tracks().size() > 1) menu_.show(false);
+        if (in.pressed_(BTN_Y) && !player::subtitle_tracks().empty()) menu_.show(TrackMenu::SUBTITLES);
+        if (in.pressed_(BTN_X) && player::audio_tracks().size() > 1) menu_.show(TrackMenu::AUDIO);
 
         if (!overlay_visible) {
             suspend_nav();
@@ -284,12 +305,25 @@ private:
             if (icon_button(id(g, "next"), rx, cy, 26, ic::SKIP_NEXT, g)) player::next();
             rx -= 70;
         }
+        if (!src.qualities.empty()) {
+            if (icon_button(id(g, "quality"), rx, cy, 26, ic::HD, g)) menu_.show(TrackMenu::QUALITY);
+            rx -= 70;
+        }
         if (!player::subtitle_tracks().empty()) {
-            if (icon_button(id(g, "subs"), rx, cy, 26, ic::SUBTITLES, g, 0, player::subtitle_track() >= 0)) menu_.show(true);
+            if (icon_button(id(g, "subs"), rx, cy, 26, ic::SUBTITLES, g, 0, player::subtitle_track() >= 0))
+                menu_.show(TrackMenu::SUBTITLES);
             rx -= 70;
         }
         if (player::audio_tracks().size() > 1) {
-            if (icon_button(id(g, "audio"), rx, cy, 26, ic::AUDIOTRACK, g)) menu_.show(false);
+            if (icon_button(id(g, "audio"), rx, cy, 26, ic::AUDIOTRACK, g)) menu_.show(TrackMenu::AUDIO);
+        }
+
+        // YouTube: subscribe to the uploader without leaving the video.
+        if (src.service == "youtube" && !src.channel_id.empty()) {
+            bool on = yt::subscribed(src.channel_id);
+            if (button(id(g, "subscribe"), Rect(64, cy - 23, on ? 190 : 170, 46), on ? "Subscribed" : "Subscribe",
+                       on ? ic::CHECK : ic::SUBSCRIPTIONS, on ? BTN_NORMAL : BTN_PRIMARY, g))
+                yt::set_subscribed(src.channel_id, src.subtitle, "", !on);
         }
 
         if (st == player::FAILED) draw_message(ic::ERROR_OUTLINE, "Playback failed", player::error().c_str(), true);

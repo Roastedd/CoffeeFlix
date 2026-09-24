@@ -1,26 +1,20 @@
-dist/
+# Build output
 build/
-lib/
-todo.md
-
+build-desktop/
+dist/
 *.elf
 *.rpx
 *.wuhb
 *.zip
 
-shaders/easter_egg.*
-
-.project
-.cproject
-.map
-.clang-format
-.clangd
-.settings
-# Built third-party libraries (tools/build-deps.sh)
+# Third-party libraries built by tools/build-deps.sh
 deps/
-build-desktop/
+
 # Desktop preview settings and test media
 data/
 
-# Local agent worktrees
+# Editors and tools
+.clangd
+.vscode/
+.idea/
 .claude/worktrees/
