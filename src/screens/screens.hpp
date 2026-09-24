@@ -32,6 +32,7 @@ namespace screens {
 void play_video(const player::Source& src);
 void play_audio(const player::Source& src, bool show_now_playing = true);
 void play_audio_queue(std::vector<player::Source> queue, int index, bool show_now_playing = true);
+void play_video_queue(std::vector<player::Source> queue, int index);
 void open_now_playing();
 bool now_playing_on_top();
 

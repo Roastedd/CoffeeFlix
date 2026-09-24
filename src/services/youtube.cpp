@@ -1,6 +1,7 @@
 #include "services/youtube.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <future>
 #include <mutex>
 #include <set>
@@ -167,9 +168,17 @@ bool parse_lockup(json_t* l, Video& v) {
         json_t* mp = json::at(json_array_get(rows, i), {"metadataParts"});
         for (size_t k = 0; k < json::size(mp); k++) parts.push_back(json::str(json_array_get(mp, k), {"text", "content"}));
     }
-    if (parts.size() > 0) v.channel = parts[0];
-    if (parts.size() > 1) v.views = parts[1];
-    if (parts.size() > 2) v.published = parts[2];
+    // Usually [channel] [views, age], but channel pages leave the channel out: sort the parts by
+    // what they say (the requests ask for English).
+    for (const std::string& p : parts) {
+        bool views = p.find(" view") != std::string::npos || p.find(" watching") != std::string::npos ||
+                     p == "No views";
+        bool age = p.find(" ago") != std::string::npos || util::starts_with(p, "Streamed") ||
+                   util::starts_with(p, "Premiere") || util::starts_with(p, "Scheduled");
+        if (views && v.views.empty()) v.views = p;
+        else if (age && v.published.empty()) v.published = p;
+        else if (!views && !age && v.channel.empty()) v.channel = p;
+    }
     v.channel_id = json::str(json::find_key(meta, "browseEndpoint", 12), {"browseId"});
     json::for_each_key(json::at(l, {"contentImage"}), "thumbnailBadgeViewModel", [&](json_t* b) {
         std::string t = json::str(b, {"text"});
@@ -179,7 +188,48 @@ bool parse_lockup(json_t* l, Video& v) {
     return !v.title.empty();
 }
 
-Results parse_results(json_t* root) {
+// Shorts shelf items ("shortsLockupViewModel", older "reelItemRenderer").
+bool parse_short(json_t* l, Video& v) {
+    v.id = json::str(l, {"onTap", "innertubeCommand", "reelWatchEndpoint", "videoId"});
+    if (v.id.empty()) v.id = json::str(l, {"videoId"});
+    if (v.id.size() != 11) return false;
+    v.title = json::str(l, {"overlayMetadata", "primaryText", "content"});
+    if (v.title.empty()) v.title = json::yt_text(json_object_get(l, "headline"));
+    v.views = json::str(l, {"overlayMetadata", "secondaryText", "content"});
+    if (v.views.empty()) v.views = json::yt_text(json_object_get(l, "viewCountText"));
+    v.duration = "Short";
+    return !v.title.empty();
+}
+
+// A page can carry several continuations (hidden shelves, other tabs); the one for the main
+// list ends the biggest array.
+void find_continuation(json_t* j, int depth, size_t& best_n, std::string& best) {
+    if (!j || depth > 30) return;
+    if (json_is_array(j)) {
+        size_t n = json_array_size(j);
+        std::string t = json::str(json::at(j, {-1}), {"continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token"});
+        if (!t.empty() && n > best_n) {
+            best_n = n;
+            best = t;
+        }
+        for (size_t i = 0; i < n; i++) find_continuation(json_array_get(j, i), depth + 1, best_n, best);
+    } else if (json_is_object(j)) {
+        const char* k;
+        json_t* v;
+        json_object_foreach(j, k, v) find_continuation(v, depth + 1, best_n, best);
+    }
+}
+
+std::string main_continuation(json_t* root) {
+    size_t n = 0;
+    std::string token;
+    find_continuation(root, 0, n, token);
+    return token;
+}
+
+// Shorts are only picked up where they're asked for (the channel's Shorts tab), not from the
+// shelves search and the watch page sprinkle in.
+Results parse_results(json_t* root, bool shorts = false) {
     Results res;
     std::set<std::string> seen;
     auto add = [&](Video& v) {
@@ -195,13 +245,123 @@ Results parse_results(json_t* root) {
         Video v;
         if (parse_lockup(l, v)) add(v);
     });
-    json::for_each_key(root, "continuationItemRenderer", [&](json_t* c) {
-        std::string t = json::str(c, {"continuationEndpoint", "continuationCommand", "token"});
-        if (!t.empty()) res.continuation = t;
-    });
+    for (const char* key : {"shortsLockupViewModel", "reelItemRenderer"}) {
+        if (!shorts) break;
+        json::for_each_key(root, key, [&](json_t* l) {
+            Video v;
+            if (parse_short(l, v)) add(v);
+        });
+    }
+    res.continuation = main_continuation(root);
     res.ok = true;
     return res;
 }
+
+std::string https(std::string url) {
+    if (util::starts_with(url, "//")) url = "https:" + url;
+    return url;
+}
+
+// Largest image of a {"sources": [...]} or {"thumbnails": [...]} list.
+std::string best_image(json_t* img) {
+    json_t* list = json_object_get(img, "sources");
+    if (!list) list = json_object_get(img, "thumbnails");
+    return https(json::str(json::at(list, {-1}), {"url"}));
+}
+
+std::vector<std::string> metadata_parts(json_t* rows) {
+    std::vector<std::string> out;
+    for (size_t i = 0; i < json::size(rows); i++) {
+        json_t* mp = json::at(json_array_get(rows, i), {"metadataParts"});
+        for (size_t k = 0; k < json::size(mp); k++) {
+            std::string t = json::str(json_array_get(mp, k), {"text", "content"});
+            if (t.empty()) t = json::str(json_array_get(mp, k), {"avatarStack", "avatarStackViewModel", "text", "content"});
+            if (!t.empty()) out.push_back(t);
+        }
+    }
+    return out;
+}
+
+void parse_channel_header(json_t* root, Channel& c) {
+    json_t* meta = json::at(root, {"metadata", "channelMetadataRenderer"});
+    c.id = json::str(meta, {"externalId"});
+    c.name = json::str(meta, {"title"});
+    c.description = json::str(meta, {"description"});
+    c.avatar = best_image(json::at(meta, {"avatar"}));
+
+    json_t* h = json::at(root, {"header", "pageHeaderRenderer", "content", "pageHeaderViewModel"});
+    if (h) {
+        std::string name = json::str(h, {"title", "dynamicTextViewModel", "text", "content"});
+        if (!name.empty()) c.name = name;
+        std::string av = best_image(json::at(h, {"image", "decoratedAvatarViewModel", "avatar", "avatarViewModel", "image"}));
+        if (!av.empty()) c.avatar = av;
+        c.banner = best_image(json::at(h, {"banner", "imageBannerViewModel", "image"}));
+        for (const std::string& p : metadata_parts(json::at(h, {"metadata", "contentMetadataViewModel", "metadataRows"}))) {
+            if (p[0] == '@') c.handle = p;
+            else if (p.find("subscriber") != std::string::npos) c.subscribers = p;
+            else if (p.find("video") != std::string::npos) c.videos = p;
+        }
+        std::string d = json::str(h, {"description", "descriptionPreviewViewModel", "description", "content"});
+        if (c.description.empty()) c.description = d;
+    } else if (json_t* old = json::at(root, {"header", "c4TabbedHeaderRenderer"})) {
+        if (c.name.empty()) c.name = json::str(old, {"title"});
+        c.subscribers = json::yt_text(json_object_get(old, "subscriberCountText"));
+        c.handle = json::yt_text(json_object_get(old, "channelHandleText"));
+        c.videos = json::yt_text(json_object_get(old, "videosCountText"));
+        if (c.avatar.empty()) c.avatar = best_image(json::at(old, {"avatar"}));
+        c.banner = best_image(json::at(old, {"banner"}));
+    }
+}
+
+bool parse_playlist_lockup(json_t* l, Playlist& p) {
+    if (json::str(l, {"contentType"}) != "LOCKUP_CONTENT_TYPE_PLAYLIST") return false;
+    p.id = json::str(l, {"contentId"});
+    json_t* meta = json::at(l, {"metadata", "lockupMetadataViewModel"});
+    p.title = json::str(meta, {"title", "content"});
+    json_t* thumb = json::at(l, {"contentImage", "collectionThumbnailViewModel", "primaryThumbnail", "thumbnailViewModel"});
+    p.thumbnail = best_image(json::at(thumb, {"image"}));
+    json::for_each_key(thumb, "thumbnailBadgeViewModel", [&](json_t* b) {
+        if (p.count.empty()) p.count = json::str(b, {"text"});
+    });
+    for (const std::string& part : metadata_parts(json::at(meta, {"metadata", "contentMetadataViewModel", "metadataRows"})))
+        if (p.channel.empty() && part != "View full playlist" && part != "Playlist" && part.find("Updated") == std::string::npos)
+            p.channel = part;
+    return !p.id.empty() && !p.title.empty();
+}
+
+bool parse_playlist_renderer(json_t* r, Playlist& p) {
+    p.id = json::str(r, {"playlistId"});
+    p.title = first_text(r, {"title"});
+    p.count = first_text(r, {"videoCountShortText", "videoCountText"});
+    p.channel = first_text(r, {"shortBylineText", "longBylineText"});
+    p.thumbnail = best_image(json::at(r, {"thumbnail"}));
+    if (p.thumbnail.empty()) p.thumbnail = best_image(json::at(r, {"thumbnails", 0}));
+    return !p.id.empty() && !p.title.empty();
+}
+
+Results fail(const std::string& error) {
+    Results r;
+    r.error = error;
+    return r;
+}
+
+json::Doc browse(const std::string& browse_id, const char* params, const std::string& continuation, std::string& err) {
+    json_t* body = json_object();
+    if (!continuation.empty()) {
+        json_object_set_new(body, "continuation", json_string(continuation.c_str()));
+    } else {
+        json_object_set_new(body, "browseId", json_string(browse_id.c_str()));
+        if (params) json_object_set_new(body, "params", json_string(params));
+    }
+    return call("browse", WEB, body, err);
+}
+
+// Channel page tabs (the "params" the web app sends when you click them).
+const char* const TAB_VIDEOS = "EgZ2aWRlb3PyBgQKAjoA";
+const char* const TAB_SHORTS = "EgZzaG9ydHPyBgUKA5oBAA==";
+const char* const TAB_LIVE = "EgdzdHJlYW1z8gYECgJ6AA==";
+const char* const TAB_PLAYLISTS = "EglwbGF5bGlzdHPyBgoKCEIGCgIQaCIA";
+const char* const PARAMS_CHANNELS = "EgIQAg==";
 
 // --- playback ------------------------------------------------------------------
 
@@ -249,6 +409,37 @@ bool from_hls(const std::string& manifest, int max_height, const Client& c, play
     return true;
 }
 
+// Caption tracks as WebVTT subtitles: your language first, uploaded before auto-generated.
+void add_captions(json_t* tracks, player::Source& src) {
+    struct Track {
+        int rank;
+        std::string label, url;
+    };
+    std::string lang = store::get_str("yt_caption_lang", "en");
+    std::vector<Track> list;
+    for (size_t i = 0; i < json::size(tracks); i++) {
+        json_t* t = json_array_get(tracks, i);
+        std::string url = json::str(t, {"baseUrl"});
+        if (url.empty()) continue;
+        if (util::starts_with(url, "/")) url = "https://www.youtube.com" + url;
+        size_t f = url.find("&fmt=");
+        if (f != std::string::npos) {
+            size_t e = url.find('&', f + 1);
+            url.erase(f, e == std::string::npos ? std::string::npos : e - f);
+        }
+        url += "&fmt=vtt";
+        std::string code = json::str(t, {"languageCode"});
+        bool asr = json::str(t, {"kind"}) == "asr";
+        bool mine = code == lang || util::starts_with(code, lang + "-");
+        std::string label = json::yt_text(json_object_get(t, "name"));
+        if (label.empty()) label = code;
+        list.push_back({(mine ? 0 : 2) + (asr ? 1 : 0), label, url});
+    }
+    std::stable_sort(list.begin(), list.end(), [](const Track& a, const Track& b) { return a.rank < b.rank; });
+    src.external_subs.clear();
+    for (size_t i = 0; i < list.size() && i < 12; i++) src.external_subs.emplace_back(list[i].label, list[i].url);
+}
+
 bool try_client(const Client& c, const std::string& id, int max_height, player::Source& src, std::string& error) {
     json_t* body = json_object();
     json_object_set_new(body, "videoId", json_string(id.c_str()));
@@ -273,6 +464,7 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
                 (json::boolean(details, {"isLiveContent"}) && json::num(details, {"lengthSeconds"}) == 0);
     src.live = live;
     src.user_agent = c.user_agent;
+    add_captions(json::at(root, {"captions", "playerCaptionsTracklistRenderer", "captionTracks"}), src);
 
     json_t* sd = json_object_get(root, "streamingData");
     std::string hls_url = json::str(sd, {"hlsManifestUrl"});
@@ -381,21 +573,177 @@ Results trending() {
 }
 
 Results channel_videos(const std::string& channel_id, const std::string& continuation) {
+    Channel header;  // for the channel's name, which the videos themselves no longer carry
+    return channel_tab(channel_id, Tab::VIDEOS, continuation, continuation.empty() ? &header : nullptr);
+}
+
+Results channel_tab(const std::string& channel_id, Tab tab, const std::string& continuation, Channel* header) {
+    const char* params = tab == Tab::SHORTS ? TAB_SHORTS : tab == Tab::LIVE ? TAB_LIVE : TAB_VIDEOS;
     std::string err;
-    json_t* body = json_object();
-    if (!continuation.empty()) {
-        json_object_set_new(body, "continuation", json_string(continuation.c_str()));
-    } else {
-        json_object_set_new(body, "browseId", json_string(channel_id.c_str()));
-        json_object_set_new(body, "params", json_string("EgZ2aWRlb3PyBgQKAjoA"));  // "Videos" tab
+    json::Doc doc = browse(channel_id, params, continuation, err);
+    if (!doc) return fail(err);
+    if (header && continuation.empty()) {
+        parse_channel_header(doc.get(), *header);
+        if (header->id.empty()) header->id = channel_id;
     }
-    json::Doc doc = call("browse", WEB, body, err);
+    Results r = parse_results(doc.get(), tab == Tab::SHORTS);
+    // Every video on a channel page is that channel's, but the new layout leaves the name out.
+    for (Video& v : r.items) {
+        v.channel_id = channel_id;
+        if (v.channel.empty() && header) v.channel = header->name;
+    }
+    return r;
+}
+
+PlaylistResults channel_playlists(const std::string& channel_id, const std::string& continuation) {
+    PlaylistResults out;
+    std::string err;
+    json::Doc doc = browse(channel_id, TAB_PLAYLISTS, continuation, err);
     if (!doc) {
-        Results r;
-        r.error = err;
-        return r;
+        out.error = err;
+        return out;
     }
-    return parse_results(doc.get());
+    std::set<std::string> seen;
+    json::for_each_key(doc.get(), "lockupViewModel", [&](json_t* l) {
+        Playlist p;
+        if (parse_playlist_lockup(l, p) && seen.insert(p.id).second) out.items.push_back(p);
+    });
+    json::for_each_key(doc.get(), "gridPlaylistRenderer", [&](json_t* r) {
+        Playlist p;
+        if (parse_playlist_renderer(r, p) && seen.insert(p.id).second) out.items.push_back(p);
+    });
+    out.continuation = main_continuation(doc.get());
+    out.ok = true;
+    return out;
+}
+
+Results playlist_videos(const std::string& playlist_id, const std::string& continuation, Playlist* info) {
+    std::string err;
+    json::Doc doc = browse("VL" + playlist_id, nullptr, continuation, err);
+    if (!doc) return fail(err);
+    Results r = parse_results(doc.get());
+    if (info && continuation.empty()) {
+        info->id = playlist_id;
+        json_t* h = json::at(doc.get(), {"header", "pageHeaderRenderer", "content", "pageHeaderViewModel"});
+        info->title = json::str(h, {"title", "dynamicTextViewModel", "text", "content"});
+        if (info->title.empty()) info->title = json::str(doc.get(), {"metadata", "playlistMetadataRenderer", "title"});
+        std::vector<std::string> parts = metadata_parts(json::at(h, {"metadata", "contentMetadataViewModel", "metadataRows"}));
+        for (const std::string& p : parts) {
+            if (info->channel.empty() && p != "Playlist" && p.find(" view") == std::string::npos &&
+                p.find("video") == std::string::npos && p.find("Updated") == std::string::npos)
+                info->channel = p;
+            if (p.find("video") != std::string::npos) info->count = p;
+        }
+        if (util::starts_with(info->channel, "by ")) info->channel.erase(0, 3);
+        if (!r.items.empty()) info->thumbnail = thumbnail(r.items[0].id);
+    }
+    return r;
+}
+
+ChannelResults search_channels(const std::string& query) {
+    ChannelResults out;
+    json_t* body = json_object();
+    json_object_set_new(body, "query", json_string(query.c_str()));
+    json_object_set_new(body, "params", json_string(PARAMS_CHANNELS));
+    std::string err;
+    json::Doc doc = call("search", WEB, body, err);
+    if (!doc) {
+        out.error = err;
+        return out;
+    }
+    json::for_each_key(doc.get(), "channelRenderer", [&](json_t* r) {
+        Channel c;
+        c.id = json::str(r, {"channelId"});
+        c.name = first_text(r, {"title"});
+        c.avatar = best_image(json::at(r, {"thumbnail"}));
+        c.description = json::yt_text(json_object_get(r, "descriptionSnippet"));
+        // YouTube puts the handle in "subscriberCountText" and the subscribers in "videoCountText"
+        // since handles arrived; sort them out by what they say.
+        for (const char* k : {"subscriberCountText", "videoCountText"}) {
+            std::string t = json::yt_text(json_object_get(r, k));
+            if (t.empty()) continue;
+            if (t[0] == '@') c.handle = t;
+            else if (t.find("subscriber") != std::string::npos) c.subscribers = t;
+            else c.videos = t;
+        }
+        if (!c.id.empty() && !c.name.empty()) out.items.push_back(c);
+    });
+    out.ok = true;
+    return out;
+}
+
+int64_t age_seconds(const std::string& published) {
+    static const std::pair<const char*, int64_t> UNITS[] = {
+        {"second", 1}, {"minute", 60}, {"hour", 3600}, {"day", 86400},
+        {"week", 7 * 86400}, {"month", 30 * 86400}, {"year", 365 * 86400},
+    };
+    size_t i = published.find_first_of("0123456789");
+    if (i == std::string::npos) return INT64_MAX / 2;
+    int64_t n = 0;
+    while (i < published.size() && isdigit((unsigned char)published[i])) n = n * 10 + (published[i++] - '0');
+    for (auto& u : UNITS)
+        if (published.find(u.first, i) != std::string::npos) return n * u.second;
+    return INT64_MAX / 2;
+}
+
+Results subscription_feed(const std::vector<std::string>& channel_ids, size_t per_channel,
+                          std::vector<Channel>* channels) {
+    // A handful of channels at a time: parallel enough to be quick, gentle enough on the Wii U.
+    const size_t BATCH = 6;
+    std::vector<Results> per(channel_ids.size());
+    std::vector<Channel> headers(channel_ids.size());
+    for (size_t b = 0; b < channel_ids.size(); b += BATCH) {
+        std::vector<std::future<Results>> jobs;
+        for (size_t i = b; i < std::min(b + BATCH, channel_ids.size()); i++)
+            jobs.push_back(std::async(std::launch::async, [id = channel_ids[i], h = &headers[i]] {
+                return channel_tab(id, Tab::VIDEOS, "", h);
+            }));
+        for (size_t k = 0; k < jobs.size(); k++) per[b + k] = jobs[k].get();
+    }
+    if (channels) *channels = std::move(headers);
+    struct Dated {
+        int64_t age;
+        size_t order;
+        Video v;
+    };
+    std::vector<Dated> all;
+    Results out;
+    for (size_t c = 0; c < per.size(); c++) {
+        if (!per[c].ok && out.error.empty()) out.error = per[c].error;
+        for (size_t k = 0; k < per[c].items.size() && k < per_channel; k++) {
+            Video& v = per[c].items[k];
+            if (v.channel_id.empty()) v.channel_id = channel_ids[c];
+            // Upcoming premieres and streams have no age yet; keep them after today's uploads.
+            all.push_back({v.live ? 0 : age_seconds(v.published), k * per.size() + c, v});
+        }
+    }
+    std::stable_sort(all.begin(), all.end(), [](const Dated& a, const Dated& b) {
+        return a.age != b.age ? a.age < b.age : a.order < b.order;
+    });
+    for (auto& d : all) out.items.push_back(std::move(d.v));
+    out.ok = !out.items.empty() || out.error.empty();
+    return out;
+}
+
+std::vector<Segment> sponsor_segments(const std::string& video_id) {
+    static const std::string api = util::env_or("COFFEEFLIX_SPONSORBLOCK_API", "https://sponsor.ajay.app/api/");
+    std::string url = api + "skipSegments?videoID=" + util::url_encode(video_id) +
+                      "&categories=" + util::url_encode("[\"sponsor\",\"selfpromo\",\"interaction\"]");
+    std::vector<Segment> out;
+    http::Response r = http::get(url, {}, 6);
+    if (!r.ok()) return out;  // 404: nobody has submitted segments for this video
+    json::Doc doc = json::Doc::parse(r.body);
+    for (size_t i = 0; i < json::size(doc.get()); i++) {
+        json_t* s = json_array_get(doc.get(), i);
+        if (json::str(s, {"actionType"}, "skip") != "skip") continue;
+        Segment seg;
+        seg.start = json::real(s, {"segment", 0});
+        seg.end = json::real(s, {"segment", 1});
+        seg.category = json::str(s, {"category"});
+        if (seg.end - seg.start >= 1) out.push_back(seg);
+    }
+    std::sort(out.begin(), out.end(), [](const Segment& a, const Segment& b) { return a.start < b.start; });
+    return out;
 }
 
 Results related(const std::string& video_id) {
@@ -420,10 +768,31 @@ std::string thumbnail(const std::string& id) { return "https://i.ytimg.com/vi/" 
 std::string thumbnail_hq(const std::string& id) { return "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg"; }
 
 bool resolve(const std::string& id, int max_height, player::Source& src, std::string& error) {
+    std::future<std::vector<Segment>> segments;
+    if (store::get_bool("yt_sponsorblock", true))
+        segments = std::async(std::launch::async, [id] { return sponsor_segments(id); });
+    auto take_segments = [&] {
+        if (!segments.valid()) return;
+        static const std::pair<const char*, const char*> LABELS[] = {
+            {"sponsor", "Skipped sponsor"}, {"selfpromo", "Skipped self-promotion"},
+            {"interaction", "Skipped subscribe reminder"}};
+        src.skip_segments.clear();
+        for (const Segment& seg : segments.get()) {
+            const char* label = "Skipped segment";
+            for (auto& l : LABELS)
+                if (seg.category == l.first) label = l.second;
+            src.skip_segments.push_back({seg.start, seg.end, label});
+        }
+        if (!src.skip_segments.empty())
+            log_message(LOG_OK, "YouTube", "%s: %d SponsorBlock segments", id.c_str(), (int)src.skip_segments.size());
+    };
     std::string first_error;
     for (const Client* c : {&VISIONOS, &ANDROID_VR}) {
         std::string err;
-        if (try_client(*c, id, max_height, src, err)) return true;
+        if (try_client(*c, id, max_height, src, err)) {
+            if (!src.live) take_segments();
+            return true;
+        }
         log_message(LOG_WARNING, "YouTube", "%s client failed for %s: %s", c->name, id.c_str(), err.c_str());
         if (first_error.empty()) first_error = err;
     }
@@ -445,6 +814,8 @@ player::Source make_source(const Video& v) {
     std::string id = v.id;
     s.resolve = [id, q](player::Source& src, std::string& err) { return resolve(id, q, src, err); };
     s.on_stop = [v](double position, bool finished) { yt_recs::on_watch(v, position, finished); };
+    // Nearly every video has auto-generated captions; don't turn them on unless asked to.
+    s.subs_auto = store::get_bool("yt_captions", false);
     return s;
 }
 

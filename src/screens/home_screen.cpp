@@ -15,6 +15,7 @@
 #include "services/twitch.hpp"
 #include "services/youtube.hpp"
 #include "services/yt_recs.hpp"
+#include "screens/youtube_common.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -30,6 +31,7 @@ struct HomeItem {
     bool live = false;
     std::string badge;
     std::function<void()> open;
+    std::function<void()> more;  // X
 };
 
 struct Row {
@@ -65,7 +67,8 @@ HomeItem from_resume(const store::Resume& r) {
         v.id = r.id;
         v.title = r.title;
         v.channel = r.subtitle;
-        h.open = [v] { play_video(youtube::make_source(v)); };
+        h.open = [v] { yt::play(v); };
+        h.more = [v] { yt::video_menu(v); };
     } else if (r.service == "podcast") {
         h.icon = ic::PODCASTS;
         h.service = "Podcast";
@@ -133,7 +136,8 @@ HomeItem from_youtube(const youtube::Video& v) {
     h.hero = youtube::thumbnail_hq(v.id);
     h.badge = v.live ? "" : v.duration;
     h.live = v.live;
-    h.open = [v] { play_video(youtube::make_source(v)); };
+    h.open = [v] { yt::play(v); };
+    h.more = [v] { yt::video_menu(v); };
     return h;
 }
 
@@ -240,6 +244,9 @@ public:
             s.on_click = [&row](int i) {
                 if (row.items[i].open) row.items[i].open();
             };
+            s.on_x = [&row](int i) {
+                if (row.items[i].more) row.items[i].more();
+            };
             s.on_focus = [this, r](int i) {
                 focus_row_ = (int)r;
                 focus_col_ = i;
@@ -249,7 +256,10 @@ public:
         y += start_tiles(g, x0, y);
         gfx::pop_clip();
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Open"}});
+        bool more = focus_row_ >= 0 && focus_row_ < (int)rows_.size() && focus_col_ >= 0 &&
+                    focus_col_ < (int)rows_[focus_row_].items.size() && rows_[focus_row_].items[focus_col_].more;
+        if (more) hint_bar({{"A", "Open"}, {"X", "More"}});
+        else hint_bar({{"A", "Open"}});
     }
 
 private:

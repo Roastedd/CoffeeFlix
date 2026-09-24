@@ -84,5 +84,7 @@ constexpr int CHEVRON_RIGHT = 0xe5cc, CHEVRON_LEFT = 0xe5cb, EXPAND_MORE = 0xe5c
               LOCAL_CAFE = 0xe541, GAMEPAD = 0xe30f, CHECK_CIRCLE = 0xe86c, ERROR_OUTLINE = 0xe001,
               WIFI_OFF = 0xe648, FAVORITE_BORDER = 0xe87e, ARROW_FORWARD = 0xe5c8, CAPSLOCK = 0xe318,
               TRANSLATE = 0xe8e2, PLAY_CIRCLE = 0xe038, SENSORS = 0xe51e, MENU = 0xe5d2, MUSIC_VIDEO = 0xe063,
-              SPORTS_SOCCER = 0xea2f, PERSON_ADD = 0xe7fe;
+              SPORTS_SOCCER = 0xea2f, PERSON_ADD = 0xe7fe, ACCOUNT_CIRCLE = 0xe853, WATCH_LATER = 0xe924,
+              PLAYLIST_ADD = 0xe03b, PLAYLIST_ADD_CHECK = 0xe065, THUMB_DOWN = 0xe8db, FILE_UPLOAD = 0xe2c6,
+              FILE_DOWNLOAD = 0xe2c4;
 }  // namespace ic
