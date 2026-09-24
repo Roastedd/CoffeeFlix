@@ -10,6 +10,7 @@
 #include <initializer_list>
 #include <cstring>
 #include <cstdlib>
+#include <type_traits>
 #include <variant>
 
 namespace json {
@@ -92,11 +93,15 @@ inline double real(json_t* j, double def = 0) {
 }
 inline double real(json_t* j, std::initializer_list<Key> path, double def = 0) { return real(at(j, path), def); }
 
-inline bool boolean(json_t* j, bool def = false) {
+// A template so a key path like boolean(j, {"isLive"}) can never bind to `def`:
+// clang picks a plain bool overload for it and rejects the narrowing.
+template <typename B, typename = std::enable_if_t<std::is_same_v<B, bool>>>
+inline bool boolean(json_t* j, B def) {
     if (json_is_boolean(j)) return json_is_true(j);
     if (json_is_integer(j)) return json_integer_value(j) != 0;
     return def;
 }
+inline bool boolean(json_t* j) { return boolean(j, false); }
 inline bool boolean(json_t* j, std::initializer_list<Key> path, bool def = false) { return boolean(at(j, path), def); }
 
 inline size_t size(json_t* j) { return json_is_array(j) ? json_array_size(j) : 0; }

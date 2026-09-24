@@ -5,15 +5,17 @@
 # Run inside the devkitpro/devkitppc container (or any shell with DEVKITPRO,
 # DEVKITPPC and WUT_ROOT set).
 #
-#   tools/build-deps.sh          # Wii U libraries -> deps/install
-#   tools/build-deps.sh --host   # same libraries for the desktop preview -> deps/host
+#   tools/build-deps.sh                 # Wii U libraries -> deps/install
+#   tools/build-deps.sh --host          # same libraries for the desktop preview -> deps/host
+#   tools/build-deps.sh --host libsmb2  # only the listed libraries (ffmpeg, mupdf, libsmb2)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPS="$ROOT/deps"
-JOBS="${JOBS:-$(nproc)}"
+JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 HOST=0
-[ "${1:-}" = "--host" ] && HOST=1
+[ "${1:-}" = "--host" ] && { HOST=1; shift; }
+ONLY="${*:-ffmpeg mupdf libsmb2}"
 
 if [ $HOST = 1 ]; then
     PREFIX="$DEPS/host"
@@ -47,9 +49,11 @@ fetch() { # fetch <dir> <repo> <rev>
     fi
 }
 
+sha1() { if command -v sha1sum >/dev/null; then sha1sum; else shasum; fi; }  # macOS has only shasum
+
 # A library is rebuilt when its revision or its build function changes.
 stamp_for() { # stamp_for <name> <rev>
-    echo "$PREFIX/.$1-$2-$(declare -f "build_$1" | sha1sum | cut -c1-12)"
+    echo "$PREFIX/.$1-$2-$(declare -f "build_$1" | sha1 | cut -c1-12)"
 }
 
 build_ffmpeg() {
@@ -130,7 +134,12 @@ build_mupdf() {
     local features="-DFZ_ENABLE_ICC=0 -DFZ_ENABLE_HYPHEN=0 -DFZ_ENABLE_OFFICE=0 -DFZ_ENABLE_FB2=0 -DFZ_ENABLE_MOBI=0 -DFZ_ENABLE_TXT=0"
     local target
     if [ $HOST = 1 ]; then
-        target=(XCFLAGS="$features")
+        # MuPDF only asks pkg-config for these on Linux; pass them so macOS (Homebrew) works too.
+        target=(
+            XCFLAGS="$features"
+            SYS_FREETYPE_CFLAGS="$(pkg-config --cflags freetype2)" SYS_HARFBUZZ_CFLAGS="$(pkg-config --cflags harfbuzz)"
+            SYS_LIBJPEG_CFLAGS="$(pkg-config --cflags libjpeg)"
+        )
     else
         cat > "$out/wiiu-compat.h" <<'EOF'
 /* newlib's <sys/types.h> defines `quad` as a macro, which breaks fz_stext_char::quad. */
@@ -185,7 +194,8 @@ build_libsmb2() {
     touch "$stamp"
 }
 
-build_ffmpeg
-build_mupdf
-build_libsmb2
+for lib in $ONLY; do
+    declare -F "build_$lib" >/dev/null || { echo "Unknown library: $lib (ffmpeg, mupdf, libsmb2)" >&2; exit 1; }
+done
+for lib in $ONLY; do "build_$lib"; done
 echo "Dependencies installed to $PREFIX"

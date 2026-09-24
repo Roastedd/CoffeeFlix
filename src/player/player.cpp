@@ -33,6 +33,17 @@ extern "C" {
 #include "player/subtitles.hpp"
 #include "services/smb.hpp"
 
+// The Wii U build uses FFmpeg-wiiu (FFmpeg 4.3). The desktop preview uses the system FFmpeg, which
+// describes audio channels with AVChannelLayout from 5.1 on and dropped the old fields in 7.0.
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 24, 100)
+#define HAVE_CH_LAYOUT 1
+#endif
+#ifndef AV_PROFILE_H264_HIGH_10  // FFmpeg < 6.1 only has the FF_ names, 8.0 only the AV_ ones
+#define AV_PROFILE_H264_HIGH_10 FF_PROFILE_H264_HIGH_10
+#define AV_PROFILE_H264_HIGH_422 FF_PROFILE_H264_HIGH_422
+#define AV_PROFILE_H264_HIGH_444_PREDICTIVE FF_PROFILE_H264_HIGH_444_PREDICTIVE
+#endif
+
 namespace player {
 
 namespace {
@@ -272,8 +283,8 @@ AVCodecContext* open_decoder(AVStream* st, bool allow_hw, bool* used_hw) {
     if (used_hw) *used_hw = false;
     AVCodecParameters* p = st->codecpar;
     if (allow_hw && p->codec_id == AV_CODEC_ID_H264 && p->width <= 1920 && p->height <= 1088 &&
-        p->format != AV_PIX_FMT_YUV420P10LE && p->profile != FF_PROFILE_H264_HIGH_10 &&
-        p->profile != FF_PROFILE_H264_HIGH_422 && p->profile != FF_PROFILE_H264_HIGH_444_PREDICTIVE) {
+        p->format != AV_PIX_FMT_YUV420P10LE && p->profile != AV_PROFILE_H264_HIGH_10 &&
+        p->profile != AV_PROFILE_H264_HIGH_422 && p->profile != AV_PROFILE_H264_HIGH_444_PREDICTIVE) {
         codec = avcodec_find_decoder_by_name("h264_wiiu");
         if (codec && used_hw) *used_hw = true;
     }
@@ -299,6 +310,41 @@ AVCodecContext* open_decoder(AVStream* st, bool allow_hw, bool* used_hw) {
     return ctx;
 }
 
+int stream_channels(const AVCodecParameters* p) {
+#ifdef HAVE_CH_LAYOUT
+    return p->ch_layout.nb_channels;
+#else
+    return p->channels;
+#endif
+}
+
+// Channel layout of a decoded audio frame as a mask, falling back to the default for its channel count.
+int64_t frame_layout(const AVFrame* f) {
+#ifdef HAVE_CH_LAYOUT
+    if (f->ch_layout.order == AV_CHANNEL_ORDER_NATIVE) return (int64_t)f->ch_layout.u.mask;
+    AVChannelLayout def = {};
+    av_channel_layout_default(&def, f->ch_layout.nb_channels);
+    return def.order == AV_CHANNEL_ORDER_NATIVE ? (int64_t)def.u.mask : 0;
+#else
+    return f->channel_layout ? (int64_t)f->channel_layout : av_get_default_channel_layout(f->channels);
+#endif
+}
+
+// Resampler from the given input to interleaved S16 stereo at the mixer rate.
+SwrContext* alloc_resampler(int64_t in_layout, AVSampleFormat in_fmt, int in_rate) {
+#ifdef HAVE_CH_LAYOUT
+    AVChannelLayout in = {}, out = AV_CHANNEL_LAYOUT_STEREO;
+    if (av_channel_layout_from_mask(&in, (uint64_t)in_layout) < 0) return nullptr;
+    SwrContext* swr = nullptr;
+    if (swr_alloc_set_opts2(&swr, &out, AV_SAMPLE_FMT_S16, audio::RATE, &in, in_fmt, in_rate, 0, nullptr) < 0)
+        return nullptr;
+    return swr;
+#else
+    return swr_alloc_set_opts(nullptr, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, audio::RATE, in_layout, in_fmt, in_rate,
+                              0, nullptr);
+#endif
+}
+
 std::string stream_label(AVStream* st, int n) {
     std::string lang, title;
     if (AVDictionaryEntry* e = av_dict_get(st->metadata, "language", nullptr, 0)) lang = e->value;
@@ -307,7 +353,7 @@ std::string stream_label(AVStream* st, int n) {
     if (!title.empty() && !lang.empty() && title.find(lang) == std::string::npos) label += " (" + lang + ")";
     const char* cname = avcodec_get_name(st->codecpar->codec_id);
     if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-        int ch = st->codecpar->channels;
+        int ch = stream_channels(st->codecpar);
         label += util::fmt(" \xC2\xB7 %s %s", util::lower(cname).c_str(), ch >= 6 ? "5.1" : ch == 2 ? "stereo" : ch == 1 ? "mono" : "");
     }
     return label;
@@ -610,12 +656,10 @@ void audio_loop(std::shared_ptr<Session> sp) {
             double pts = ts != AV_NOPTS_VALUE ? ts_to_sec(ts, s.atb) - start_offset : next_pts;
             next_pts = pts + (double)frame->nb_samples / frame->sample_rate;
 
-            int64_t layout = frame->channel_layout ? (int64_t)frame->channel_layout
-                                                   : av_get_default_channel_layout(frame->channels);
+            int64_t layout = frame_layout(frame);
             if (!swr || layout != swr_layout || frame->sample_rate != swr_rate || frame->format != swr_fmt) {
                 swr_free(&swr);
-                swr = swr_alloc_set_opts(nullptr, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, audio::RATE, layout,
-                                         (AVSampleFormat)frame->format, frame->sample_rate, 0, nullptr);
+                swr = alloc_resampler(layout, (AVSampleFormat)frame->format, frame->sample_rate);
                 if (!swr || swr_init(swr) < 0) {
                     swr_free(&swr);
                     av_frame_unref(frame);
