@@ -281,7 +281,13 @@ void poll(RawInput& raw) {
 
 const char* name() { return "Wii U"; }
 bool is_wiiu() { return true; }
-std::string content_dir() { return "/vol/content"; }
+// The .wuhb bundle mounts its files at /vol/content. The Tiramisu build is a bare .rpx,
+// launched from the Homebrew Launcher, with the same files in a folder next to it.
+std::string content_dir() {
+    static const std::string dir =
+        util::dir_exists("/vol/content/fonts") ? "/vol/content" : "/vol/external01/wiiu/apps/coffeeflix/content";
+    return dir;
+}
 std::string data_dir() { return "/vol/external01/wiiu/apps/coffeeflix"; }
 std::string media_root() { return "/vol/external01/wiiu/apps/coffeeflix"; }
 

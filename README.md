@@ -26,6 +26,8 @@ CoffeeFlix is free. If you enjoy it, you can [buy me a coffee on Ko-fi](https://
 2. Extract it to the root of your SD card. The app ends up in `sd:/wiiu/apps/coffeeflix/`.
 3. Start CoffeeFlix from the Wii U Menu. You need [Aroma](https://aroma.foryour.cafe).
 
+Still on Tiramisu? Download `coffeeflix-tiramisu.zip` from the releases page instead, extract it the same way and start CoffeeFlix from the Homebrew Launcher. It's newer and less tested than the Aroma version, so please report any problems.
+
 For local media, put files in the `Videos`, `Music`, `Photos` and `Books` folders the app creates next to itself.
 
 ### Connecting things
