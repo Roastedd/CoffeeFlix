@@ -71,6 +71,14 @@ void convert_pair(const uint8_t* y0, const uint8_t* y1, const uint8_t* u, const 
 
 }  // namespace
 
+bool yuv_bt709(const AVFrame* f) {
+    return f->colorspace == AVCOL_SPC_BT709 || (f->colorspace == AVCOL_SPC_UNSPECIFIED && f->height >= 700);
+}
+
+bool yuv_full_range(const AVFrame* f) {
+    return f->color_range == AVCOL_RANGE_JPEG || f->format == AV_PIX_FMT_YUVJ420P;
+}
+
 FrameConverter::FrameConverter() {
     init_clip();
     helper_ = std::thread(&FrameConverter::helper_loop, this);
@@ -137,8 +145,8 @@ bool FrameConverter::convert(const AVFrame* f, uint8_t* dst, int pitch) {
     const int fmt = f->format;
     bool fast = fmt == AV_PIX_FMT_YUV420P || fmt == AV_PIX_FMT_YUVJ420P || fmt == AV_PIX_FMT_NV12;
     if (fast) {
-        bt709_ = f->colorspace == AVCOL_SPC_BT709 || (f->colorspace == AVCOL_SPC_UNSPECIFIED && f->height >= 700);
-        full_range_ = f->color_range == AVCOL_RANGE_JPEG || fmt == AV_PIX_FMT_YUVJ420P;
+        bt709_ = yuv_bt709(f);
+        full_range_ = yuv_full_range(f);
         int h = f->height;
         if (h >= 360) {
             // Bottom half on the helper thread, top half here.

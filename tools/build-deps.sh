@@ -7,7 +7,7 @@
 #
 #   tools/build-deps.sh                 # Wii U libraries -> deps/install
 #   tools/build-deps.sh --host          # same libraries for the desktop preview -> deps/host
-#   tools/build-deps.sh --host libsmb2  # only the listed libraries (ffmpeg, libsmb2)
+#   tools/build-deps.sh --host libsmb2  # only the listed libraries (ffmpeg, libsmb2, sdl2)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +15,7 @@ DEPS="$ROOT/deps"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 HOST=0
 [ "${1:-}" = "--host" ] && { HOST=1; shift; }
-ONLY="${*:-ffmpeg libsmb2}"
+ONLY="${*:-ffmpeg libsmb2 sdl2}"
 
 if [ $HOST = 1 ]; then
     PREFIX="$DEPS/host"
@@ -32,6 +32,10 @@ FFMPEG_REV="24997bdb3e5a3bc666f05e1497b0c102390f9ae0"
 # libsmb2 master after 6.2 (2024), which misses a year of PDU validation fixes.
 LIBSMB2_REPO="https://github.com/sahlberg/libsmb2.git"
 LIBSMB2_REV="557e837d3e00636b543f17ba1b9bdf872fa1644d"
+# devkitPro's SDL 2.32.10, the version of their package (SDL2_image and SDL2_ttf are
+# built against it), patched so the Wii U renderer converts YUV video on the GPU.
+SDL2_REPO="https://github.com/devkitPro/SDL.git"
+SDL2_REV="a8f1e43a4a9d70cbae397433e1a3dd40113679aa"
 
 mkdir -p "$DEPS/src" "$PREFIX"
 
@@ -150,8 +154,27 @@ build_libsmb2() {
     touch "$stamp"
 }
 
+# SDL2 with NV12 and IYUV textures in the Wii U renderer. The Makefile searches
+# deps/install before the portlibs, so this libSDL2.a replaces the package's.
+build_sdl2() {
+    [ $HOST = 1 ] && { echo "sdl2: the desktop build uses the system SDL2"; return; }
+    local stamp="$(stamp_for sdl2 "$SDL2_REV")"
+    [ -f "$stamp" ] && { echo "sdl2: up to date"; return; }
+
+    fetch sdl2 "$SDL2_REPO" "$SDL2_REV"
+    apply_patches sdl2 "$DEPS/src/sdl2"
+    local build="$DEPS/build/sdl2-wiiu"
+    rm -rf "$build"
+    "$DEVKITPRO/portlibs/wiiu/bin/powerpc-eabi-cmake" -S "$DEPS/src/sdl2" -B "$build" \
+        -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release
+    cmake --build "$build" -j"$JOBS"
+    cmake --install "$build"
+    rm -f "$PREFIX"/.sdl2-*
+    touch "$stamp"
+}
+
 for lib in $ONLY; do
-    declare -F "build_$lib" >/dev/null || { echo "Unknown library: $lib (ffmpeg, libsmb2)" >&2; exit 1; }
+    declare -F "build_$lib" >/dev/null || { echo "Unknown library: $lib (ffmpeg, libsmb2, sdl2)" >&2; exit 1; }
 done
 for lib in $ONLY; do "build_$lib"; done
 echo "Dependencies installed to $PREFIX"

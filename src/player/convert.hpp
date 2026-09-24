@@ -15,6 +15,11 @@ struct SwsContext;
 
 namespace player {
 
+// Colour space of a YUV picture: BT.709 when tagged so or when HD and untagged, else BT.601.
+bool yuv_bt709(const AVFrame* f);
+// Full range (0-255) rather than limited (16-235) YUV.
+bool yuv_full_range(const AVFrame* f);
+
 class FrameConverter {
 public:
     FrameConverter();

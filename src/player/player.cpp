@@ -128,8 +128,33 @@ struct VFrame {
     double pts = 0;
     int w = 0, h = 0;
     uint32_t gen = 0;
+    // 4:2:0 pictures keep the decoded frame and the GPU converts them (NV12 or IYUV
+    // textures); anything else is converted to RGBA on the CPU.
+    Uint32 format = SDL_PIXELFORMAT_RGBA32;
+    SDL_YUV_CONVERSION_MODE yuv_mode = SDL_YUV_CONVERSION_BT601;
+    AVFrame* yuv = av_frame_alloc();
     std::vector<uint8_t> rgba;
+
+    VFrame() = default;
+    VFrame(const VFrame&) = delete;
+    VFrame& operator=(const VFrame&) = delete;
+    ~VFrame() { av_frame_free(&yuv); }
 };
+
+// The texture format and conversion for a picture the renderer can take as it is.
+// SDL has no full range BT.709, so those pictures stay on the CPU converter.
+bool yuv_texture_format(const AVFrame* f, Uint32& format, SDL_YUV_CONVERSION_MODE& mode) {
+    bool full = yuv_full_range(f), bt709 = yuv_bt709(f);
+    if (full && bt709) return false;
+    switch (f->format) {
+        case AV_PIX_FMT_NV12: format = SDL_PIXELFORMAT_NV12; break;
+        case AV_PIX_FMT_YUV420P:
+        case AV_PIX_FMT_YUVJ420P: format = SDL_PIXELFORMAT_IYUV; break;
+        default: return false;
+    }
+    mode = full ? SDL_YUV_CONVERSION_JPEG : bt709 ? SDL_YUV_CONVERSION_BT709 : SDL_YUV_CONVERSION_BT601;
+    return true;
+}
 
 struct Input {
     AVFormatContext* fmt = nullptr;
@@ -227,6 +252,8 @@ Source g_empty_src;
 
 SDL_Texture* g_tex = nullptr;
 int g_tex_w = 0, g_tex_h = 0;
+Uint32 g_tex_format = 0;
+SDL_YUV_CONVERSION_MODE g_tex_mode = SDL_YUV_CONVERSION_BT601;
 uint32_t g_shown_gen = 0;
 double g_shown_pts = -1;
 
@@ -703,8 +730,15 @@ void video_loop(std::shared_ptr<Session> sp) {
             vf->h = frame->height;
             vf->pts = pts;
             vf->gen = dec_gen;
-            vf->rgba.resize((size_t)vf->w * vf->h * 4);
-            bool ok = conv.convert(frame, vf->rgba.data(), vf->w * 4);
+            bool ok = true;
+            if (yuv_texture_format(frame, vf->format, vf->yuv_mode)) {
+                av_frame_move_ref(vf->yuv, frame);
+            } else {
+                vf->format = SDL_PIXELFORMAT_RGBA32;
+                vf->yuv_mode = SDL_YUV_CONVERSION_BT601;
+                vf->rgba.resize((size_t)vf->w * vf->h * 4);
+                ok = conv.convert(frame, vf->rgba.data(), vf->w * 4);
+            }
             av_frame_unref(frame);
             if (!ok) continue;
             std::lock_guard<std::mutex> lk(s.fm);
@@ -1058,21 +1092,32 @@ void report_progress(Session& s, bool force) {
 
 void upload_frame(VFrame& f) {
     SDL_Renderer* r = gfx::renderer();
-    if (!g_tex || g_tex_w != f.w || g_tex_h != f.h) {
+    if (!g_tex || g_tex_w != f.w || g_tex_h != f.h || g_tex_format != f.format || g_tex_mode != f.yuv_mode) {
         if (g_tex) SDL_DestroyTexture(g_tex);
-        g_tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, f.w, f.h);
+        SDL_SetYUVConversionMode(f.yuv_mode);  // renderers read it when they make the texture or draw it
+        g_tex = SDL_CreateTexture(r, f.format, SDL_TEXTUREACCESS_STREAMING, f.w, f.h);
         if (!g_tex) return;
         SDL_SetTextureBlendMode(g_tex, SDL_BLENDMODE_NONE);
         SDL_SetTextureScaleMode(g_tex, SDL_ScaleModeLinear);
         g_tex_w = f.w;
         g_tex_h = f.h;
+        g_tex_format = f.format;
+        g_tex_mode = f.yuv_mode;
     }
-    SDL_UpdateTexture(g_tex, nullptr, f.rgba.data(), f.w * 4);
+    const AVFrame* y = f.yuv;
+    if (f.format == SDL_PIXELFORMAT_NV12)
+        SDL_UpdateNVTexture(g_tex, nullptr, y->data[0], y->linesize[0], y->data[1], y->linesize[1]);
+    else if (f.format == SDL_PIXELFORMAT_IYUV)
+        SDL_UpdateYUVTexture(g_tex, nullptr, y->data[0], y->linesize[0], y->data[1], y->linesize[1], y->data[2],
+                             y->linesize[2]);
+    else
+        SDL_UpdateTexture(g_tex, nullptr, f.rgba.data(), f.w * 4);
     g_shown_pts = f.pts;
     g_shown_gen = f.gen;
 }
 
 void recycle(Session& s, std::unique_ptr<VFrame> f) {
+    av_frame_unref(f->yuv);  // hand the picture buffer back to the decoder
     if (s.spare.size() < 3) s.spare.push_back(std::move(f));
 }
 
