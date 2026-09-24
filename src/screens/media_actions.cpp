@@ -16,7 +16,7 @@ Kind kind_of(const std::string& name) {
     static const char* video[] = {"mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "m2ts", "mpg", "mpeg", "flv", "3gp"};
     static const char* audio[] = {"mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "wv", "alac", "oga", "mka"};
     static const char* image[] = {"jpg", "jpeg", "png", "gif", "webp", "bmp"};
-    static const char* book[] = {"pdf", "cbz", "epub"};
+    static const char* book[] = {"cbz", "epub"};
     for (auto v : video) if (e == v) return K_VIDEO;
     for (auto v : audio) if (e == v) return K_AUDIO;
     for (auto v : image) if (e == v) return K_IMAGE;

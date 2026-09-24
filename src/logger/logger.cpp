@@ -1,40 +1,36 @@
 #include "logger/logger.hpp"
-#include <stdarg.h>
 
-#define COLOR_GREEN  "\x1b[32m"
-#define COLOR_YELLOW "\x1b[33m"
-#define COLOR_RED    "\x1b[31m"
-#define COLOR_BLUE   "\x1b[34m"
-#define COLOR_RESET  "\x1b[0m"
+#include <cstdarg>
+#include <cstdio>
+#include <mutex>
 
-static const char* get_level_color(LogLevel level) {
-    switch (level) {
-        case LOG_OK:      return COLOR_GREEN;
-        case LOG_WARNING: return COLOR_YELLOW;
-        case LOG_ERROR:   return COLOR_RED;
-        case LOG_DEBUG:   return COLOR_BLUE;
-        default:          return COLOR_RESET;
-    }
-}
+namespace {
 
-static const char* get_level_label(LogLevel level) {
-    switch (level) {
-        case LOG_OK:      return "OK";
-        case LOG_WARNING: return "WARNING";
-        case LOG_ERROR:   return "ERROR";
-        case LOG_DEBUG:   return "DEBUG";
-        default:          return "UNKNOWN";
-    }
-}
+struct Style {
+    const char* label;
+    const char* color;  // ANSI
+};
+
+const Style STYLES[] = {
+    {"OK", "\x1b[32m"},
+    {"WARNING", "\x1b[33m"},
+    {"ERROR", "\x1b[31m"},
+    {"DEBUG", "\x1b[34m"},
+};
+
+std::mutex g_mutex;  // keeps lines from different threads apart
+
+}  // namespace
 
 void log_message(LogLevel level, const char* system, const char* format, ...) {
-    const char* color = get_level_color(level);
-    const char* label = get_level_label(level);
-
-    printf("%s[%s] [%s] ", color, system, label);
+    char text[1024];
     va_list args;
     va_start(args, format);
-    vprintf(format, args);
+    std::vsnprintf(text, sizeof(text), format, args);
     va_end(args);
-    printf("%s\n", COLOR_RESET);
+
+    const Style& s = STYLES[level >= LOG_OK && level <= LOG_DEBUG ? level : LOG_DEBUG];
+    std::lock_guard<std::mutex> lock(g_mutex);
+    std::printf("%s[%s] [%s] %s\x1b[0m\n", s.color, system ? system : "App", s.label, text);
+    std::fflush(stdout);
 }

@@ -1,15 +1,8 @@
-#ifndef LOGGER_H
-#define LOGGER_H
+// Levelled console logging: "[System] [LEVEL] message", colored for terminals. On the Wii U,
+// platform/wiiu/log_stdout.cpp forwards the console to the system log.
+#pragma once
 
-#include <stdio.h>
+enum LogLevel { LOG_OK, LOG_WARNING, LOG_ERROR, LOG_DEBUG };
 
-typedef enum {
-    LOG_OK,
-    LOG_WARNING,
-    LOG_ERROR,
-    LOG_DEBUG
-} LogLevel;
-
+// printf-style; safe to call from any thread.
 void log_message(LogLevel level, const char* system, const char* format, ...);
-
-#endif /* SRC_LOGGER_LOGGER_HPP_ */

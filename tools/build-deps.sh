@@ -7,7 +7,7 @@
 #
 #   tools/build-deps.sh                 # Wii U libraries -> deps/install
 #   tools/build-deps.sh --host          # same libraries for the desktop preview -> deps/host
-#   tools/build-deps.sh --host libsmb2  # only the listed libraries (ffmpeg, mupdf, libsmb2)
+#   tools/build-deps.sh --host libsmb2  # only the listed libraries (ffmpeg, libsmb2)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +15,7 @@ DEPS="$ROOT/deps"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 HOST=0
 [ "${1:-}" = "--host" ] && { HOST=1; shift; }
-ONLY="${*:-ffmpeg mupdf libsmb2}"
+ONLY="${*:-ffmpeg libsmb2}"
 
 if [ $HOST = 1 ]; then
     PREFIX="$DEPS/host"
@@ -29,8 +29,6 @@ fi
 
 FFMPEG_REPO="https://github.com/GaryOderNichts/FFmpeg-wiiu.git"
 FFMPEG_REV="24997bdb3e5a3bc666f05e1497b0c102390f9ae0"
-MUPDF_REPO="https://github.com/ArtifexSoftware/mupdf.git"
-MUPDF_REV="73d3100d46d8a9ad634f6ef035bbe78f0f947886"  # 1.27.2
 # libsmb2 master after 6.2 (2024), which misses a year of PDU validation fixes.
 LIBSMB2_REPO="https://github.com/sahlberg/libsmb2.git"
 LIBSMB2_REV="557e837d3e00636b543f17ba1b9bdf872fa1644d"
@@ -113,61 +111,6 @@ build_ffmpeg() {
     touch "$stamp"
 }
 
-# PDF/EPUB rendering for the reader. Freetype, harfbuzz, libjpeg and zlib come
-# from the system (the app links them already); jbig2dec, openjpeg and gumbo
-# are MuPDF's bundled copies (mujs only for its regexp source). No JavaScript,
-# colour management, hyphenation or CJK/Noto fonts (only the Base 14 set)
-# keeps the library small.
-build_mupdf() {
-    local stamp="$(stamp_for mupdf "$MUPDF_REV")"
-    [ -f "$stamp" ] && { echo "mupdf: up to date"; return; }
-
-    fetch mupdf "$MUPDF_REPO" "$MUPDF_REV"
-    local src="$DEPS/src/mupdf" lib url
-    for lib in jbig2dec openjpeg gumbo-parser mujs; do
-        url="$(git -C "$src" config -f .gitmodules "submodule.thirdparty/$lib.url")"
-        fetch "mupdf/thirdparty/$lib" "${MUPDF_REPO%/*}/${url#../}" "$(git -C "$src" rev-parse "HEAD:thirdparty/$lib")"
-    done
-    local out="$DEPS/build/mupdf-$([ $HOST = 1 ] && echo host || echo wiiu)"
-    rm -rf "$out" && mkdir -p "$out"
-
-    local features="-DFZ_ENABLE_ICC=0 -DFZ_ENABLE_HYPHEN=0 -DFZ_ENABLE_OFFICE=0 -DFZ_ENABLE_FB2=0 -DFZ_ENABLE_MOBI=0 -DFZ_ENABLE_TXT=0"
-    local target
-    if [ $HOST = 1 ]; then
-        # MuPDF only asks pkg-config for these on Linux; pass them so macOS (Homebrew) works too.
-        target=(
-            XCFLAGS="$features"
-            SYS_FREETYPE_CFLAGS="$(pkg-config --cflags freetype2)" SYS_HARFBUZZ_CFLAGS="$(pkg-config --cflags harfbuzz)"
-            SYS_LIBJPEG_CFLAGS="$(pkg-config --cflags libjpeg)"
-        )
-    else
-        cat > "$out/wiiu-compat.h" <<'EOF'
-/* newlib's <sys/types.h> defines `quad` as a macro, which breaks fz_stext_char::quad. */
-#include <sys/types.h>
-#undef quad
-/* Missing from newlib; the app provides it (src/vendor/pdf/wiiu_time_utils.c). */
-#include <time.h>
-time_t timegm(struct tm *tm);
-EOF
-        local ppc="$DEVKITPRO/portlibs/ppc"
-        target=(
-            OS=wiiu CC=powerpc-eabi-gcc CXX=powerpc-eabi-g++ AR=powerpc-eabi-ar RANLIB=powerpc-eabi-ranlib
-            XCFLAGS="$features -D__WIIU__ -mcpu=750 -meabi -mhard-float -include $out/wiiu-compat.h -I$ppc/include"
-            SYS_FREETYPE_CFLAGS="-I$ppc/include/freetype2" SYS_HARFBUZZ_CFLAGS="-I$ppc/include/harfbuzz"
-        )
-    fi
-
-    make -C "$src" -j"$JOBS" "${target[@]}" \
-        OUT="$out" prefix="$PREFIX" build=release shared=no \
-        HAVE_X11=no HAVE_GLUT=no HAVE_CURL=no HAVE_OBJCOPY=no \
-        mujs=no brotli=no extract=no xps=no tofu=yes tofu_cjk=yes \
-        USE_SYSTEM_FREETYPE=yes USE_SYSTEM_HARFBUZZ=yes USE_SYSTEM_LIBJPEG=yes USE_SYSTEM_ZLIB=yes \
-        LCMS2_SRC= \
-        install-libs
-    rm -f "$PREFIX"/.mupdf-*
-    touch "$stamp"
-}
-
 # SMB2/3 client for network shares. The Wii U CMake wrapper selects the
 # library's CafeOS port.
 build_libsmb2() {
@@ -195,7 +138,7 @@ build_libsmb2() {
 }
 
 for lib in $ONLY; do
-    declare -F "build_$lib" >/dev/null || { echo "Unknown library: $lib (ffmpeg, mupdf, libsmb2)" >&2; exit 1; }
+    declare -F "build_$lib" >/dev/null || { echo "Unknown library: $lib (ffmpeg, libsmb2)" >&2; exit 1; }
 done
 for lib in $ONLY; do "build_$lib"; done
 echo "Dependencies installed to $PREFIX"
