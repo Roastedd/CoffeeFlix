@@ -1,4 +1,4 @@
-// Document reader: comic books (CBZ) and, when built with MuPDF, PDF and EPUB.
+// Book reader: comic books (CBZ) and EPUB books.
 //
 // Pages are decoded one at a time on the image worker pool (so a document is
 // never used by two threads at once) and uploaded as textures on the main
@@ -14,10 +14,6 @@
 #include <set>
 #include <vector>
 
-#ifdef HAVE_MUPDF
-#include <mupdf/fitz.h>
-#endif
-
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -25,6 +21,7 @@
 #include "gfx/images.hpp"
 #include "logger/logger.hpp"
 #include "platform/platform.hpp"
+#include "reader/epub.hpp"
 #include "screens/widgets.hpp"
 #include "ui/ui.hpp"
 
@@ -65,6 +62,8 @@ public:
     virtual SDL_Surface* render(int index, int max_w, int max_h) = 0;
     // Asks a render in progress to stop early (any thread).
     virtual void abort() {}
+    // The book's own title, when it has one.
+    virtual std::string title() const { return ""; }
 };
 
 // Comic book archive: a zip of images in natural file name order.
@@ -112,103 +111,21 @@ private:
     std::vector<zip_uint64_t> entries_;
 };
 
-#ifdef HAVE_MUPDF
-// PDF and EPUB through MuPDF. Reflowable books are laid out as portrait pages
-// with type large enough to read from the couch.
-class MupdfBook : public Book {
+class EpubBook : public Book {
 public:
-    ~MupdfBook() override {
-        if (!ctx_) return;
-        fz_drop_document(ctx_, doc_);
-        fz_drop_context(ctx_);
-    }
-
-    std::string open(const std::string& path) override {
-        ctx_ = fz_new_context(nullptr, nullptr, 32u << 20);
-        if (!ctx_) return "Not enough memory to open this document.";
-        fz_set_error_callback(ctx_, [](void*, const char* msg) { log_message(LOG_ERROR, "MuPDF", "%s", msg); }, nullptr);
-        fz_set_warning_callback(ctx_, [](void*, const char* msg) { log_message(LOG_WARNING, "MuPDF", "%s", msg); }, nullptr);
-        const char* error = nullptr;
-        fz_var(error);
-        fz_try(ctx_) {
-            fz_register_document_handlers(ctx_);
-            doc_ = fz_open_document(ctx_, path.c_str());
-            if (fz_needs_password(ctx_, doc_)) {
-                error = "This document is password protected.";
-            } else {
-                if (fz_is_document_reflowable(ctx_, doc_)) fz_layout_document(ctx_, doc_, 400, 540, 15);
-                count_ = fz_count_pages(ctx_, doc_);
-            }
-        }
-        fz_catch(ctx_) {
-            log_message(LOG_ERROR, "Reader", "Can't open %s", path.c_str());
-            fz_report_error(ctx_);
-            error = "The file may be damaged or in an unsupported format.";
-        }
-        if (!error && count_ <= 0) error = "This document has no pages.";
-        return error ? error : "";
-    }
-
-    int page_count() const override { return count_; }
-
-    // Draws straight into the SDL surface's pixels (MuPDF's RGBA layout matches RGBA32).
-    SDL_Surface* render(int index, int max_w, int max_h) override {
-        SDL_Surface* out = nullptr;
-        fz_page* page = nullptr;
-        fz_pixmap* pix = nullptr;
-        fz_device* dev = nullptr;
-        fz_var(out);
-        fz_var(page);
-        fz_var(pix);
-        fz_var(dev);
-        fz_try(ctx_) {
-            page = fz_load_page(ctx_, doc_, index);
-            fz_rect bounds = fz_bound_page(ctx_, page);
-            float pw = std::max(1.0f, bounds.x1 - bounds.x0), ph = std::max(1.0f, bounds.y1 - bounds.y0);
-            float s = std::min(max_w / pw, max_h / ph);
-            fz_matrix ctm = fz_scale(s, s);
-            fz_irect box = fz_round_rect(fz_transform_rect(bounds, ctm));
-            int w = box.x1 - box.x0, h = box.y1 - box.y0;
-            out = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
-            if (!out || out->pitch != w * 4) fz_throw(ctx_, FZ_ERROR_SYSTEM, "can't allocate a %dx%d page", w, h);
-            pix = fz_new_pixmap_with_bbox_and_data(ctx_, fz_device_rgb(ctx_), box, nullptr, 1, (unsigned char*)out->pixels);
-            fz_clear_pixmap_with_value(ctx_, pix, 0xff);
-            dev = fz_new_draw_device(ctx_, fz_identity, pix);
-            fz_run_page(ctx_, page, dev, ctm, &cookie_);
-            fz_close_device(ctx_, dev);
-            if (cookie_.abort) fz_throw(ctx_, FZ_ERROR_ABORT, "aborted");
-        }
-        fz_always(ctx_) {
-            fz_drop_device(ctx_, dev);
-            fz_drop_pixmap(ctx_, pix);
-            fz_drop_page(ctx_, page);
-        }
-        fz_catch(ctx_) {
-            if (fz_caught(ctx_) == FZ_ERROR_ABORT) fz_ignore_error(ctx_);
-            else fz_report_error(ctx_);
-            SDL_FreeSurface(out);
-            out = nullptr;
-        }
-        return out;
-    }
-
-    void abort() override { cookie_.abort = 1; }
+    std::string open(const std::string& path) override { return book_.open(path); }
+    int page_count() const override { return book_.page_count(); }
+    SDL_Surface* render(int index, int max_w, int max_h) override { return book_.render(index, max_w, max_h); }
+    std::string title() const override { return book_.title(); }
 
 private:
-    fz_context* ctx_ = nullptr;
-    fz_document* doc_ = nullptr;
-    fz_cookie cookie_ = {};
-    int count_ = 0;
+    epub::Book book_;
 };
-#endif
 
 std::unique_ptr<Book> make_book(const std::string& ext) {
     if (ext == "cbz") return std::make_unique<CbzBook>();
-#ifdef HAVE_MUPDF
-    return std::make_unique<MupdfBook>();
-#else
+    if (ext == "epub") return std::make_unique<EpubBook>();
     return nullptr;
-#endif
 }
 
 struct Opened {
@@ -221,13 +138,17 @@ Opened open_book(const std::string& path) {
     std::string ext = util::file_extension(path);
     std::unique_ptr<Book> book = make_book(ext);
     if (!book) {
-        o.title = ext == "epub" ? "EPUB support isn't available in this build" : "PDF support isn't available in this build";
-        o.desc = "This build of CoffeeFlix can only open comic books (CBZ).";
+        o.title = "Can't open this file";
+        o.desc = "The reader opens comic books (CBZ) and EPUB books.";
         return o;
     }
     o.desc = book->open(path);
-    if (o.desc.empty()) o.book = std::move(book);
-    else o.title = "Can't open this book";
+    if (o.desc.empty()) {
+        o.title = book->title();
+        o.book = std::move(book);
+    } else {
+        o.title = "Can't open this book";
+    }
     return o;
 }
 
@@ -294,6 +215,7 @@ private:
             return;
         }
         book_ = std::move(o.book);
+        if (!o.title.empty()) title_ = o.title;
         count_ = book_->page_count();
         page_ = std::clamp((int)store::get_int(key_.c_str(), 0), 0, count_ - 1);
         turned_at_ = shown_at_ = ui::time();
