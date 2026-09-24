@@ -37,6 +37,8 @@ Results search(const std::string& query, const std::string& params = PARAMS_VIDE
                const std::string& continuation = "");
 Results trending();
 Results channel_videos(const std::string& channel_id, const std::string& continuation = "");
+// Videos YouTube suggests next to this one (the watch page's sidebar).
+Results related(const std::string& video_id);
 
 std::string thumbnail(const std::string& id);     // 320x180
 std::string thumbnail_hq(const std::string& id);  // 480x360 (backdrops)

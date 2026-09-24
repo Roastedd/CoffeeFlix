@@ -7,6 +7,7 @@
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
+#include "services/yt_recs.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -155,6 +156,17 @@ public:
             if (value_row(iid, Rect(x0, top, w, 64), "Clear watch history", v.c_str(), ic::HISTORY, g) && n) {
                 store::resume_clear();
                 toast("Watch history cleared", ic::DELETE);
+            }
+            track(iid, top, 64);
+        }
+        {
+            Id iid = id(g, "recs");
+            float top = row_h(64);
+            bool learned = yt_recs::has_profile();
+            if (value_row(iid, Rect(x0, top, w, 64), "Reset YouTube recommendations", learned ? "Learning" : "Nothing yet",
+                          ic::AUTO_AWESOME, g) && learned) {
+                yt_recs::reset();
+                toast("YouTube recommendations reset", ic::DELETE);
             }
             track(iid, top, 64);
         }

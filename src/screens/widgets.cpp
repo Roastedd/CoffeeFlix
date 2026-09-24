@@ -227,6 +227,10 @@ float shelf(Id id, float x, float y, const ShelfSpec& s, Page* page) {
                 input().eat(BTN_X);
                 s.on_x(i);
             }
+            if (s.on_y && input().pressed_(BTN_Y)) {
+                input().eat(BTN_Y);
+                s.on_y(i);
+            }
         }
         if (clicked && s.on_click) s.on_click(i);
     }
@@ -268,6 +272,10 @@ float grid(Id id, float x, float y, const GridSpec& s, Page* page) {
             if (s.on_x && input().pressed_(BTN_X)) {
                 input().eat(BTN_X);
                 s.on_x(i);
+            }
+            if (s.on_y && input().pressed_(BTN_Y)) {
+                input().eat(BTN_Y);
+                s.on_y(i);
             }
             int rows = (s.count + s.cols - 1) / s.cols;
             if (s.on_reach_end && row >= rows - 2) s.on_reach_end();

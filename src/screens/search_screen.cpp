@@ -10,6 +10,7 @@
 #include "services/radio.hpp"
 #include "services/twitch.hpp"
 #include "services/youtube.hpp"
+#include "services/yt_recs.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -191,6 +192,7 @@ private:
     void run(const std::string& q) {
         query_ = q;
         store::add_recent_search("global", q);
+        yt_recs::on_search(q);
         scope_.reset();
         errors_.clear();
         jf_.clear();
