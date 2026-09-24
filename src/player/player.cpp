@@ -29,7 +29,9 @@ extern "C" {
 #include "logger/logger.hpp"
 #include "platform/platform.hpp"
 #include "player/convert.hpp"
+#include "player/smb_io.hpp"
 #include "player/subtitles.hpp"
+#include "services/smb.hpp"
 
 namespace player {
 
@@ -220,6 +222,16 @@ AVFormatContext* open_input(Session& s, const std::string& url, bool& network) {
     fmt->interrupt_callback.callback = interrupt_cb;
     fmt->interrupt_callback.opaque = &s.abort;
     network = util::starts_with(url, "http://") || util::starts_with(url, "https://");
+    if (smb::is_url(url)) {  // FFmpeg has no SMB protocol: custom I/O
+        std::string err;
+        if (!(fmt->pb = smb_io_open(url, &s.abort, err))) {
+            avformat_free_context(fmt);
+            if (!s.abort) set_error(s, err);
+            return nullptr;
+        }
+        fmt->flags |= AVFMT_FLAG_CUSTOM_IO;
+    }
+    AVIOContext* custom_pb = fmt->pb;  // not freed by avformat_open_input() on failure
 
     AVDictionary* opts = nullptr;
     if (network) {
@@ -246,6 +258,7 @@ AVFormatContext* open_input(Session& s, const std::string& url, bool& network) {
     int r = avformat_open_input(&fmt, path.c_str(), nullptr, &opts);
     av_dict_free(&opts);
     if (r < 0) {
+        smb_io_free(custom_pb);
         if (!s.abort) set_error(s, "Couldn't open stream (" + av_err(r) + ")");
         return nullptr;
     }
@@ -354,7 +367,8 @@ void fill_metadata(Session& s, AVFormatContext* fmt) {
         std::string artist = get("artist"), album = get("album");
         s.src.subtitle = artist.empty() ? album : album.empty() ? artist : artist + " \xC2\xB7 " + album;
     }
-    if (s.src.title.empty() && s.src.service == "local") s.src.title = util::file_name(s.src.url);
+    if (s.src.title.empty() && (s.src.service == "local" || s.src.service == "smb"))
+        s.src.title = util::file_name(s.src.url);
 }
 
 void poll_icy(Session& s, AVFormatContext* fmt) {
@@ -762,7 +776,7 @@ void open_session(std::shared_ptr<Session> sp) {
             http::Response r = http::get(u, {}, 15);
             data = std::move(r.body);
             return r.ok();
-        }() : util::read_file(u, data);
+        }() : smb::is_url(u) ? smb::read_file(u, data) : util::read_file(u, data);
         if (ok && store::get_bool("subs_default_on", true)) {
             s.subs.load(data);
             s.sub_external = 0;
@@ -806,7 +820,7 @@ void teardown(std::shared_ptr<Session> sp) {
     if (s.adec) avcodec_free_context(&s.adec);
     if (s.sdec) avcodec_free_context(&s.sdec);
     for (auto& in : s.in)
-        if (in.fmt) avformat_close_input(&in.fmt);
+        if (in.fmt) close_input(&in.fmt);  // also frees custom (smb://) I/O
 }
 
 double master_clock(Session& s) {
@@ -1139,7 +1153,7 @@ void set_subtitle_track(int index) {
                 http::Response r = http::get(u, {}, 15);
                 data = std::move(r.body);
                 return r.ok();
-            }() : util::read_file(u, data);
+            }() : smb::is_url(u) ? smb::read_file(u, data) : util::read_file(u, data);
             if (ok && !sp->abort) sp->subs.load(data);
         }).detach();
         return;

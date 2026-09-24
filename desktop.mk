@@ -1,6 +1,6 @@
 # Desktop preview build (Linux): make -f desktop.mk
 # Needs: SDL2, SDL2_ttf, SDL2_image, libcurl, jansson, tinyxml2, libzip, mbedtls
-# and `tools/build-deps.sh --host` for FFmpeg (and MuPDF for PDF/EPUB).
+# and `tools/build-deps.sh --host` for FFmpeg, libsmb2 and MuPDF (PDF/EPUB).
 BUILD    := build-desktop
 TARGET   := $(BUILD)/coffeeflix
 PREFIX   := deps/host
@@ -19,7 +19,7 @@ endif
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=gnu++20 -Wall -Wno-sign-compare -Wno-unused-function -MMD -MP \
             -Isrc -I$(PREFIX)/include $(PDF_FLAGS) $(shell pkg-config --cflags $(PKGS))
-LDLIBS   := -L$(PREFIX)/lib -lavformat -lavcodec -lswresample -lswscale -lavutil $(PDF_LIBS) \
+LDLIBS   := -L$(PREFIX)/lib -lavformat -lavcodec -lswresample -lswscale -lavutil -lsmb2 $(PDF_LIBS) \
             $(shell pkg-config --libs $(PKGS)) -lmbedtls -lmbedx509 -lmbedcrypto -lz -lpthread -lm
 
 all: $(TARGET)

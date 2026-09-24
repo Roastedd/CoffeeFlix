@@ -14,6 +14,7 @@
 #include "gfx/gfx.hpp"
 #include "logger/logger.hpp"
 #include "player/thumbnailer.hpp"
+#include "services/smb.hpp"
 
 namespace images {
 
@@ -167,6 +168,8 @@ void load_job(std::shared_ptr<Entry> e) {
             http::Response r = http::perform(req);
             ok = r.ok();
             data = std::move(r.body);
+        } else if (smb::is_url(e->url)) {
+            ok = smb::read_file(e->url, data);
         } else {
             ok = util::read_file(util::starts_with(e->url, "file://") ? e->url.substr(7) : e->url, data);
         }

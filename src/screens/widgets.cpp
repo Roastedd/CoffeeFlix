@@ -158,6 +158,13 @@ void Page::end(float content_bottom) { content_h_ = content_bottom + 40; }
 
 // --- Shelf -------------------------------------------------------------------
 
+// While a list loads, its first skeleton holds focus under the first item's id,
+// so focus lands on that item when it arrives instead of wandering off.
+static void loading_placeholder(Id iid, const Rect& r, float radius, Id group) {
+    Item it = focusable(iid, r, group, F_DEFAULT);
+    if (it.f > 0.01f) focus_ring(r, radius, it.f * 0.6f);
+}
+
 float shelf(Id id, float x, float y, const ShelfSpec& s, Page* page) {
     const Theme& t = theme();
     std::string title = s.title ? s.title : s.title_str;
@@ -170,16 +177,17 @@ float shelf(Id id, float x, float y, const ShelfSpec& s, Page* page) {
     float gap = s.shape == CARD_CIRCLE ? 30 : 22;
     float total_h = ih + card_text_height(s.shape) + 18;
 
+    Id group = ui::id(id, "items");
     if (s.loading && s.count == 0) {
         for (int i = 0; i < 6 && x + i * (iw + gap) < ui::W; i++) {
             Rect r(x + i * (iw + gap), y, iw, ih);
             skeleton(r, radius_for(s.shape, r));
             skeleton(Rect(r.x, r.b() + 14, iw * 0.7f, 16), 6);
+            if (i == 0) loading_placeholder(ui::id(group, (int64_t)0), r, radius_for(s.shape, r), group);
         }
         return y + total_h - h0;
     }
 
-    Id group = ui::id(id, "items");
     bool active = focus_in_group(group);
     float view_w = ui::W - x - 30;
     float content_w = s.count * (iw + gap);
@@ -236,6 +244,7 @@ float grid(Id id, float x, float y, const GridSpec& s, Page* page) {
             Rect r(x + (i % s.cols) * (iw + s.gap_x), y + (i / s.cols) * row_h, iw, ih);
             skeleton(r, radius_for(s.shape, r));
             skeleton(Rect(r.x, r.b() + 14, iw * 0.7f, 16), 6);
+            if (i == 0) loading_placeholder(ui::id(group, (int64_t)0), r, radius_for(s.shape, r), group);
         }
         return 2 * row_h;
     }
