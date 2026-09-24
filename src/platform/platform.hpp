@@ -32,6 +32,9 @@ int volumes(Volume* out, int max);
 
 bool network_connected();
 std::string ip_address();
+// Prepares a new TCP socket before it connects (Wii U: large receive buffers, which a single
+// connection's speed depends on). Nothing elsewhere.
+void tune_socket(int fd);
 
 // Rumble the GamePad briefly (no-op elsewhere).
 void rumble(float seconds);

@@ -2,11 +2,14 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
 
 namespace http {
+
+struct Response;
 
 struct Request {
     std::string method = "GET";
@@ -16,6 +19,9 @@ struct Request {
     long timeout = 20;                         // seconds, whole transfer
     size_t max_bytes = 32 * 1024 * 1024;       // abort larger responses
     const std::atomic<bool>* cancel = nullptr; // abort when set
+    // Hands the body over as it arrives instead of collecting it in Response::body (the
+    // status and headers are already in the response). Return false to stop the transfer.
+    std::function<bool(const Response& so_far, const char* data, size_t size)> on_data;
 };
 
 struct Response {
@@ -28,7 +34,8 @@ struct Response {
     bool ok() const { return error.empty() && status >= 200 && status < 300; }
 };
 
-void init(const std::string& ca_bundle_path);
+// socket_setup, when given, runs on every new socket before it connects (Wii U buffer sizes).
+void init(const std::string& ca_bundle_path, void (*socket_setup)(int fd) = nullptr);
 void shutdown();
 void set_verify_tls(bool verify);
 bool verify_tls();
