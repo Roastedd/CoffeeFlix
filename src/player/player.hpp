@@ -26,6 +26,7 @@ struct Source {
     std::string audio_url;       // optional separate audio stream (YouTube DASH)
     std::vector<std::pair<std::string, std::string>> headers;
     std::string user_agent;
+    bool chunked_http = false;   // download http(s) files through libcurl in ranged chunks (YouTube)
     double start = 0;            // seconds
     bool live = false;           // no seeking, unknown duration
     std::vector<std::pair<std::string, std::string>> external_subs;  // {label, url or path}
