@@ -137,12 +137,20 @@ To push a build to a Wii U running an FTP server: `WIIU_IP=192.168.x.x ./deploy.
 
 ### Desktop preview
 
-The same code runs on Linux, which makes UI work much faster:
+The same code runs on macOS and Linux, which makes UI work much faster.
 
 ```bash
-tools/build-deps.sh --host       # FFmpeg, MuPDF and libsmb2 for the host
+# macOS (Homebrew)
+brew install pkg-config cmake sdl2 sdl2_ttf sdl2_image ffmpeg curl jansson tinyxml2 libzip
+tools/build-deps.sh --host libsmb2   # once; add `mupdf` for PDF/EPUB in the reader
+make -f desktop.mk -j8 run
+
+# Linux
+tools/build-deps.sh --host           # FFmpeg, MuPDF and libsmb2 for the host
 make -f desktop.mk && ./build-desktop/coffeeflix
 ```
+
+Without FFmpeg in `deps/host` the system's is used. Test files go in `data/media/` (`Videos`, `Music`, `Photos`, `Books`).
 
 Keyboard: arrows move, `Enter`/`Z` = A, `Esc`/`Backspace`/`X` = B, `C` = X, `V` = Y, `Tab` = +, `Q`/`E` = L/R, `1`/`3` = ZL/ZR. Set `COFFEEFLIX_DATA=<dir>` to use a separate settings and media folder.
 

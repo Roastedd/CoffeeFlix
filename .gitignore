@@ -19,3 +19,5 @@ shaders/easter_egg.*
 # Built third-party libraries (tools/build-deps.sh)
 deps/
 build-desktop/
+# Desktop preview settings and test media
+data/
