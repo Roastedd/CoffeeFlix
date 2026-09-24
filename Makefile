@@ -81,7 +81,7 @@ ASFLAGS 	:= -g $(ARCH)
 LDFLAGS 	:= -g $(ARCH) $(RPXSPECS) -Wl,--gc-sections -Wl,-Map,$(notdir $*.map)
 
 PKGCONF 	:= $(DEVKITPRO)/portlibs/wiiu/bin/powerpc-eabi-pkg-config
-LIBS 		:= -lavformat -lavcodec -lswresample -lswscale -lavutil \
+LIBS 		:= -lavformat -lavcodec -lswresample -lswscale -lavutil -lsmb2 \
 			   $(shell $(PKGCONF) --libs --static SDL2_ttf SDL2_image libcurl jansson) \
 			   -lgif -lbrotlidec -lbrotlicommon -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
 

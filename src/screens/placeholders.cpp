@@ -1,14 +1,7 @@
 // Temporary screens replaced as features land.
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
-#include "services/smb.hpp"
 #include "ui/ui.hpp"
-
-namespace smb {
-std::vector<Share> saved_shares() { return {}; }
-void save_share(const Share&) {}
-void remove_share(const std::string&) {}
-}  // namespace smb
 
 namespace screens {
 
@@ -31,6 +24,5 @@ private:
 }  // namespace
 
 std::unique_ptr<app::Screen> make_reader(const std::string&) { return std::make_unique<Placeholder>("Reader", ic::BOOK); }
-std::unique_ptr<app::Screen> smb_browser_screen() { return std::make_unique<Placeholder>("Network shares", ic::LAN); }
 
 }  // namespace screens

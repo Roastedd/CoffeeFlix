@@ -1,6 +1,6 @@
 # Desktop preview build (Linux): make -f desktop.mk
 # Needs: SDL2, SDL2_ttf, SDL2_image, libcurl, jansson, tinyxml2, libzip, mbedtls
-# and `tools/build-deps.sh --host` for FFmpeg.
+# and `tools/build-deps.sh --host` for FFmpeg and libsmb2.
 BUILD    := build-desktop
 TARGET   := $(BUILD)/coffeeflix
 FFMPEG   := deps/host
@@ -13,7 +13,7 @@ PKGS     := sdl2 SDL2_ttf SDL2_image libcurl jansson tinyxml2 libzip
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=gnu++20 -Wall -Wno-sign-compare -Wno-unused-function -MMD -MP \
             -Isrc -I$(FFMPEG)/include $(shell pkg-config --cflags $(PKGS))
-LDLIBS   := -L$(FFMPEG)/lib -lavformat -lavcodec -lswresample -lswscale -lavutil \
+LDLIBS   := -L$(FFMPEG)/lib -lavformat -lavcodec -lswresample -lswscale -lavutil -lsmb2 \
             $(shell pkg-config --libs $(PKGS)) -lmbedtls -lmbedx509 -lmbedcrypto -lz -lpthread -lm
 
 all: $(TARGET)
