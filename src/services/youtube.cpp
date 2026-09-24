@@ -345,15 +345,7 @@ Results search(const std::string& query, const std::string& params, const std::s
 }
 
 Results trending() {
-    std::string err;
-    json_t* body = json_object();
-    json_object_set_new(body, "browseId", json_string("FEtrending"));
-    json::Doc doc = call("browse", WEB, body, err);
-    if (doc) {
-        Results r = parse_results(doc.get());
-        if (r.items.size() >= 6) return r;
-    }
-    // YouTube retired the Trending page in 2025: popular-this-week instead.
+    // YouTube retired the Trending page (FEtrending now answers 400): popular this week instead.
     return search("trending", PARAMS_POPULAR_WEEK);
 }
 
