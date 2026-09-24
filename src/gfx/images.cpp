@@ -106,6 +106,8 @@ void box_blur(SDL_Surface* s, int radius, int passes) {
     }
 }
 
+}  // namespace
+
 SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
     SDL_RWops* rw = SDL_RWFromConstMem(data.data(), (int)data.size());
     SDL_Surface* s = to_rgba(IMG_Load_RW(rw, 1));
@@ -124,6 +126,8 @@ SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
     }
     return s;
 }
+
+namespace {
 
 void load_job(std::shared_ptr<Entry> e) {
     tasks::submit(tasks::IMAGES, [e]() -> std::function<void()> {

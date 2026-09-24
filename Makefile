@@ -71,9 +71,15 @@ else
 OPTFLAGS 	:= -O2 -g -ffunction-sections -fdata-sections -fomit-frame-pointer
 endif
 
+# PDF/EPUB in the reader once tools/build-deps.sh has built MuPDF.
+ifneq ($(wildcard $(TOPDIR)/deps/install/lib/libmupdf.a),)
+PDF_FLAGS 	:= -DHAVE_MUPDF
+PDF_LIBS 	:= -lmupdf -lmupdf-third -ljpeg
+endif
+
 CFLAGS 		:= -Wall -Werror -Wno-unused-function -Wno-sign-compare $(OPTFLAGS) $(ARCH) \
 			   -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
-			   $(INCLUDE) -D__WIIU__ -D__WUT__ -DNO_PDF
+			   $(INCLUDE) -D__WIIU__ -D__WUT__ $(PDF_FLAGS)
 
 CXXFLAGS 	:= $(CFLAGS) -std=gnu++20
 
@@ -81,8 +87,8 @@ ASFLAGS 	:= -g $(ARCH)
 LDFLAGS 	:= -g $(ARCH) $(RPXSPECS) -Wl,--gc-sections -Wl,-Map,$(notdir $*.map)
 
 PKGCONF 	:= $(DEVKITPRO)/portlibs/wiiu/bin/powerpc-eabi-pkg-config
-LIBS 		:= -lavformat -lavcodec -lswresample -lswscale -lavutil \
-			   $(shell $(PKGCONF) --libs --static SDL2_ttf SDL2_image libcurl jansson) \
+LIBS 		:= -lavformat -lavcodec -lswresample -lswscale -lavutil $(PDF_LIBS) \
+			   $(shell $(PKGCONF) --libs --static SDL2_ttf SDL2_image libcurl jansson libzip) \
 			   -lgif -lbrotlidec -lbrotlicommon -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
 
 #-------------------------------------------------------------------------------
@@ -200,6 +206,9 @@ $(OUTPUT).rpx  : $(OUTPUT).elf
 $(OUTPUT).elf  : $(OFILES)
 
 $(OFILES_SRC) : $(HFILES_BIN)
+
+# Recompile the reader when MuPDF shows up (HAVE_MUPDF changes).
+reader_screen.o : $(wildcard $(TOPDIR)/deps/install/lib/libmupdf.a)
 
 #-------------------------------------------------------------------------------
 # you need a rule like this for each extension you use as binary data

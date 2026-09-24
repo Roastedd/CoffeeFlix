@@ -30,7 +30,6 @@ private:
 };
 }  // namespace
 
-std::unique_ptr<app::Screen> make_reader(const std::string&) { return std::make_unique<Placeholder>("Reader", ic::BOOK); }
 std::unique_ptr<app::Screen> smb_browser_screen() { return std::make_unique<Placeholder>("Network shares", ic::LAN); }
 
 }  // namespace screens
