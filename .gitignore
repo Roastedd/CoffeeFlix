@@ -19,3 +19,6 @@ shaders/easter_egg.*
 # Built third-party libraries (tools/build-deps.sh)
 deps/
 build-desktop/
+
+# Local agent worktrees
+.claude/worktrees/
