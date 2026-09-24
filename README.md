@@ -6,7 +6,7 @@
 
 **CoffeeFlix** puts your movies, videos, live streams, music, radio, podcasts, photos and comics in one fast, animated app built for the TV and the GamePad.
 
-- 📺 **YouTube**: trending, music, gaming and more, plus search, subscriptions and watch history. Plays in up to 720p with hardware H.264 decoding.
+- 📺 **YouTube**: a *For you* feed that learns what you like on the console itself (no account, nothing leaves the Wii U), popular videos by topic, search, subscriptions and watch history. Plays in up to 720p with hardware H.264 decoding.
 - 🍿 **Jellyfin**: your own movie and TV server. Sign in with Quick Connect or a password. Includes continue watching, next up, libraries, seasons and episodes, direct play or transcoding, server subtitles, and resume that syncs back to the server.
 - 🟣 **Twitch**: live channels, search and a local follow list, at your chosen quality (60 fps optional).
 - 📻 **Radio**: over 40,000 stations from radio-browser.info, by country and genre, with favorites and live "now playing" titles.
@@ -53,6 +53,7 @@ The GamePad, Pro Controller, Classic Controller and Wii Remote (with pointer) al
 | `A` | Select |
 | `B` | Back; at the top of a section it opens the sidebar, and again goes Home |
 | `X` | The action shown at the bottom right: favorite, subscribe, follow, remove |
+| `Y` | On YouTube videos: *Not interested* (you'll see less like it) |
 | `+` | Open *Now Playing* while music or radio plays in the background |
 
 | Button | Video player |
@@ -92,7 +93,7 @@ The reader reopens every book on the page where you stopped.
 
 ## ⚙️ Settings
 
-Accent color, interface sounds, screensaver delay, streaming quality for YouTube, Jellyfin and Twitch, 60 fps streams, default subtitles, your region (used for trending and radio), connection security, and Jellyfin sign-out. Everything is saved to `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
+Accent color, interface sounds, screensaver delay, streaming quality for YouTube, Jellyfin and Twitch, 60 fps streams, default subtitles, your region (used for popular videos and radio), connection security, Jellyfin sign-out, and resetting what the YouTube *For you* feed has learned. Everything is saved to `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
 
 ---
 

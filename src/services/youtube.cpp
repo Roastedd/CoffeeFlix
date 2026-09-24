@@ -1,6 +1,7 @@
 #include "services/youtube.hpp"
 
 #include <algorithm>
+#include <future>
 #include <mutex>
 #include <set>
 
@@ -12,6 +13,7 @@
 #include "logger/logger.hpp"
 #include "player/player.hpp"
 #include "services/hls.hpp"
+#include "services/yt_recs.hpp"
 
 namespace youtube {
 
@@ -356,8 +358,26 @@ Results search(const std::string& query, const std::string& params, const std::s
 }
 
 Results trending() {
-    // YouTube retired the Trending page (FEtrending now answers 400): popular this week instead.
-    return search("trending", PARAMS_POPULAR_WEEK);
+    // YouTube retired the Trending page (FEtrending now answers 400). Searching for "trending"
+    // mostly finds spam tagged #trending, so mix the most-viewed videos of the week from a few
+    // broad topics instead.
+    static const char* const QUERIES[] = {"music video", "gaming", "news today", "official trailer", "comedy",
+                                          "sports highlights"};
+    std::vector<std::future<Results>> parts;
+    for (const char* q : QUERIES)
+        parts.push_back(std::async(std::launch::async, [q] { return search(q, PARAMS_POPULAR_WEEK); }));
+    std::vector<Results> got;
+    Results out;
+    for (auto& p : parts) {
+        got.push_back(p.get());
+        if (!got.back().ok && out.error.empty()) out.error = got.back().error;
+    }
+    std::set<std::string> seen;
+    for (size_t k = 0; k < 8; k++)
+        for (auto& r : got)
+            if (k < r.items.size() && seen.insert(r.items[k].id).second) out.items.push_back(r.items[k]);
+    out.ok = !out.items.empty() || out.error.empty();
+    return out;
 }
 
 Results channel_videos(const std::string& channel_id, const std::string& continuation) {
@@ -376,6 +396,24 @@ Results channel_videos(const std::string& channel_id, const std::string& continu
         return r;
     }
     return parse_results(doc.get());
+}
+
+Results related(const std::string& video_id) {
+    std::string err;
+    json_t* body = json_object();
+    json_object_set_new(body, "videoId", json_string(video_id.c_str()));
+    json::Doc doc = call("next", WEB, body, err);
+    if (!doc) {
+        Results r;
+        r.error = err;
+        return r;
+    }
+    // The sidebar ("up next"); the rest of the watch page describes the video itself.
+    json_t* side = json::at(doc.get(), {"contents", "twoColumnWatchNextResults", "secondaryResults"});
+    Results r = parse_results(side ? side : doc.get());
+    r.items.erase(std::remove_if(r.items.begin(), r.items.end(), [&](const Video& v) { return v.id == video_id; }),
+                  r.items.end());
+    return r;
 }
 
 std::string thumbnail(const std::string& id) { return "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg"; }
@@ -406,6 +444,7 @@ player::Source make_source(const Video& v) {
     int q = (int)store::get_int("yt_quality", 720);
     std::string id = v.id;
     s.resolve = [id, q](player::Source& src, std::string& err) { return resolve(id, q, src, err); };
+    s.on_stop = [v](double position, bool finished) { yt_recs::on_watch(v, position, finished); };
     return s;
 }
 

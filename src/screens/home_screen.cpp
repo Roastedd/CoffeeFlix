@@ -14,6 +14,7 @@
 #include "services/radio.hpp"
 #include "services/twitch.hpp"
 #include "services/youtube.hpp"
+#include "services/yt_recs.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -329,7 +330,10 @@ private:
                 dirty_ = true;
             });
         }
-        scope_.run<youtube::Results>([] { return youtube::trending(); }, [this](youtube::Results r) {
+        yt_personal_ = yt_recs::has_profile();
+        bool personal = yt_personal_;
+        scope_.run<youtube::Results>([personal] { return personal ? yt_recs::for_you() : youtube::trending(); },
+                                     [this](youtube::Results r) {
             yt_ = std::move(r.items);
             yt_loading_ = false;
             dirty_ = true;
@@ -359,7 +363,7 @@ private:
         for (auto& s : radio::favorites()) stations.items.push_back(from_station(s));
         rows_.push_back(std::move(stations));
 
-        Row yt{"Trending on YouTube", CARD_WIDE, 300, {}, yt_loading_};
+        Row yt{yt_personal_ ? "Recommended for you" : "Popular on YouTube", CARD_WIDE, 300, {}, yt_loading_};
         for (auto& v : yt_) yt.items.push_back(from_youtube(v));
         rows_.push_back(std::move(yt));
     }
@@ -368,6 +372,7 @@ private:
     std::vector<jellyfin::Item> jf_resume_, jf_next_;
     std::vector<twitch::Stream> tw_live_;
     std::vector<youtube::Video> yt_;
+    bool yt_personal_ = false;
     bool jf_loading_ = false, tw_loading_ = false, yt_loading_ = false;
     bool dirty_ = true;
     int focus_row_ = -1, focus_col_ = -1;
