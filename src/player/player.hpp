@@ -45,6 +45,12 @@ struct Source {
     int quality = 0;
     std::string quality_setting;
 
+    // Audio languages the service offers as separate streams (YouTube dubs), {id, label},
+    // switched by reopening. `resolve` reads `audio_language` ("" = the original), sets it to
+    // the one it picked and fills the list.
+    std::vector<std::pair<std::string, std::string>> audio_languages;
+    std::string audio_language;
+
     // Optional: runs on the player's opener thread before anything is opened,
     // to turn an id into stream URLs (YouTube, Jellyfin, Twitch). Return false
     // and set the error message to fail playback.

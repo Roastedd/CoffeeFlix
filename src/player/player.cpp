@@ -818,20 +818,26 @@ void open_session(std::shared_ptr<Session> sp) {
     if (v >= 0 && (f0->streams[v]->disposition & AV_DISPOSITION_ATTACHED_PIC)) v = -1;
     s.in[0].video = v;
 
-    // Audio tracks of the primary input.
+    // Audio and subtitle tracks of the primary input (published at once: the screen reads them).
+    std::vector<Track> audio_tracks, sub_tracks;
     int n_audio = 0;
     for (unsigned i = 0; i < f0->nb_streams; i++) {
         AVStream* st = f0->streams[i];
-        if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) s.audio_tracks.push_back(Track{(int)i, stream_label(st, ++n_audio)});
+        if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) audio_tracks.push_back(Track{(int)i, stream_label(st, ++n_audio)});
         if (st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
             AVCodecID id = st->codecpar->codec_id;
             if (id == AV_CODEC_ID_SUBRIP || id == AV_CODEC_ID_TEXT || id == AV_CODEC_ID_ASS || id == AV_CODEC_ID_SSA ||
                 id == AV_CODEC_ID_MOV_TEXT || id == AV_CODEC_ID_WEBVTT)
-                s.sub_tracks.push_back(Track{(int)i, stream_label(st, (int)s.sub_tracks.size() + 1)});
+                sub_tracks.push_back(Track{(int)i, stream_label(st, (int)sub_tracks.size() + 1)});
         }
     }
     for (size_t i = 0; i < s.src.external_subs.size(); i++)
-        s.sub_tracks.push_back(Track{1000 + (int)i, s.src.external_subs[i].first});
+        sub_tracks.push_back(Track{1000 + (int)i, s.src.external_subs[i].first});
+    {
+        std::lock_guard<std::mutex> lk(s.meta_m);
+        s.audio_tracks = std::move(audio_tracks);
+        s.sub_tracks = std::move(sub_tracks);
+    }
 
     if (s.inputs == 2) {
         s.in[1].audio = av_find_best_stream(s.in[1].fmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
@@ -894,7 +900,10 @@ void open_session(std::shared_ptr<Session> sp) {
         set_error(s, "Unsupported codecs");
         return;
     }
-    s.codec = vinfo.empty() ? ainfo : ainfo.empty() ? vinfo : vinfo + " \xC2\xB7 " + ainfo;
+    {
+        std::lock_guard<std::mutex> lk(s.meta_m);
+        s.codec = vinfo.empty() ? ainfo : ainfo.empty() ? vinfo : vinfo + " \xC2\xB7 " + ainfo;
+    }
 
     if (f0->duration > 0) s.duration = f0->duration / (double)AV_TIME_BASE;
     else if (s.src.live) s.duration = 0;
@@ -1120,6 +1129,26 @@ void ffmpeg_log(void* avcl, int level, const char* fmt, va_list vl) {
     log_message(level <= AV_LOG_ERROR ? LOG_ERROR : LOG_WARNING, "FFmpeg", "%s: %s", who.c_str(), text);
 }
 
+// The language picked for this video (kept when reopening it), "" for the original.
+std::string chosen_language(Session& s) {
+    std::lock_guard<std::mutex> lk(s.meta_m);
+    return s.src.audio_languages.empty() ? "" : s.src.audio_language;
+}
+
+// Same position and settings, another audio language (the service resolves it again).
+void reopen_with_language(const std::string& language) {
+    Source src = g_s->original;
+    src.audio_language = language;
+    src.quality = g_s->src.quality > 0 ? g_s->src.quality : src.quality;
+    if (!src.live) src.start = std::max(src.start, g_s->last_clock);
+    auto queue = std::move(g_queue);
+    int qi = g_queue_index;
+    if (qi >= 0 && qi < (int)queue.size()) queue[qi].audio_language = language;
+    start_session(src, -1);
+    g_queue = std::move(queue);
+    g_queue_index = qi;
+}
+
 }  // namespace
 
 void init() {
@@ -1200,6 +1229,7 @@ void retry() {
     if (!g_s) return;
     Source src = g_s->original;
     src.start = std::max(src.start, g_s->last_clock);
+    src.audio_language = chosen_language(*g_s);
     auto queue = std::move(g_queue);
     int qi = g_queue_index;
     start_session(src, -1);
@@ -1213,6 +1243,7 @@ void set_quality(int height) {
     if (!g_s || g_s->original.quality == height) return;
     Source src = g_s->original;
     src.quality = height;
+    src.audio_language = chosen_language(*g_s);
     if (!src.live) src.start = std::max(src.start, g_s->last_clock);
     auto queue = std::move(g_queue);
     int qi = g_queue_index;
@@ -1322,7 +1353,11 @@ bool has_video() { return g_s && g_s->has_video; }
 bool audio_only() { return g_s && !g_s->has_video && g_s->has_audio; }
 int video_width() { return g_s ? g_s->vw : 0; }
 int video_height() { return g_s ? g_s->vh : 0; }
-std::string codec_info() { return g_s ? g_s->codec : ""; }
+std::string codec_info() {
+    if (!g_s) return "";
+    std::lock_guard<std::mutex> lk(g_s->meta_m);
+    return g_s->codec;
+}
 
 float buffering_progress() {
     if (!g_s) return 0;
@@ -1342,12 +1377,42 @@ std::string artwork_key() {
     return g_s->art_key;
 }
 
-std::vector<Track> audio_tracks() { return g_s ? g_s->audio_tracks : std::vector<Track>{}; }
+// Tracks come from the file, or from the service (YouTube's dubs, one stream per language).
+std::vector<Track> audio_tracks() {
+    if (!g_s) return {};
+    std::lock_guard<std::mutex> lk(g_s->meta_m);
+    const auto& langs = g_s->src.audio_languages;
+    if (langs.empty()) return g_s->audio_tracks;
+    std::vector<Track> out;
+    for (size_t i = 0; i < langs.size(); i++) out.push_back(Track{(int)i, langs[i].second});
+    return out;
+}
 
-int audio_track() { return g_s ? g_s->in[0].audio : -1; }
+int audio_track() {
+    if (!g_s) return -1;
+    std::lock_guard<std::mutex> lk(g_s->meta_m);
+    const auto& langs = g_s->src.audio_languages;
+    for (size_t i = 0; i < langs.size(); i++)
+        if (langs[i].first == g_s->src.audio_language) return (int)i;
+    return langs.empty() ? g_s->in[0].audio : -1;
+}
 
 void set_audio_track(int index) {
-    if (!g_s || g_s->inputs != 1 || index == g_s->in[0].audio) return;
+    if (!g_s) return;
+    std::string language;
+    {
+        std::lock_guard<std::mutex> lk(g_s->meta_m);
+        const auto& langs = g_s->src.audio_languages;
+        if (!langs.empty()) {
+            if (index < 0 || index >= (int)langs.size() || langs[index].first == g_s->src.audio_language) return;
+            language = langs[index].first;
+        }
+    }
+    if (!language.empty()) {
+        reopen_with_language(language);
+        return;
+    }
+    if (g_s->inputs != 1 || index == g_s->in[0].audio) return;
     Source src = g_s->src;
     src.start = position();
     auto queue = std::move(g_queue);
@@ -1357,7 +1422,11 @@ void set_audio_track(int index) {
     g_queue_index = qi;
 }
 
-std::vector<Track> subtitle_tracks() { return g_s ? g_s->sub_tracks : std::vector<Track>{}; }
+std::vector<Track> subtitle_tracks() {
+    if (!g_s) return {};
+    std::lock_guard<std::mutex> lk(g_s->meta_m);
+    return g_s->sub_tracks;
+}
 
 int subtitle_track() {
     if (!g_s) return -1;
