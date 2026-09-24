@@ -40,11 +40,16 @@ struct Client {
 const Client WEB{"WEB", 1, "2.20250922.01.00",
                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
                  "", "", "Windows", "10.0", 0};
-const Client ANDROID_VR{"ANDROID_VR", 28, "1.62.27",
-                        "com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+// Playback clients. VISIONOS needs neither a PO token nor the JS player (yt-dlp's default
+// without a JS runtime as of 2026.08, and Flow's primary client). ANDROID_VR's file URLs now
+// stop after about a minute without a PO token, so it's only used for live HLS; IOS returns
+// SABR-only or 403ing URLs and is gone.
+const Client VISIONOS{"VISIONOS", 101, "1.02",
+                      "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+                      "Apple", "RealityDevice17,1", "visionOS", "26.5.23O471", 0};
+const Client ANDROID_VR{"ANDROID_VR", 28, "1.65.10",
+                        "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
                         "Oculus", "Quest 3", "Android", "12L", 32};
-const Client IOS{"IOS", 5, "20.10.4", "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
-                 "Apple", "iPhone16,2", "iPhone", "18.3.2.22D82", 0};
 
 std::mutex g_visitor_m;
 std::string g_visitor;
@@ -76,6 +81,8 @@ json_t* context(const Client& c) {
     if (*c.os_name) json_object_set_new(client, "osName", json_string(c.os_name));
     if (*c.os_version) json_object_set_new(client, "osVersion", json_string(c.os_version));
     if (c.android_sdk) json_object_set_new(client, "androidSdkVersion", json_integer(c.android_sdk));
+    // The app clients repeat their user agent in the context, like the real apps.
+    if (&c != &WEB) json_object_set_new(client, "userAgent", json_string(c.user_agent));
     std::string vd = visitor();
     if (!vd.empty()) json_object_set_new(client, "visitorData", json_string(vd.c_str()));
     json_t* ctx = json_object();
@@ -274,6 +281,10 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
         }
         return from_hls(hls_url, max_height, c, src, error);
     }
+    if (&c == &ANDROID_VR) {
+        error = "This video can't be played right now";
+        return false;
+    }
 
     std::vector<Format> adaptive = formats(json_object_get(sd, "adaptiveFormats"));
     const Format* best_v = nullptr;
@@ -372,7 +383,7 @@ std::string thumbnail_hq(const std::string& id) { return "https://i.ytimg.com/vi
 
 bool resolve(const std::string& id, int max_height, player::Source& src, std::string& error) {
     std::string first_error;
-    for (const Client* c : {&ANDROID_VR, &IOS}) {
+    for (const Client* c : {&VISIONOS, &ANDROID_VR}) {
         std::string err;
         if (try_client(*c, id, max_height, src, err)) return true;
         log_message(LOG_WARNING, "YouTube", "%s client failed for %s: %s", c->name, id.c_str(), err.c_str());
