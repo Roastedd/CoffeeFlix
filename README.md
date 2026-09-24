@@ -8,6 +8,8 @@ A media app for the Wii U. It plays YouTube, Twitch, your Jellyfin server, inter
 
 **Download:** [roastedd.github.io/CoffeeFlix](https://roastedd.github.io/CoffeeFlix/) or the [latest release](https://github.com/roastedd/coffeeflix/releases/latest).
 
+CoffeeFlix is free. If you enjoy it, you can [buy me a coffee on Ko-fi](https://ko-fi.com/ubecatstudio). ☕
+
 ## What it does
 
 - **YouTube** without signing in. Subscriptions live on your SD card, and so does the *For you* feed, which learns from what you watch without sending anything anywhere. You get channel pages (videos, Shorts, live, playlists), search, *Watch later*, history, captions and [SponsorBlock](https://sponsor.ajay.app) skipping. Pick 360p to 1080p from the player; 720p is the default. Videos with dubbed audio play in their original language, and the player lists the dubs if you'd rather hear one.
@@ -112,6 +114,10 @@ make -f desktop.mk && ./build-desktop/coffeeflix
 Keys: arrows move, Enter or Z is A, Esc, Backspace or X is B, C is X, V is Y, Tab is +, Q and E are L and R, 1 and 3 are ZL and ZR. Test media goes in `data/media/`, or set `COFFEEFLIX_DATA` to another folder.
 
 The download site is in [docs](docs/index.html) (GitHub Pages), the Homebrew App Store package in [packaging/hbas](packaging/hbas/README.md), and `tools/make-branding.py` draws the icon, splash screens and store art.
+
+## Support
+
+CoffeeFlix is free and made in my spare time. If it's become part of your Wii U setup and you'd like to say thanks, you can [support it on Ko-fi](https://ko-fi.com/ubecatstudio). Bug reports and ideas in the [issues](https://github.com/Roastedd/CoffeeFlix/issues) help just as much.
 
 ## License
 
