@@ -200,7 +200,7 @@ inline void SubRipParser::parse(std::string fileName)      //srt parser
 
     std::ifstream infile(fileName);
     std::string line, start, end, completeLine = "", timeLine = "";
-    int subNo, turn = 0;
+    int subNo = 0, turn = 0;
 
     /*
      * turn = 0 -> Add subtitle number

@@ -14,7 +14,7 @@ Made with ❤️ and ☕
 
 ## 📦 Installation
 
-1. [Download the latest release](https://github.com/whateveritwas/cafemp/releases/latest).
+1. [Download the latest release](https://github.com/roastedd/coffeeflix/releases/latest) (or grab `coffeeflix-<commit>` from the latest [Build](https://github.com/roastedd/coffeeflix/actions/workflows/build.yml) run).
 2. Extract the ZIP file to the **root of your SD card**.
 3. Place your media files into:  
    `sd:/wiiu/apps/coffeeflix/`
@@ -35,7 +35,21 @@ Made with ❤️ and ☕
 2. Select your desired media type from the sidebar.
 3. Use the file browser to locate and select and play your media.
 
-> 📋 **For Developers**: Check out our [Development Roadmap](DEVELOPMENT_ROADMAP.md) for planned features and contributing guidelines.
+---
+
+## 🛠️ Building
+
+Every push is built by GitHub Actions ([`.github/workflows/build.yml`](.github/workflows/build.yml)); pushing a `v*` tag publishes a release.
+
+To build locally you only need Docker:
+
+```bash
+tools/docker-build.sh            # first run also builds FFmpeg-wiiu into deps/
+tools/docker-build.sh DEBUG=1    # unoptimized build with debug logging
+```
+
+With devkitPro installed natively (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-giflib`), run `tools/build-deps.sh` once, then `make`.
+To push a build to a Wii U running an FTP server: `WIIU_IP=192.168.x.x ./deploy.sh`.
 
 ### 🎥 Controls – Video Player
 
