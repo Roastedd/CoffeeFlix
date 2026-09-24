@@ -1,5 +1,5 @@
 #!/bin/bash
-# CafeMP Quick Deploy Script
+# CoffeeFlix Quick Deploy Script
 # Builds and deploys to Wii U without full reboot
 
 set -e
@@ -10,10 +10,10 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-WIIU_IP="10.0.0.123"
-WIIU_PATH="/fs/vol/external01/wiiu/apps/CafeMP"
+WIIU_IP="${WIIU_IP:-10.0.0.123}"
+WIIU_PATH="/fs/vol/external01/wiiu/apps/coffeeflix"
 
-echo -e "${BLUE}=== CafeMP Quick Deploy ===${NC}"
+echo -e "${BLUE}=== CoffeeFlix Quick Deploy ===${NC}"
 
 # Set devkitPro environment
 export DEVKITPRO=/opt/devkitpro
@@ -21,7 +21,7 @@ export DEVKITPPC=/opt/devkitpro/devkitPPC
 export WUT_ROOT=/opt/devkitpro/wut
 
 # Build
-echo -e "${BLUE}Building CafeMP...${NC}"
+echo -e "${BLUE}Building CoffeeFlix...${NC}"
 make -j$(sysctl -n hw.ncpu)
 
 if [ $? -ne 0 ]; then
@@ -31,7 +31,7 @@ fi
 
 # Upload
 echo -e "${BLUE}Uploading to Wii U at ${WIIU_IP}...${NC}"
-lftp -e "set ftp:passive-mode off; cd ${WIIU_PATH}; put CafeMP.wuhb; bye" -u anonymous,anonymous ${WIIU_IP}
+lftp -e "set ftp:passive-mode off; cd ${WIIU_PATH}; put coffeeflix.wuhb; bye" -u anonymous,anonymous ${WIIU_IP}
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Deploy complete!${NC}"
