@@ -24,6 +24,9 @@
 #include "logger/logger.hpp"
 #include "platform/text_input.hpp"
 
+// Our FFmpeg's socket hook (tools/patches/ffmpeg/0002-tcp-socket-setup-hook.patch).
+extern "C" void (*ff_tcp_socket_setup)(int fd);
+
 namespace platform {
 
 namespace {
@@ -174,6 +177,7 @@ bool init() {
     nn::ac::GetStartupId(&config_id);
     g_ac_ok = nn::ac::Connect(config_id);
     donate_socket_pool();
+    ff_tcp_socket_setup = tune_socket;  // FFmpeg's own connections (Twitch, radio) too
     WHBProcInit();
     VPADInit();
     KPADInit();
