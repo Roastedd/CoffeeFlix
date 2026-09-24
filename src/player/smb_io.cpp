@@ -60,10 +60,4 @@ void smb_io_free(AVIOContext* pb) {
     avio_context_free(&pb);
 }
 
-void close_input(AVFormatContext** fmt) {
-    AVIOContext* pb = *fmt && ((*fmt)->flags & AVFMT_FLAG_CUSTOM_IO) ? (*fmt)->pb : nullptr;
-    avformat_close_input(fmt);
-    smb_io_free(pb);
-}
-
 }  // namespace player
