@@ -150,6 +150,16 @@ def store_icon():
     finish(img, w, h, "store_icon.png")
 
 
+def hbl_icon():
+    # Homebrew Launcher list icon for the Tiramisu build.
+    w, h = 256, 96
+    img = canvas(w, h)
+    glow(img, 50 * SS, 48 * SS, 120 * SS, 90 * SS, ACCENT, 0.30)
+    logo(img, 50, 48, 30)
+    wordmark(img, 0, 30, 30, center=False, x=94)
+    finish(img, w, h, "hbl_icon.png")
+
+
 def store_screen():
     w, h = 848, 208
     img = canvas(w, h)
@@ -167,3 +177,4 @@ if __name__ == "__main__":
     splash(854, 480, "splash_drc.png")
     store_icon()
     store_screen()
+    hbl_icon()

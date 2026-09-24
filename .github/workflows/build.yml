@@ -36,14 +36,32 @@ jobs:
         run: |
           mkdir -p dist/wiiu/apps/coffeeflix
           cp coffeeflix.wuhb LICENSE.md content/licenses/NOTICES.txt dist/wiiu/apps/coffeeflix/
-          cd dist && zip -qr ../coffeeflix.zip wiiu
+          (cd dist && zip -qr ../coffeeflix.zip wiiu)
+          # Tiramisu: a bare .rpx for the Homebrew Launcher, with the bundled files beside it.
+          app=dist-tiramisu/wiiu/apps/coffeeflix
+          mkdir -p "$app"
+          cp -r coffeeflix.rpx content LICENSE.md "$app/"
+          cp branding/hbl_icon.png "$app/icon.png"
+          version="${GITHUB_REF_NAME#v}"
+          case "$GITHUB_REF" in refs/tags/v*) ;; *) version="dev-${GITHUB_SHA::7}" ;; esac
+          cat > "$app/meta.xml" <<EOF
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <app version="1">
+            <name>CoffeeFlix</name>
+            <coder>Roastedd</coder>
+            <version>$version</version>
+            <short_description>YouTube, Twitch, Jellyfin, radio, podcasts and your media</short_description>
+            <long_description>A media app for the Wii U. This is the Tiramisu build; on Aroma, use coffeeflix.wuhb instead.</long_description>
+          </app>
+          EOF
+          (cd dist-tiramisu && zip -qr ../coffeeflix-tiramisu.zip wiiu)
 
       - uses: actions/upload-artifact@v4
         with:
           name: coffeeflix-${{ github.sha }}
           path: |
             dist/
-            coffeeflix.rpx
+            dist-tiramisu/
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -52,8 +70,11 @@ jobs:
           files: |
             coffeeflix.zip
             coffeeflix.wuhb
+            coffeeflix-tiramisu.zip
           generate_release_notes: true
           body: |
             **Install:** extract `coffeeflix.zip` to the root of your SD card (or put `coffeeflix.wuhb` in `sd:/wiiu/apps/coffeeflix/`) and start CoffeeFlix from the Wii U Menu. Needs [Aroma](https://aroma.foryour.cafe).
+
+            **Tiramisu:** use `coffeeflix-tiramisu.zip` instead (extract it to the root of your SD card and start CoffeeFlix from the Homebrew Launcher). This build is new and less tested, so please report how it goes.
 
             ☕ Enjoying CoffeeFlix? You can support it on [Ko-fi](https://ko-fi.com/ubecatstudio).
