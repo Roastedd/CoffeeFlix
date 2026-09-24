@@ -71,6 +71,8 @@ void open_queue(std::vector<Source> queue, int index);
 void close();
 void retry();               // reopen the current source from scratch (re-resolving URLs)
 void set_quality(int height);  // reopen at the same position with another of source().qualities
+// The viewer chose a video_decoding setting: forget the safer level the player fell back to.
+void reset_decoding_fallback();
 bool next();
 bool previous();
 bool has_next();

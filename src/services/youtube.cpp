@@ -110,7 +110,12 @@ json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string&
         error = r.error.empty() ? "YouTube request failed" : r.error;
         return json::Doc();
     }
+    double t0 = util::now_seconds();
     json::Doc doc = json::Doc::parse(r.body);
+    double took = util::now_seconds() - t0;
+    if (took > 1.0 || getenv("COFFEEFLIX_HTTP_TRACE"))
+        log_message(took > 1.0 ? LOG_WARNING : LOG_DEBUG, "YouTube", "%s: %zu KB of JSON parsed in %.2f s", endpoint,
+                    r.body.size() / 1024, took);
     if (!doc) error = "Unexpected response from YouTube";
     else remember_visitor(doc.get());
     return doc;
