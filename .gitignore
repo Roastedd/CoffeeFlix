@@ -18,3 +18,4 @@ shaders/easter_egg.*
 .settings
 # Built third-party libraries (tools/build-deps.sh)
 deps/
+build-desktop/
