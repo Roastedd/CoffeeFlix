@@ -25,6 +25,16 @@ struct Prompt {
     bool password = false;
 } g_prompt;
 
+struct Menu {
+    bool active = false;
+    std::string title, subtitle;
+    std::vector<MenuItem> items;
+    double opened = 0;
+    Id return_focus = 0;
+    const app::Screen* owner = nullptr;       // the screen it was opened on (its actions use it)
+    const app::Screen* restore_on = nullptr;  // re-apply return_focus next frame on this screen
+} g_menu;
+
 float image_height(CardShape shape, float w) {
     switch (shape) {
         case CARD_WIDE: return w * 9.0f / 16.0f;
@@ -227,6 +237,10 @@ float shelf(Id id, float x, float y, const ShelfSpec& s, Page* page) {
                 input().eat(BTN_X);
                 s.on_x(i);
             }
+            if (s.on_y && input().pressed_(BTN_Y)) {
+                input().eat(BTN_Y);
+                s.on_y(i);
+            }
         }
         if (clicked && s.on_click) s.on_click(i);
     }
@@ -268,6 +282,10 @@ float grid(Id id, float x, float y, const GridSpec& s, Page* page) {
             if (s.on_x && input().pressed_(BTN_X)) {
                 input().eat(BTN_X);
                 s.on_x(i);
+            }
+            if (s.on_y && input().pressed_(BTN_Y)) {
+                input().eat(BTN_Y);
+                s.on_y(i);
             }
             int rows = (s.count + s.cols - 1) / s.cols;
             if (s.on_reach_end && row >= rows - 2) s.on_reach_end();
@@ -392,6 +410,98 @@ void draw_prompt() {
     if (std::fmod((float)ui::time(), 1.0f) < 0.55f) gfx::fill_rect(Rect(tx + tw + 3, field.cy() - 14, 2.5f, 28), t.accent);
     gfx::pop_clip();
     text::draw(font::small, card.x + 36, card.b() - 46, "Type on your keyboard \xC2\xB7 Enter to confirm \xC2\xB7 Esc to cancel", t.text3);
+}
+
+// --- action menu ------------------------------------------------------------------
+
+void show_menu(const std::string& title, const std::string& subtitle, std::vector<MenuItem> items) {
+    if (items.empty()) return;
+    if (!g_menu.active) g_menu.return_focus = focused();
+    g_menu.active = true;
+    g_menu.owner = app::top();
+    g_menu.title = title;
+    g_menu.subtitle = subtitle;
+    g_menu.items = std::move(items);
+    g_menu.opened = ui::time();
+    reset_focus();
+    audio::play(audio::SFX_OPEN, 0.6f);
+}
+
+bool menu_active() { return g_menu.active; }
+
+namespace {
+void hide_menu() {
+    g_menu.active = false;
+    g_menu.items.clear();
+    if (g_menu.return_focus) set_focus(g_menu.return_focus);
+    else reset_focus();
+    // Closing from an action happens after this frame's menu items were laid out, which
+    // overrides the focus again; put it back once the screen underneath has drawn.
+    g_menu.restore_on = app::top();
+}
+}  // namespace
+
+void close_menu() {
+    if (!g_menu.active) return;
+    hide_menu();
+    audio::play(audio::SFX_BACK);
+}
+
+void draw_menu() {
+    if (!g_menu.active) {
+        if (g_menu.restore_on) {
+            if (g_menu.restore_on == app::top() && g_menu.return_focus) set_focus(g_menu.return_focus);
+            g_menu.restore_on = nullptr;
+        }
+        return;
+    }
+    if (app::top() != g_menu.owner) {
+        // Another screen took over (e.g. + opened Now Playing): the actions belong to the old one.
+        g_menu.active = false;
+        g_menu.items.clear();
+        return;
+    }
+    const Theme& t = theme();
+    float a = anim::ease_out_cubic((float)(ui::time() - g_menu.opened) / 0.25f);
+    gfx::fill_rect(Rect(0, 0, W, H), Color(4, 3, 6, (uint8_t)(150 * a)));
+    float pw = 460, x = W - pw * a;
+    gfx::fill_rect_hgrad(Rect(x - 80, 0, 80, H), Color(8, 6, 12, 0), Color(8, 6, 12, 230));
+    gfx::fill_rect(Rect(x, 0, pw, H), Color(12, 10, 16, 242));
+
+    float y = 56;
+    y += text::draw_wrapped(font::title, Rect(x + 36, y, pw - 72, 70), g_menu.title, t.text, 2) + 6;
+    if (!g_menu.subtitle.empty()) {
+        text::draw_fit(font::body, x + 36, y, pw - 72, g_menu.subtitle, t.text2);
+        y += 34;
+    }
+    y += 18;
+
+    push_layer();
+    Id g = id("actionmenu");
+    std::function<void()> run;
+    for (size_t i = 0; i < g_menu.items.size(); i++) {
+        const MenuItem& m = g_menu.items[i];
+        Rect r(x + 24, y, pw - 48, 60);
+        Item it = focusable(id(g, (int64_t)i), r, g, i == 0 ? F_DEFAULT : 0);
+        gfx::fill_rrect(r, 14, gfx::lerp(Color(255, 255, 255, 0), t.surface_focus, it.f));
+        Color fg = gfx::lerp(t.text, gfx::rgb(0x15121A), it.f);
+        if (m.icon) text::icon(m.icon, 26, r.x + 30, r.cy(), gfx::lerp(t.accent, fg, it.f));
+        text::draw_fit(font::body_bold, r.x + 60, r.cy() - 12, r.w - 76, m.label, fg);
+        if (it.clicked) run = m.action;
+        y += 66;
+    }
+    pop_layer();
+
+    float hx = x + 36, hy = H - 48;
+    button_glyph(hx + 13, hy + 13, "A", 24);
+    text::draw(font::small_bold, hx + 32, hy + 3, "Select", t.text2);
+    button_glyph(hx + 123, hy + 13, "B", 24);
+    text::draw(font::small_bold, hx + 142, hy + 3, "Close", t.text2);
+
+    if (run) {
+        hide_menu();  // focusable() already played the select sound
+        run();
+    }
 }
 
 }  // namespace screens

@@ -156,7 +156,8 @@ inline void for_each_key(json_t* j, const char* key, F&& fn, int max_depth = 24)
 }
 
 inline std::string dump(json_t* j) {
-    char* s = json_dumps(j, JSON_COMPACT);
+    // ENCODE_ANY: without it jansson returns NULL for anything but objects and arrays.
+    char* s = json_dumps(j, JSON_COMPACT | JSON_ENCODE_ANY);
     std::string out = s ? s : "";
     free(s);
     return out;

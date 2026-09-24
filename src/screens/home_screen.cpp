@@ -14,6 +14,8 @@
 #include "services/radio.hpp"
 #include "services/twitch.hpp"
 #include "services/youtube.hpp"
+#include "services/yt_recs.hpp"
+#include "screens/youtube_common.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -29,6 +31,7 @@ struct HomeItem {
     bool live = false;
     std::string badge;
     std::function<void()> open;
+    std::function<void()> more;  // X
 };
 
 struct Row {
@@ -64,7 +67,8 @@ HomeItem from_resume(const store::Resume& r) {
         v.id = r.id;
         v.title = r.title;
         v.channel = r.subtitle;
-        h.open = [v] { play_video(youtube::make_source(v)); };
+        h.open = [v] { yt::play(v); };
+        h.more = [v] { yt::video_menu(v); };
     } else if (r.service == "podcast") {
         h.icon = ic::PODCASTS;
         h.service = "Podcast";
@@ -132,7 +136,8 @@ HomeItem from_youtube(const youtube::Video& v) {
     h.hero = youtube::thumbnail_hq(v.id);
     h.badge = v.live ? "" : v.duration;
     h.live = v.live;
-    h.open = [v] { play_video(youtube::make_source(v)); };
+    h.open = [v] { yt::play(v); };
+    h.more = [v] { yt::video_menu(v); };
     return h;
 }
 
@@ -239,6 +244,9 @@ public:
             s.on_click = [&row](int i) {
                 if (row.items[i].open) row.items[i].open();
             };
+            s.on_x = [&row](int i) {
+                if (row.items[i].more) row.items[i].more();
+            };
             s.on_focus = [this, r](int i) {
                 focus_row_ = (int)r;
                 focus_col_ = i;
@@ -248,7 +256,10 @@ public:
         y += start_tiles(g, x0, y);
         gfx::pop_clip();
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Open"}});
+        bool more = focus_row_ >= 0 && focus_row_ < (int)rows_.size() && focus_col_ >= 0 &&
+                    focus_col_ < (int)rows_[focus_row_].items.size() && rows_[focus_row_].items[focus_col_].more;
+        if (more) hint_bar({{"A", "Open"}, {"X", "More"}});
+        else hint_bar({{"A", "Open"}});
     }
 
 private:
@@ -329,7 +340,10 @@ private:
                 dirty_ = true;
             });
         }
-        scope_.run<youtube::Results>([] { return youtube::trending(); }, [this](youtube::Results r) {
+        yt_personal_ = yt_recs::has_profile();
+        bool personal = yt_personal_;
+        scope_.run<youtube::Results>([personal] { return personal ? yt_recs::for_you() : youtube::trending(); },
+                                     [this](youtube::Results r) {
             yt_ = std::move(r.items);
             yt_loading_ = false;
             dirty_ = true;
@@ -359,7 +373,7 @@ private:
         for (auto& s : radio::favorites()) stations.items.push_back(from_station(s));
         rows_.push_back(std::move(stations));
 
-        Row yt{"Trending on YouTube", CARD_WIDE, 300, {}, yt_loading_};
+        Row yt{yt_personal_ ? "Recommended for you" : "Popular on YouTube", CARD_WIDE, 300, {}, yt_loading_};
         for (auto& v : yt_) yt.items.push_back(from_youtube(v));
         rows_.push_back(std::move(yt));
     }
@@ -368,6 +382,7 @@ private:
     std::vector<jellyfin::Item> jf_resume_, jf_next_;
     std::vector<twitch::Stream> tw_live_;
     std::vector<youtube::Video> yt_;
+    bool yt_personal_ = false;
     bool jf_loading_ = false, tw_loading_ = false, yt_loading_ = false;
     bool dirty_ = true;
     int focus_row_ = -1, focus_col_ = -1;
