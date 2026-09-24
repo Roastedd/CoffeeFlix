@@ -128,7 +128,7 @@ private:
         int n = platform::volumes(vols, 8);
         auto shares = smb::saved_shares();
         ShelfSpec ss;
-        ss.count = n + 1;
+        ss.count = n + 2;
         ss.shape = CARD_WIDE;
         ss.item_w = 230;
         std::vector<platform::Volume> v(vols, vols + n);
@@ -139,16 +139,21 @@ private:
                 c.title = v[i].label;
                 c.icon = v[i].icon;
                 c.subtitle = v[i].path;
-            } else {
+            } else if (i == (int)v.size()) {
                 c.title = "Network shares";
                 c.icon = ic::LAN;
                 c.subtitle = nshares == 0 ? "Add a PC or NAS" : util::fmt("%zu saved", nshares);
+            } else {
+                c.title = "Media servers";
+                c.icon = ic::DNS;
+                c.subtitle = "Found automatically (DLNA)";
             }
             return c;
         };
         ss.on_click = [v](int i) {
             if (i < (int)v.size()) app::push(make_media_folder(v[i].path, v[i].label));
-            else app::push(smb_browser_screen());
+            else if (i == (int)v.size()) app::push(smb_browser_screen());
+            else app::push(dlna_servers_screen());
         };
         return y + shelf(id(g, "roots"), x0, y, ss, &page_) + 10;
     }
