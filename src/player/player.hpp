@@ -37,6 +37,13 @@ struct Source {
     std::string service, id;     // resume key ("youtube", "<videoId>")
     std::string extra;           // service data stored with the resume point
     bool remember_position = true;
+    std::string channel_id;      // YouTube uploader, for the player's Subscribe button
+
+    // Picture heights the viewer can switch between in the player (empty: no choice). `resolve`
+    // reads `quality`; `quality_setting` is the store key that keeps the choice.
+    std::vector<int> qualities;
+    int quality = 0;
+    std::string quality_setting;
 
     // Optional: runs on the player's opener thread before anything is opened,
     // to turn an id into stream URLs (YouTube, Jellyfin, Twitch). Return false
@@ -63,6 +70,7 @@ void open(const Source& src);
 void open_queue(std::vector<Source> queue, int index);
 void close();
 void retry();               // reopen the current source from scratch (re-resolving URLs)
+void set_quality(int height);  // reopen at the same position with another of source().qualities
 bool next();
 bool previous();
 bool has_next();

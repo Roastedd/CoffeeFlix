@@ -133,7 +133,7 @@ bool resolve(const std::string& login, player::Source& src, std::string& error) 
         return false;
     }
     hls::Master m = hls::parse(r.body, usher);
-    int max_h = (int)store::get_int("twitch_quality", 720);
+    int max_h = src.quality > 0 ? src.quality : (int)store::get_int("twitch_quality", 720);
     float max_fps = store::get_bool("allow_60fps", false) ? 61.0f : 31.0f;
     const hls::Variant* v = hls::pick(m, max_h, true, max_fps);
     if (!v) {
@@ -259,6 +259,9 @@ player::Source make_source(const Stream& s) {
     src.service = "twitch";
     src.id = s.login;
     src.remember_position = false;
+    src.qualities = {360, 480, 720, 1080};
+    src.quality = (int)store::get_int("twitch_quality", 720);
+    src.quality_setting = "twitch_quality";
     std::string login = s.login;
     src.resolve = [login](player::Source& out, std::string& err) { return resolve(login, out, err); };
     return src;
