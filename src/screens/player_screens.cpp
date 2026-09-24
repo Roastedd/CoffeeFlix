@@ -1,4 +1,5 @@
 // Fullscreen video player and the "Now Playing" audio screen.
+#include <algorithm>
 #include <cmath>
 
 #include "audio/mixer.hpp"
@@ -38,6 +39,8 @@ struct TrackMenu {
     std::vector<player::Track> tracks;
     int current = -1;
     double opened_at = 0;
+    int focus_index = 0;  // keeps the focused row in view (YouTube can offer 18 languages)
+    float scroll = 0;
 
     void show(Kind k) {
         kind = k;
@@ -55,6 +58,10 @@ struct TrackMenu {
         }
         open = true;
         opened_at = ui::time();
+        focus_index = 0;
+        for (size_t i = 0; i < tracks.size(); i++)
+            if (tracks[i].index == current) focus_index = (int)i;
+        scroll = -1;  // jump to the current row
         reset_focus();
         audio::play(audio::SFX_OPEN, 0.6f);
     }
@@ -71,11 +78,23 @@ struct TrackMenu {
         text::draw(font::title, x + 36, 60, kind == SUBTITLES ? "Subtitles" : kind == QUALITY ? "Quality" : "Audio",
                    t.text);
         Id g = id("trackmenu");
-        float y = 120;
+        const float top = 120, row = 64, view = H - 30 - top;
+        float max_scroll = std::max(0.0f, tracks.size() * row - 6 - view);
+        float target = scroll < 0 ? focus_index * row - view * 0.5f : scroll;
+        float fy = focus_index * row;
+        if (fy < target) target = fy;
+        if (fy + row > target + view) target = fy + row - view;
+        Input& in = input();
+        if (in.touching && in.dragging) target -= in.tdy;
+        scroll = std::clamp(target, 0.0f, max_scroll);
+        float sy = tween(id(g, "scroll"), scroll, 16);
+        gfx::push_clip(Rect(x, top - 4, pw, view + 8));
+        float y = top - sy;
         for (size_t i = 0; i < tracks.size(); i++) {
             Rect r(x + 24, y, pw - 48, 58);
             Id iid = id(g, (int64_t)i);
             Item it = focusable(iid, r, g, tracks[i].index == current ? F_DEFAULT : 0);
+            if (it.focused) focus_index = (int)i;
             gfx::fill_rrect(r, 14, gfx::lerp(Color(255, 255, 255, 0), t.surface_focus, it.f));
             Color fg = gfx::lerp(t.text, gfx::rgb(0x15121A), it.f);
             if (tracks[i].index == current) text::icon(ic::CHECK, 24, r.x + 26, r.cy(), gfx::lerp(t.accent, fg, it.f));
@@ -94,8 +113,9 @@ struct TrackMenu {
                 open = false;
                 reset_focus();
             }
-            y += 64;
+            y += row;
         }
+        gfx::pop_clip();
         pop_layer();
         if (input().pressed_(BTN_B)) {
             input().eat(BTN_B);

@@ -13,12 +13,16 @@ h264_wiiu: fix the frame buffer overflow, decode every picture, return them in o
 - With OUTPUT_PER_FRAME the decoder returns pictures in decoding order: they are reordered by
   timestamp, and the size, pitch and crop the output callback reports are used.
 - Stream size changes (such as ads in a live stream) set the new dimensions.
+- If the decoder rejects unreferenced pictures, they are left out from then on. The frame
+  buffer is only read without a callback once the decoder has never called back in 8 pictures
+  (a decoder that reorders has nothing to show for the first few).
+- Warnings explain what the decoder did: its first picture, error statuses, no pictures.
 
 diff --git a/libavcodec/h264_wiiu.c b/libavcodec/h264_wiiu.c
-index bd41335..4011419 100644
+index bd41335..dbaaae4 100644
 --- a/libavcodec/h264_wiiu.c
 +++ b/libavcodec/h264_wiiu.c
-@@ -1,73 +1,159 @@
+@@ -1,73 +1,160 @@
  /**
   * Decoder using Wii U's h264.rpl
   * Created 2020 by GaryOderNichts
@@ -71,6 +75,7 @@ index bd41335..4011419 100644
 +        if (!result || !result->framebuffer)
 +            continue;
 +
++        ctx->callback_seen = 1;
 +        out = &ctx->output[ctx->output_count++];
 +        out->framebuffer = result->framebuffer;
 +        out->width = result->width;
@@ -214,7 +219,7 @@ index bd41335..4011419 100644
      // Wii U decoder only outputs NV12
      avctx->pix_fmt = AV_PIX_FMT_NV12;
  
-@@ -75,81 +161,244 @@ static int h264_wiiu_decode_init(AVCodecContext *avctx)
+@@ -75,81 +162,266 @@ static int h264_wiiu_decode_init(AVCodecContext *avctx)
  }
  
  static int h264_wiiu_decode_close(AVCodecContext *avctx)
@@ -248,7 +253,8 @@ index bd41335..4011419 100644
 +        tb = (AVRational){ 1, 90000 };
 +    return (a - b) * av_q2d(tb);
 +}
-+
+ 
+-    free(decoder);
 +// Copies a decoded picture out of the decoder's buffer into the reorder queue.
 +static int h264_wiiu_queue_picture(AVCodecContext *avctx, const WIIUOutput* out, int64_t pts)
 +{
@@ -293,11 +299,10 @@ index bd41335..4011419 100644
 +    }
 +    x &= ~1;
 +    y &= ~1;
- 
--    free(decoder);
++
 +    // The picture was written by the decoder, not through the CPU cache.
 +    DCFlushRange(out->framebuffer, size);
- 
++
 +    frame = av_frame_alloc();
 +    if (!frame)
 +        return AVERROR(ENOMEM);
@@ -306,13 +311,18 @@ index bd41335..4011419 100644
 +        av_frame_free(&frame);
 +        return ret;
 +    }
-+
+ 
 +    src[0] = (uint8_t*) out->framebuffer + y * pitch + x;
 +    src[1] = (uint8_t*) out->framebuffer + pitch * H264_FRAME_HEIGHT(out->height) + (y / 2) * pitch + x;
 +    src_linesize[0] = src_linesize[1] = pitch;
 +    av_image_copy(frame->data, frame->linesize, (const uint8_t **) src, src_linesize, AV_PIX_FMT_NV12, width, height);
 +
 +    frame->pts = pts;
++
++    if (ctx->pictures++ == 0)
++        av_log(avctx, AV_LOG_WARNING, "h264_wiiu: first picture %dx%d, pitch %d, crop %d %d %d %d, %s\n", out->width,
++               out->height, pitch, out->crop_left, out->crop_right, out->crop_top, out->crop_bottom,
++               out->framebuffer == ctx->framebuffer ? "in our buffer" : "in another buffer");
 +
 +    // A picture that is due before one already returned came too late to be put in order: the
 +    // stream reorders more than expected. Hold back one more picture from now on.
@@ -371,66 +381,76 @@ index bd41335..4011419 100644
      BOOL skippable = FALSE;
  
 -    res = H264DECCheckSkipableFrame(buf, buf_size, &skippable);
--    if (res != 0)
-+    // Pictures nothing else refers to can be left out when playback falls behind.
-+    if (avctx->skip_frame >= AVDISCARD_NONREF)
-     {
--        av_log(avctx, AV_LOG_ERROR, "h264_wiiu: Error checking for skippable frame");
--        return -1;
-+        res = H264DECCheckSkipableFrame(avpkt->data, size, &skippable);
-+        if (res == 0 && skippable)
-+            return 0;
-     }
- 
--    if (skippable)
++    // Pictures nothing else refers to (most B-frames) are left out when playback falls behind,
++    // and for good if the decoder turned out to reject them.
++    if (H264DECCheckSkipableFrame(avpkt->data, size, &skippable) != 0)
++        skippable = FALSE;
++    if (skippable && (avctx->skip_frame >= AVDISCARD_NONREF || ctx->skip_nonref))
++        return 0;
++
 +    // The decoder reads the bitstream from memory on its own: give it an aligned copy.
 +    if (size + AV_INPUT_BUFFER_PADDING_SIZE > ctx->bitstream_size)
-     {
--        // skip the frame
--        return 0;
++    {
 +        int alloc = FFALIGN(size + AV_INPUT_BUFFER_PADDING_SIZE, 64 * 1024);
 +        free(ctx->bitstream);
 +        ctx->bitstream = memalign(H264_MEM_ALIGNMENT, alloc);
 +        ctx->bitstream_size = ctx->bitstream ? alloc : 0;
 +        if (!ctx->bitstream)
 +            return AVERROR(ENOMEM);
-     }
++    }
 +    memcpy(ctx->bitstream, avpkt->data, size);
 +    memset(ctx->bitstream + size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 +    DCFlushRange(ctx->bitstream, size + AV_INPUT_BUFFER_PADDING_SIZE);
- 
--    res = H264DECSetBitstream(decoder, buf, buf_size, 0);
++
 +    ctx->sent_pts[ctx->sent_index] = avpkt->pts;
 +    ctx->sent_index = (ctx->sent_index + 1) % (int) FF_ARRAY_ELEMS(ctx->sent_pts);
 +    res = H264DECSetBitstream(ctx->decoder, ctx->bitstream, size, (double) avpkt->pts);
      if (res != 0)
      {
--        av_log(avctx, AV_LOG_ERROR, "h264_wiiu: Error setting bitstream 0x%07X", res);
+-        av_log(avctx, AV_LOG_ERROR, "h264_wiiu: Error checking for skippable frame");
 -        return -1;
 +        av_log(avctx, AV_LOG_WARNING, "h264_wiiu: Error setting bitstream 0x%07X\n", res);
 +        return AVERROR_INVALIDDATA;
      }
  
--    res = H264DECExecute(decoder, framebuffer);
--    if (res != 0xE4)
+-    if (skippable)
 +    ctx->output_count = 0;
 +    res = H264DECExecute(ctx->decoder, ctx->framebuffer);
-+    if ((res & ~0xff) != 0)
++    ctx->executes++;
++    if (!ctx->reported && ctx->executes >= 30 && ctx->pictures == 0)
      {
--        av_log(avctx, AV_LOG_ERROR, "h264_wiiu: Error decoding frame 0x%07X", res);
--        return -1;
-+        av_log(avctx, AV_LOG_WARNING, "h264_wiiu: Error decoding frame 0x%07X\n", res);
-+        return AVERROR_INVALIDDATA;
+-        // skip the frame
+-        return 0;
++        ctx->reported = 1;
++        av_log(avctx, AV_LOG_WARNING, "h264_wiiu: no picture after %d packets (status 0x%X, callback %s)\n",
++               ctx->executes, res, ctx->callback_seen ? "seen" : "never called");
      }
++    if ((res & ~0xff) != 0)
++    {
++        av_log(avctx, AV_LOG_WARNING, "h264_wiiu: Error decoding %s picture: 0x%07X\n",
++               skippable ? "an unreferenced" : "a reference", res);
++        if (skippable && ++ctx->nonref_errors >= 8 && ctx->nonref_ok == 0 && ctx->ref_ok >= 3 && !ctx->skip_nonref)
++        {
++            ctx->skip_nonref = 1;
++            av_log(avctx, AV_LOG_WARNING, "h264_wiiu: leaving out unreferenced pictures, the decoder rejects them\n");
++        }
++        return AVERROR_INVALIDDATA;
++    }
++    if (skippable)
++        ctx->nonref_ok++;
++    else
++        ctx->ref_ok++;
  
--    if (ff_get_buffer(avctx, avframe, 0) < 0) 
+-    res = H264DECSetBitstream(decoder, buf, buf_size, 0);
+-    if (res != 0)
 +    if (ctx->output_count == 0)
      {
--        av_log(avctx, AV_LOG_ERROR, "h264_wiiu: Unable to allocate buffer");
--        return AVERROR(ENOMEM);
-+        // No output callback: a complete picture is in our buffer.
+-        av_log(avctx, AV_LOG_ERROR, "h264_wiiu: Error setting bitstream 0x%07X", res);
+-        return -1;
++        // A decoder that never calls back after several pictures leaves each one in our buffer.
++        // (One that does call back can simply have nothing to show yet: reordering.)
 +        WIIUOutput out = { 0 };
-+        if (res != 0xE4 || avctx->width <= 0 || avctx->height <= 0)
++        if (ctx->callback_seen || ctx->executes < 8 || res != 0xE4 || avctx->width <= 0 || avctx->height <= 0)
 +            return 0;
 +        out.framebuffer = ctx->framebuffer;
 +        out.width = avctx->width;
@@ -439,15 +459,17 @@ index bd41335..4011419 100644
 +        return h264_wiiu_queue_picture(avctx, &out, avpkt->pts);
      }
  
--    pitch = (avctx->width + (256 - 1)) & ~(256 - 1);
--    linesize[0] = linesize[1] = pitch;
+-    res = H264DECExecute(decoder, framebuffer);
+-    if (res != 0xE4)
 +    for (i = 0; i < ctx->output_count; i++)
-+    {
+     {
+-        av_log(avctx, AV_LOG_ERROR, "h264_wiiu: Error decoding frame 0x%07X", res);
+-        return -1;
 +        const WIIUOutput* out = &ctx->output[i];
 +        res = h264_wiiu_queue_picture(avctx, out, h264_wiiu_pts(ctx, out, avpkt->pts));
 +        if (res < 0)
 +            return res;
-+    }
+     }
 +    return 0;
 +}
 +
@@ -455,29 +477,34 @@ index bd41335..4011419 100644
 +static int h264_wiiu_next(WIIUContext* ctx)
 +{
 +    int i, best = 0;
-+
+ 
+-    if (ff_get_buffer(avctx, avframe, 0) < 0) 
 +    if (ctx->queue[0]->pts == AV_NOPTS_VALUE)
 +        return 0;
 +    for (i = 1; i < ctx->queue_count; i++)
-+    {
+     {
+-        av_log(avctx, AV_LOG_ERROR, "h264_wiiu: Unable to allocate buffer");
+-        return AVERROR(ENOMEM);
 +        int64_t pts = ctx->queue[i]->pts;
 +        if (pts != AV_NOPTS_VALUE && pts < ctx->queue[best]->pts)
 +            best = i;
-+    }
+     }
 +    return best;
 +}
  
--    // Y
--    pointers[0] = (uint8_t*) framebuffer;
--    // U/V
--    pointers[1] = ((uint8_t*) framebuffer) + (avctx->height * pitch);
+-    pitch = (avctx->width + (256 - 1)) & ~(256 - 1);
+-    linesize[0] = linesize[1] = pitch;
 +static int h264_wiiu_decode_frame(AVCodecContext *avctx, void *data, int *got_frame, AVPacket *avpkt)
 +{
 +    WIIUContext* ctx = avctx->priv_data;
 +    AVFrame *avframe = data;
 +    int draining = avpkt->size <= 0;
 +    int ret = 0, i;
-+
+ 
+-    // Y
+-    pointers[0] = (uint8_t*) framebuffer;
+-    // U/V
+-    pointers[1] = ((uint8_t*) framebuffer) + (avctx->height * pitch);
 +    if (!draining)
 +        ret = h264_wiiu_decode_packet(avctx, avpkt);
  
@@ -502,7 +529,7 @@ index bd41335..4011419 100644
  }
  
  AVCodec ff_h264_wiiu_decoder =
-@@ -162,5 +411,7 @@ AVCodec ff_h264_wiiu_decoder =
+@@ -162,5 +434,7 @@ AVCodec ff_h264_wiiu_decoder =
      .init           = h264_wiiu_decode_init,
      .close          = h264_wiiu_decode_close,
      .decode         = h264_wiiu_decode_frame,
@@ -513,7 +540,7 @@ index bd41335..4011419 100644
 \ No newline at end of file
 +};
 diff --git a/libavcodec/h264_wiiu.h b/libavcodec/h264_wiiu.h
-index 925c2a0..8ac89ed 100644
+index 925c2a0..32ed5f2 100644
 --- a/libavcodec/h264_wiiu.h
 +++ b/libavcodec/h264_wiiu.h
 @@ -1,7 +1,9 @@
@@ -527,7 +554,7 @@ index 925c2a0..8ac89ed 100644
  
  #ifndef H264_WIIU_H
  #define H264_WIIU_H
-@@ -9,17 +11,55 @@
+@@ -9,17 +11,65 @@
  #include <wut.h>
  #include <h264/decode.h>
  
@@ -577,6 +604,16 @@ index 925c2a0..8ac89ed 100644
 +    // timestamps of the last packets handed to the decoder
 +    int64_t sent_pts[8];
 +    int sent_index;
++
++    // What the decoder has done so far, to adapt and to explain problems in the log.
++    int callback_seen;
++    int executes;
++    int pictures;
++    int ref_ok;
++    int nonref_ok;
++    int nonref_errors;
++    int skip_nonref;  // left out from now on: the decoder rejects them
++    int reported;
 +
 +    // Pictures come out in decoding order; they are put back into presentation order here.
 +    AVFrame* queue[WIIU_MAX_REORDER + 1];
