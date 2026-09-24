@@ -13,6 +13,7 @@
 - 🎙️ **Podcasts**: search the Apple Podcasts directory and top charts, subscribe to shows, and resume episodes where you left off.
 - 📁 **My Media**: videos (with thumbnails, resume and `.srt` subtitles), music (folder queues, embedded and folder cover art), photos (zoom, pan, slideshow), and comics and books (CBZ, PDF, EPUB) from the SD card.
 - 🖧 **Network shares**: browse and play from a Windows PC, Mac, Samba or NAS share (SMB 2/3).
+- 📡 **Media servers (DLNA)**: Plex, Jellyfin, Emby, minidlna and most NAS boxes are found automatically on your network, no setup needed.
 - 🔎 **Search everything** at once, with a **Home** screen that pulls it all together.
 - 🎵 **Now Playing** with a live spectrum visualizer, and a mini player that keeps music going while you browse.
 - ✨ **Juicy UI**: spring animations, blurred backdrops, focus zoom, sound effects, five accent colors, a startup animation and a screensaver. The console won't dim or power off mid-movie.
@@ -40,6 +41,7 @@
 
 - **Jellyfin**: open *Jellyfin* and enter your server address, e.g. `http://192.168.1.20:8096`. Then approve the Quick Connect code in the Jellyfin app on your phone, or type your password.
 - **Network shares**: open *My Media → Network shares → Add share*. Enter the computer's IP address (or `\\host\share`), the share name and your login. Leave the login empty for guest shares.
+- **Media servers (DLNA)** show up by themselves under *My Media → Media servers* once DLNA sharing is on in the server.
 - **YouTube, Twitch, radio and podcasts** work without an account. Subscriptions, follows and favorites are stored on your SD card.
 
 ---

@@ -101,5 +101,6 @@ bool prompt_active();
 std::unique_ptr<app::Screen> make_media_folder(const std::string& path, const std::string& title);
 std::unique_ptr<app::Screen> make_reader(const std::string& path);
 std::unique_ptr<app::Screen> smb_browser_screen();
+std::unique_ptr<app::Screen> dlna_servers_screen();
 
 }  // namespace screens

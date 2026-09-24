@@ -72,7 +72,7 @@ HomeItem from_resume(const store::Resume& r) {
         h.open = [r] { play_audio(podcasts::source_from_resume(r.id, r.title, r.subtitle, r.image, r.extra)); };
     } else {
         h.icon = r.video ? ic::MOVIE : ic::MUSIC;
-        h.service = r.service == "smb" ? "Network" : "My Media";
+        h.service = r.service == "smb" ? "Network" : r.service == "dlna" ? "Media server" : "My Media";
         h.image = h.hero = r.image;
         if (h.image.empty() && r.video && r.service == "local") h.image = h.hero = "thumb://" + r.id;
         h.open = [r] {
