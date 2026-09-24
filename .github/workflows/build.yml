@@ -22,7 +22,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps/install
-          key: deps-${{ hashFiles('tools/build-deps.sh') }}
+          key: deps-${{ hashFiles('tools/build-deps.sh', 'tools/patches/**') }}
           # Start from an older cache: per-library stamps rebuild only what changed.
           restore-keys: deps-
 

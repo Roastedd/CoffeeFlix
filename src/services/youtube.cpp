@@ -460,6 +460,7 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
     json_t* details = json_object_get(root, "videoDetails");
     if (src.title.empty()) src.title = json::str(details, {"title"});
     if (src.subtitle.empty()) src.subtitle = json::str(details, {"author"});
+    if (src.channel_id.empty()) src.channel_id = json::str(details, {"channelId"});
     bool live = json::boolean(details, {"isLive"}) ||
                 (json::boolean(details, {"isLiveContent"}) && json::num(details, {"lengthSeconds"}) == 0);
     src.live = live;
@@ -483,21 +484,27 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
     std::vector<Format> adaptive = formats(json_object_get(sd, "adaptiveFormats"));
     const Format* best_v = nullptr;
     const Format* best_a = nullptr;
-    for (const Format& f : adaptive) {
-        if (util::starts_with(f.mime, "video/mp4") && f.mime.find("avc1") != std::string::npos && f.height > 0 &&
-            f.height <= max_height) {
+    // 60 fps doubles the decoding and drawing work, which the Wii U can't keep up with at
+    // 720p and above: only with the "Allow 60 fps" setting, or when there is nothing else.
+    int max_fps = store::get_bool("allow_60fps", false) ? 61 : 31;
+    for (int pass = 0; pass < 2 && !best_v; pass++) {
+        for (const Format& f : adaptive) {
+            if (!util::starts_with(f.mime, "video/mp4") || f.mime.find("avc1") == std::string::npos || f.height <= 0 ||
+                f.height > max_height || (pass == 0 && f.fps > max_fps))
+                continue;
             bool better = !best_v || f.height > best_v->height ||
                           (f.height == best_v->height && f.fps <= 30 && best_v->fps > 30) ||
                           (f.height == best_v->height && f.fps == best_v->fps && f.bitrate > best_v->bitrate);
             if (better) best_v = &f;
         }
-        if (util::starts_with(f.mime, "audio/mp4") && (!best_a || f.bitrate > best_a->bitrate)) best_a = &f;
     }
+    for (const Format& f : adaptive)
+        if (util::starts_with(f.mime, "audio/mp4") && (!best_a || f.bitrate > best_a->bitrate)) best_a = &f;
     if (best_v && best_a) {
         src.url = best_v->url;
         src.audio_url = best_a->url;
-        log_message(LOG_OK, "YouTube", "%s: itag %d (%dp) + itag %d via %s", id.c_str(), best_v->itag, best_v->height,
-                    best_a->itag, c.name);
+        log_message(LOG_OK, "YouTube", "%s: itag %d (%dp%d) + itag %d via %s", id.c_str(), best_v->itag,
+                    best_v->height, best_v->fps, best_a->itag, c.name);
         return true;
     }
     // Progressive (video+audio in one file) fallback: usually 360p.
@@ -810,9 +817,12 @@ player::Source make_source(const Video& v) {
     s.live = v.live;
     s.extra = v.channel;
     s.start = v.live ? 0 : store::resume_position("youtube", v.id);
-    int q = (int)store::get_int("yt_quality", 720);
+    s.channel_id = v.channel_id;
+    s.qualities = {360, 480, 720, 1080};
+    s.quality = (int)store::get_int("yt_quality", 720);
+    s.quality_setting = "yt_quality";
     std::string id = v.id;
-    s.resolve = [id, q](player::Source& src, std::string& err) { return resolve(id, q, src, err); };
+    s.resolve = [id](player::Source& src, std::string& err) { return resolve(id, src.quality, src, err); };
     s.on_stop = [v](double position, bool finished) { yt_recs::on_watch(v, position, finished); };
     // Nearly every video has auto-generated captions; don't turn them on unless asked to.
     s.subs_auto = store::get_bool("yt_captions", false);

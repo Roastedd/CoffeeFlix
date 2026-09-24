@@ -14,6 +14,7 @@ extern "C" {
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
+#include <cstring>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -186,6 +187,10 @@ struct Session {
     int sub_external = -1;     // index into src.external_subs
     Subtitles subs;
 
+    // Playback clock as of the last update(), for the video thread.
+    AtomicSeconds clock_now;
+    std::atomic<bool> clock_running{false};
+
     // playback clock when there is no audio
     double wall_base_pts = 0, wall_base_time = 0;
     bool wall_running = false;
@@ -200,6 +205,9 @@ struct Session {
 std::shared_ptr<Session> g_s;
 uint32_t g_next_id = 1;
 std::atomic<int> g_closers{0};
+// The Wii U has one hardware H.264 decoder: a new session waits until the previous one has
+// closed it (sessions close in the background).
+std::atomic<int> g_hw_busy{0};
 std::string g_empty;
 Source g_empty_src;
 
@@ -278,6 +286,16 @@ AVFormatContext* open_input(Session& s, const std::string& url, bool& network) {
     r = avformat_find_stream_info(fmt, nullptr);
     if (r < 0 && !s.abort) log_message(LOG_WARNING, "Player", "find_stream_info: %s", av_err(r).c_str());
     return fmt;
+}
+
+bool reserve_hw_decoder(Session& s) {
+    for (int i = 0; i < 300 && !s.abort; i++) {
+        int free_ = 0;
+        if (g_hw_busy.compare_exchange_strong(free_, 1)) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (!s.abort) log_message(LOG_WARNING, "Player", "Hardware decoder still in use: decoding in software");
+    return false;
 }
 
 AVCodecContext* open_decoder(AVStream* st, bool allow_hw, bool* used_hw) {
@@ -525,6 +543,8 @@ void video_loop(std::shared_ptr<Session> sp) {
     bool drained = false;
     int64_t frame_count = 0;
     double fps = 0;
+    int dropped_in_row = 0;
+    double catch_up_until = 0;  // leaving out unreferenced pictures until then (at least)
     AVStream* st = s.in[0].fmt->streams[s.in[0].video];
     if (st->avg_frame_rate.num > 0 && st->avg_frame_rate.den > 0) fps = av_q2d(st->avg_frame_rate);
 
@@ -577,19 +597,46 @@ void video_loop(std::shared_ptr<Session> sp) {
                 continue;
             }
 
-            std::unique_ptr<VFrame> vf;
             {
                 std::unique_lock<std::mutex> lk(s.fm);
                 s.fcv.wait(lk, [&] { return s.abort || s.frames.size() < s.max_frames || dec_gen != s.gen; });
-                if (s.abort) break;
+            }
+            if (s.abort) break;
+            if (dec_gen != s.gen) {
+                av_frame_unref(frame);
+                continue;
+            }
+
+            // Behind the clock (decoding or converting is too slow for this stream): skip the
+            // conversion of late pictures, keeping one in four so the picture still moves, and
+            // have the decoder leave out pictures nothing refers to (most B-frames) until it
+            // is comfortably ahead again.
+            if (s.clock_running) {
+                double lag = s.clock_now - pts;
+                double t = now();
+                if (lag > 0.3 && s.vdec->skip_frame < AVDISCARD_NONREF) {
+                    s.vdec->skip_frame = AVDISCARD_NONREF;
+                    catch_up_until = t + 5;
+                    log_message(LOG_WARNING, "Player", "Video %.2f s behind: skipping pictures to catch up", lag);
+                } else if (lag < -0.05 && t > catch_up_until && s.vdec->skip_frame >= AVDISCARD_NONREF) {
+                    s.vdec->skip_frame = AVDISCARD_DEFAULT;
+                    log_message(LOG_OK, "Player", "Video caught up");
+                }
+                if (lag > 0.1 && dropped_in_row < 3) {
+                    dropped_in_row++;
+                    av_frame_unref(frame);
+                    continue;
+                }
+            }
+            dropped_in_row = 0;
+
+            std::unique_ptr<VFrame> vf;
+            {
+                std::lock_guard<std::mutex> lk(s.fm);
                 if (!s.spare.empty()) {
                     vf = std::move(s.spare.back());
                     s.spare.pop_back();
                 }
-            }
-            if (dec_gen != s.gen) {
-                av_frame_unref(frame);
-                continue;
             }
             if (!vf) vf = std::make_unique<VFrame>();
             vf->w = frame->width;
@@ -770,7 +817,10 @@ void open_session(std::shared_ptr<Session> sp) {
     std::string vinfo, ainfo;
     if (v >= 0) {
         AVStream* st = f0->streams[v];
-        s.vdec = open_decoder(st, platform::is_wiiu(), &s.hw);
+        bool hw_reserved =
+            platform::is_wiiu() && st->codecpar->codec_id == AV_CODEC_ID_H264 && reserve_hw_decoder(s);
+        s.vdec = open_decoder(st, hw_reserved, &s.hw);
+        if (hw_reserved && !s.hw) g_hw_busy = 0;
         if (!s.vdec) {
             if (ain.audio < 0) {
                 set_error(s, util::fmt("Unsupported video codec (%s)", avcodec_get_name(st->codecpar->codec_id)));
@@ -863,6 +913,10 @@ void teardown(std::shared_ptr<Session> sp) {
     s.vq.flush();
     s.aq.flush();
     if (s.vdec) avcodec_free_context(&s.vdec);
+    if (s.hw) {
+        s.hw = false;
+        g_hw_busy = 0;
+    }
     if (s.adec) avcodec_free_context(&s.adec);
     if (s.sdec) avcodec_free_context(&s.sdec);
     for (auto& in : s.in)
@@ -953,9 +1007,39 @@ void start_session(const Source& src, int pref_audio) {
     s->opener = std::thread(open_session, s);
 }
 
+// FFmpeg's warnings and errors go to our log (and its file), each distinct message once: some
+// streams repeat a harmless one ("Late SEI is not implemented") for every frame. Its chatter
+// below warnings is left out.
+void ffmpeg_log(void* avcl, int level, const char* fmt, va_list vl) {
+    if (level > AV_LOG_WARNING) return;
+    char line[1024];
+    int prefix = 0;  // no "[h264 @ 0x...]": the address would make every message distinct
+    av_log_format_line(nullptr, level, fmt, vl, line, sizeof(line), &prefix);
+    size_t len = std::strlen(line);
+    while (len && (line[len - 1] == '\n' || line[len - 1] == '\r' || line[len - 1] == ' ')) line[--len] = 0;
+    if (!len) return;
+
+    static std::mutex m;
+    static std::vector<uint32_t> seen;
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < len; i++) h = (h ^ (uint8_t)line[i]) * 16777619u;
+    {
+        std::lock_guard<std::mutex> lk(m);
+        if (std::find(seen.begin(), seen.end(), h) != seen.end()) return;
+        if (seen.size() >= 256) seen.erase(seen.begin());
+        seen.push_back(h);
+    }
+    const AVClass* cls = avcl ? *(const AVClass**)avcl : nullptr;
+    const char* who = cls ? cls->item_name(avcl) : "FFmpeg";
+    log_message(level <= AV_LOG_ERROR ? LOG_ERROR : LOG_WARNING, "FFmpeg", "%s: %s", who, line);
+}
+
 }  // namespace
 
-void init() { avformat_network_init(); }
+void init() {
+    av_log_set_callback(ffmpeg_log);
+    avformat_network_init();
+}
 
 void shutdown() {
     close();
@@ -1033,6 +1117,19 @@ void retry() {
     auto queue = std::move(g_queue);
     int qi = g_queue_index;
     start_session(src, -1);
+    g_queue = std::move(queue);
+    g_queue_index = qi;
+}
+
+void set_quality(int height) {
+    if (!g_s || g_s->original.quality == height) return;
+    Source src = g_s->original;
+    src.quality = height;
+    if (!src.live) src.start = std::max(src.start, g_s->last_clock);
+    auto queue = std::move(g_queue);
+    int qi = g_queue_index;
+    if (qi >= 0 && qi < (int)queue.size()) queue[qi].quality = height;
+    start_session(src, g_s->pref_audio);
     g_queue = std::move(queue);
     g_queue_index = qi;
 }
@@ -1275,6 +1372,8 @@ void update() {
     }
 
     double clock = master_clock(s);
+    s.clock_now = clock;
+    s.clock_running = st == PLAYING && !s.seeking;
 
     // Video: drop late frames, show the one that is due.
     if (s.has_video) {

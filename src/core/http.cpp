@@ -198,8 +198,10 @@ Response perform(const Request& req) {
                      : resp.status == 429                     ? "Too many requests, try again later"
                      : resp.status >= 500                     ? util::fmt("Server error (HTTP %ld)", resp.status)
                                                               : util::fmt("HTTP error %ld", resp.status);
-        log_message(LOG_WARNING, "HTTP", "%s %s -> %ld", req.method.c_str(), req.url.substr(0, 96).c_str(),
-                    resp.status);
+        // 404 is routine (a station without an icon, a video without SponsorBlock segments).
+        if (resp.status != 404)
+            log_message(LOG_WARNING, "HTTP", "%s %s -> %ld", req.method.c_str(), req.url.substr(0, 96).c_str(),
+                        resp.status);
     }
     return resp;
 }
