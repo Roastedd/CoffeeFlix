@@ -491,6 +491,15 @@ void poll_icy(Session& s, AVFormatContext* fmt) {
     p += 13;
     size_t e = m.find("';", p);
     std::string title = m.substr(p, e == std::string::npos ? std::string::npos : e - p);
+    // iHeart stations append key="value" tags: Artist - text="Song" song_spot="M" amgArtworkURL="..."
+    size_t t = title.find(" text=\"");
+    if (t != std::string::npos) {
+        size_t v = t + 7, ve = title.find('"', v);
+        std::string song = title.substr(v, ve == std::string::npos ? std::string::npos : ve - v);
+        std::string artist = title.substr(0, t);
+        if (artist.size() >= 2 && artist.compare(artist.size() - 2, 2, " -") == 0) artist.resize(artist.size() - 2);
+        title = artist.empty() ? song : song.empty() ? artist : artist + " - " + song;
+    }
     std::lock_guard<std::mutex> lk(s.meta_m);
     if (title != s.icy) {
         s.icy = title;
