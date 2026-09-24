@@ -18,17 +18,29 @@ namespace {
 
 std::string g_ca_bundle;
 std::atomic<bool> g_verify{true};
+void (*g_socket_setup)(int fd) = nullptr;
 
 struct Sink {
     std::string* body;
     size_t max;
     const std::atomic<bool>* cancel;
     bool overflow = false;
+    // Streaming (Request::on_data)
+    const Request* req = nullptr;
+    Response* resp = nullptr;
+    CURL* curl = nullptr;
+    bool stopped = false;
 };
 
 size_t write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     Sink* s = (Sink*)userdata;
     size_t n = size * nmemb;
+    if (s->req && s->req->on_data) {
+        curl_easy_getinfo(s->curl, CURLINFO_RESPONSE_CODE, &s->resp->status);
+        if (s->req->on_data(*s->resp, ptr, n)) return n;
+        s->stopped = true;
+        return 0;
+    }
     if (s->body->size() + n > s->max) {
         s->overflow = true;
         return 0;
@@ -47,6 +59,11 @@ size_t header_cb(char* buffer, size_t size, size_t nitems, void* userdata) {
         (*headers)[key] = util::trim(line.substr(colon + 1));
     }
     return n;
+}
+
+int sockopt_cb(void*, curl_socket_t fd, curlsocktype) {
+    if (g_socket_setup) g_socket_setup((int)fd);
+    return CURL_SOCKOPT_OK;
 }
 
 int progress_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
@@ -72,7 +89,7 @@ CURL* acquire_handle() {
 
 void release_handle(CURL* h) {
     std::lock_guard<std::mutex> lk(g_pool_m);
-    if (g_pool.size() < 6) g_pool.push_back(h);
+    if (g_pool.size() < 10) g_pool.push_back(h);  // the player downloads over 4 at once
     else curl_easy_cleanup(h);
 }
 
@@ -96,9 +113,10 @@ std::string friendly_error(CURLcode rc) {
 
 const char* user_agent() { return "CoffeeFlix/2.0 (Nintendo Wii U)"; }
 
-void init(const std::string& ca_bundle_path) {
+void init(const std::string& ca_bundle_path, void (*socket_setup)(int fd)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
     g_ca_bundle = ca_bundle_path;
+    g_socket_setup = socket_setup;
     if (!util::file_exists(g_ca_bundle)) {
         log_message(LOG_WARNING, "HTTP", "CA bundle missing at %s", g_ca_bundle.c_str());
     }
@@ -126,6 +144,12 @@ Response perform(const Request& req) {
     curl_easy_reset(curl);
 
     Sink sink{&resp.body, req.max_bytes, req.cancel};
+    if (req.on_data) {
+        sink.req = &req;
+        sink.resp = &resp;
+        sink.curl = curl;
+        curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 128L * 1024);  // fewer, larger reads for media
+    }
     curl_easy_setopt(curl, CURLOPT_URL, req.url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &sink);
@@ -139,6 +163,7 @@ Response perform(const Request& req) {
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");  // gzip/deflate/brotli as built
     curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent());
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+    if (g_socket_setup) curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_cb);
 
     if (g_verify) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
@@ -191,11 +216,13 @@ Response perform(const Request& req) {
     release_handle(curl);
 
     if (rc != CURLE_OK) {
+        bool cancelled = sink.stopped || (req.cancel && req.cancel->load());
         if (sink.overflow) resp.error = "Response too large";
-        else if (req.cancel && req.cancel->load()) resp.error = "Cancelled";
+        else if (cancelled) resp.error = "Cancelled";
         else resp.error = friendly_error(rc);
-        log_message(LOG_WARNING, "HTTP", "%s %s -> %s", req.method.c_str(), req.url.substr(0, 96).c_str(),
-                    resp.error.c_str());
+        if (!cancelled)  // asked for: not worth a line
+            log_message(LOG_WARNING, "HTTP", "%s %s -> %s", req.method.c_str(), req.url.substr(0, 96).c_str(),
+                        resp.error.c_str());
     } else if (resp.status >= 400) {
         resp.error = resp.status == 401 || resp.status == 403 ? util::fmt("Access denied (HTTP %ld)", resp.status)
                      : resp.status == 404                     ? "Not found (HTTP 404)"
@@ -207,9 +234,10 @@ Response perform(const Request& req) {
             log_message(LOG_WARNING, "HTTP", "%s %s -> %ld", req.method.c_str(), req.url.substr(0, 96).c_str(),
                         resp.status);
     }
-    // Slow requests, for the log (the first few; COFFEEFLIX_HTTP_TRACE logs all of them).
+    // Slow requests, for the log (the first few; COFFEEFLIX_HTTP_TRACE logs all of them). Streamed
+    // media takes long by design and reports its own speed.
     static std::atomic<int> slow_logged{0};
-    if (getenv("COFFEEFLIX_HTTP_TRACE") || (took > 5.0 && slow_logged++ < 20))
+    if (getenv("COFFEEFLIX_HTTP_TRACE") || (took > 5.0 && !req.on_data && slow_logged++ < 20))
         log_message(took > 5.0 ? LOG_WARNING : LOG_DEBUG, "HTTP", "%s %s: %ld, %zu KB in %.2f s", req.method.c_str(),
                     req.url.substr(0, 90).c_str(), resp.status, resp.body.size() / 1024, took);
     return resp;

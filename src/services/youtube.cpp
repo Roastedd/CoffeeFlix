@@ -548,6 +548,9 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
                 (json::boolean(details, {"isLiveContent"}) && json::num(details, {"lengthSeconds"}) == 0);
     src.live = live;
     src.user_agent = c.user_agent;
+    // Files (not HLS) through libcurl in ranged chunks: FFmpeg's single whole-file request to
+    // googlevideo.com never gets going on the Wii U.
+    src.chunked_http = false;
     add_captions(json::at(root, {"captions", "playerCaptionsTracklistRenderer", "captionTracks"}), src);
 
     json_t* sd = json_object_get(root, "streamingData");
@@ -585,6 +588,7 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
     if (best_v && best_a) {
         src.url = best_v->url;
         src.audio_url = best_a->url;
+        src.chunked_http = true;
         log_message(LOG_OK, "YouTube", "%s: itag %d (%dp%d) + itag %d%s%s via %s", id.c_str(), best_v->itag,
                     best_v->height, best_v->fps, best_a->itag, best_a->audio_label.empty() ? "" : ", ",
                     best_a->audio_label.c_str(), c.name);
@@ -597,6 +601,7 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
         if (f.mime.find("avc1") != std::string::npos && (!best_m || f.height > best_m->height)) best_m = &f;
     if (best_m) {
         src.url = best_m->url;
+        src.chunked_http = true;
         log_message(LOG_OK, "YouTube", "%s: progressive itag %d via %s", id.c_str(), best_m->itag, c.name);
         return true;
     }

@@ -30,6 +30,7 @@ extern "C" {
 #include "logger/logger.hpp"
 #include "platform/platform.hpp"
 #include "player/convert.hpp"
+#include "player/http_io.hpp"
 #include "player/smb_io.hpp"
 #include "player/subtitles.hpp"
 #include "services/smb.hpp"
@@ -254,6 +255,18 @@ std::string av_err(int e) {
 
 double ts_to_sec(int64_t ts, AVRational tb) { return ts == AV_NOPTS_VALUE ? -1 : ts * av_q2d(tb); }
 
+// Frees custom I/O (smb://, chunked http) that avformat_close_input() leaves.
+void free_custom_io(AVIOContext* pb) {
+    smb_io_free(pb);
+    http_io_free(pb);
+}
+
+void close_input(AVFormatContext** fmt) {
+    AVIOContext* pb = *fmt && ((*fmt)->flags & AVFMT_FLAG_CUSTOM_IO) ? (*fmt)->pb : nullptr;
+    avformat_close_input(fmt);
+    free_custom_io(pb);
+}
+
 AVFormatContext* open_input(Session& s, const std::string& url, bool& network) {
     AVFormatContext* fmt = avformat_alloc_context();
     fmt->interrupt_callback.callback = interrupt_cb;
@@ -267,11 +280,25 @@ AVFormatContext* open_input(Session& s, const std::string& url, bool& network) {
             return nullptr;
         }
         fmt->flags |= AVFMT_FLAG_CUSTOM_IO;
+    } else if (network && s.src.chunked_http) {  // through libcurl: see http_io.hpp
+        std::vector<std::pair<std::string, std::string>> headers = s.src.headers;
+        headers.emplace_back("User-Agent", s.src.user_agent.empty() ? http::user_agent() : s.src.user_agent);
+        std::string err;
+        bool audio_track = !s.src.audio_url.empty() && url == s.src.audio_url;
+        if (!(fmt->pb = http_io_open(url, headers, &s.abort, audio_track, err))) {
+            avformat_free_context(fmt);
+            if (!s.abort) set_error(s, err);
+            return nullptr;
+        }
+        fmt->flags |= AVFMT_FLAG_CUSTOM_IO;
     }
     AVIOContext* custom_pb = fmt->pb;  // not freed by avformat_open_input() on failure
 
     AVDictionary* opts = nullptr;
-    if (network) {
+    if (network && custom_pb) {
+        fmt->probesize = 1 << 20;
+        fmt->max_analyze_duration = 2 * AV_TIME_BASE;
+    } else if (network) {
         std::string hdrs;
         for (auto& [k, v] : s.src.headers) hdrs += k + ": " + v + "\r\n";
         if (!hdrs.empty()) av_dict_set(&opts, "headers", hdrs.c_str(), 0);
@@ -295,7 +322,7 @@ AVFormatContext* open_input(Session& s, const std::string& url, bool& network) {
     int r = avformat_open_input(&fmt, path.c_str(), nullptr, &opts);
     av_dict_free(&opts);
     if (r < 0) {
-        smb_io_free(custom_pb);
+        free_custom_io(custom_pb);
         if (!s.abort) set_error(s, "Couldn't open stream (" + av_err(r) + ")");
         return nullptr;
     }
@@ -454,7 +481,7 @@ void fill_metadata(Session& s, AVFormatContext* fmt) {
 }
 
 void poll_icy(Session& s, AVFormatContext* fmt) {
-    if (!fmt->pb) return;
+    if (!fmt->pb || (fmt->flags & AVFMT_FLAG_CUSTOM_IO)) return;  // ICY comes from FFmpeg's HTTP client
     uint8_t* meta = nullptr;
     if (av_opt_get(fmt->pb, "icy_metadata_packet", AV_OPT_SEARCH_CHILDREN, &meta) < 0 || !meta) return;
     std::string m = (const char*)meta;
@@ -971,7 +998,7 @@ void teardown(std::shared_ptr<Session> sp) {
     if (s.adec) avcodec_free_context(&s.adec);
     if (s.sdec) avcodec_free_context(&s.sdec);
     for (auto& in : s.in)
-        if (in.fmt) close_input(&in.fmt);  // also frees custom (smb://) I/O
+        if (in.fmt) close_input(&in.fmt);  // also frees custom (smb://, chunked http) I/O
 }
 
 double master_clock(Session& s) {

@@ -3,15 +3,22 @@
 #include <whb/proc.h>
 #include <coreinit/energysaver.h>
 #include <nn/ac.h>
+#include <nn/nets2/somemopt.h>
+#include <sys/socket.h>
 #include <vpad/input.h>
 #include <padscore/kpad.h>
 #include <padscore/wpad.h>
 
 #include <SDL2/SDL_syswm.h>
 
+#include <malloc.h>
+
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <thread>
 
 #include "core/util.hpp"
 #include "logger/logger.hpp"
@@ -31,6 +38,38 @@ uint8_t g_rumble_pattern[15];
 TextInputState g_text_state = TEXT_IDLE;
 std::string g_text;
 bool g_collecting = false;
+
+// Socket receive buffers come from a pool that is small by default, which holds each
+// connection to about 64 KB per round trip (100-200 KB/s from YouTube). somemopt() donates
+// memory to the pool; a socket draws from it once SO_RUSRBUF is set. NUSspli measured the
+// same limit: github.com/V10lator/NUSspli/pull/491
+constexpr uint32_t SOCKET_POOL_SIZE = 0x300000;  // the most somemopt() accepts
+constexpr int SOCKET_RCVBUF = 256 * 1024;        // ~5 MB/s at 50 ms round trips
+std::atomic<bool> g_pool_ready{false};
+std::atomic<bool> g_pool_thread_done{false};
+int g_pool_bytes = 0;
+
+void donate_socket_pool() {
+    void* pool = memalign(0x40, SOCKET_POOL_SIZE);  // the network stack keeps it until we quit
+    if (!pool) return;
+    // SOMEMOPT_REQUEST_INIT only returns when the stack shuts down: it gets its own thread.
+    std::thread([pool] {
+        somemopt(SOMEMOPT_REQUEST_INIT, pool, SOCKET_POOL_SIZE, SOMEMOPT_FLAGS_BIG_BUFFERS);
+        g_pool_thread_done = true;
+    }).detach();
+    // Sockets opened before the donation lands get small buffers, so wait for it (up to a
+    // second: INIT returns early if it was refused).
+    for (int i = 0; i < 100 && !g_pool_thread_done; i++) {
+        int used = somemopt(SOMEMOPT_REQUEST_GET_BYTES_USED, nullptr, 0, SOMEMOPT_FLAGS_NONE);
+        if (used > 0) {
+            g_pool_bytes = used;
+            g_pool_ready = true;
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    log_message(LOG_WARNING, "Platform", "Socket memory pool not available");
+}
 
 void pump_sdl_events() {
     SDL_Event e;
@@ -134,6 +173,7 @@ bool init() {
     nn::ac::Initialize();
     nn::ac::GetStartupId(&config_id);
     g_ac_ok = nn::ac::Connect(config_id);
+    donate_socket_pool();
     WHBProcInit();
     VPADInit();
     KPADInit();
@@ -260,6 +300,23 @@ std::string ip_address() {
     uint32_t ip = 0;
     if (!nn::ac::GetAssignedAddress(&ip) || !ip) return "";
     return util::fmt("%u.%u.%u.%u", ip >> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255);
+}
+
+void tune_socket(int fd) {
+    // Only speed is at stake: an option the system refuses is ignored.
+    auto set = [fd](int option, int value) { setsockopt(fd, SOL_SOCKET, option, &value, sizeof(value)); };
+    set(SO_WINSCALE, 1);  // windows over 64 KB
+    set(SO_TCPSACK, 1);
+    if (g_pool_ready) set(SO_RUSRBUF, 1);  // before SO_RCVBUF, which then draws from the pool
+    set(SO_RCVBUF, SOCKET_RCVBUF);
+
+    static std::atomic<bool> logged{false};
+    if (!logged.exchange(true)) {
+        int got = 0;
+        socklen_t len = sizeof(got);
+        getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &got, &len);
+        log_message(LOG_OK, "Platform", "Socket receive buffer %d KB (memory pool %d KB)", got / 1024, g_pool_bytes / 1024);
+    }
 }
 
 void rumble(float seconds) {

@@ -5,7 +5,6 @@
 #include <atomic>
 #include <string>
 
-struct AVFormatContext;
 struct AVIOContext;
 
 namespace player {
@@ -15,7 +14,5 @@ namespace player {
 AVIOContext* smb_io_open(const std::string& url, const std::atomic<bool>* abort, std::string& error);
 // Frees a context from smb_io_open(); anything else (and null) is ignored.
 void smb_io_free(AVIOContext* pb);
-// avformat_close_input() that also frees smb_io custom I/O.
-void close_input(AVFormatContext** fmt);
 
 }  // namespace player
