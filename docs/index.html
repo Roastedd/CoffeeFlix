@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoffeeFlix for Wii U</title>
+<meta name="description" content="YouTube, Jellyfin, Twitch, radio, podcasts and your own media in one app for the Wii U. No accounts, nothing to set up.">
+<meta name="theme-color" content="#120E17">
+<meta property="og:title" content="CoffeeFlix for Wii U">
+<meta property="og:description" content="YouTube, Jellyfin, Twitch, radio, podcasts and your own media in one app for the Wii U.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preload" href="assets/fonts/inter-regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/inter-bold.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face { font-family: Inter; font-weight: 400; font-display: swap; src: url(assets/fonts/inter-regular.woff2) format("woff2"); }
+@font-face { font-family: Inter; font-weight: 600; font-display: swap; src: url(assets/fonts/inter-semibold.woff2) format("woff2"); }
+@font-face { font-family: Inter; font-weight: 700; font-display: swap; src: url(assets/fonts/inter-bold.woff2) format("woff2"); }
+
+:root {
+  --bg: #0b090e;
+  --bg-2: #120e17;
+  --surface: #1a1520;
+  --surface-2: #231c2b;
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f6f4f8;
+  --text-2: #b9b4c0;
+  --text-3: #8a8592;
+  --accent: #ffa24c;
+  --accent-2: #ff5f6d;
+  --grad: linear-gradient(100deg, var(--accent), var(--accent-2));
+  --radius: 18px;
+  --max: 1120px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 17px/1.6 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+img { max-width: 100%; height: auto; display: block; }
+a { color: inherit; }
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
+
+/* nav */
+.nav {
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(11, 9, 14, 0.78);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.nav .wrap { display: flex; align-items: center; gap: 24px; height: 64px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; text-decoration: none; }
+.brand img { width: 32px; height: 32px; border-radius: 50%; }
+.brand b { font-weight: 700; }
+.brand b span { color: var(--accent); }
+.nav nav { display: flex; gap: 22px; margin-left: auto; }
+.nav nav a { color: var(--text-2); text-decoration: none; font-size: 15px; font-weight: 600; }
+.nav nav a:hover { color: var(--text); }
+.nav .btn { padding: 9px 16px; font-size: 15px; }
+@media (max-width: 720px) { .nav nav { display: none; } .nav .btn { margin-left: auto; } }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 22px; border-radius: 999px;
+  font-weight: 700; font-size: 16px; text-decoration: none;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text);
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.btn:hover { transform: translateY(-1px); background: var(--surface-2); }
+.btn.primary { background: var(--grad); color: #1a1016; border: 0; box-shadow: 0 10px 30px rgba(255, 110, 90, 0.28); }
+.btn.primary:hover { box-shadow: 0 14px 36px rgba(255, 110, 90, 0.38); }
+.btn svg { width: 20px; height: 20px; flex: none; }
+
+/* hero */
+.hero { position: relative; overflow: hidden; padding: 72px 0 40px; }
+.hero::before {
+  content: ""; position: absolute; inset: -30% -10% auto; height: 900px; z-index: -1;
+  background:
+    radial-gradient(520px 360px at 18% 30%, rgba(255, 162, 76, 0.20), transparent 70%),
+    radial-gradient(560px 380px at 82% 20%, rgba(255, 95, 109, 0.18), transparent 70%);
+}
+.eyebrow { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 700; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; }
+.hero h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.05; letter-spacing: -0.03em; margin: 14px 0 18px; max-width: 16ch; }
+.hero h1 .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lede { color: var(--text-2); font-size: clamp(17px, 2vw, 20px); max-width: 58ch; margin: 0 0 30px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.meta { margin-top: 16px; color: var(--text-3); font-size: 14px; }
+.meta b { color: var(--text-2); font-weight: 600; }
+
+.tv {
+  margin: 56px auto 0; max-width: 980px;
+  border-radius: 22px; padding: 10px;
+  background: linear-gradient(180deg, #2a2231, #151118);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--line), 0 0 90px rgba(255, 120, 80, 0.10);
+}
+.tv img { border-radius: 14px; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+
+/* sections */
+section { padding: 72px 0; }
+h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 12px; }
+.sub { color: var(--text-2); margin: 0 0 36px; max-width: 62ch; }
+
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+.card h3 { margin: 12px 0 6px; font-size: 18px; }
+.card p { margin: 0; color: var(--text-2); font-size: 15px; }
+.icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: rgba(255, 162, 76, 0.12); color: var(--accent); }
+.icon svg { width: 22px; height: 22px; }
+.card.wide { grid-column: 1 / -1; display: grid; gap: 24px; grid-template-columns: 1.1fr 1fr; align-items: center; }
+.card.wide ul { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; color: var(--text-2); font-size: 15px; }
+.card.wide li::before { content: "\2713"; color: var(--accent); font-weight: 700; margin-right: 10px; }
+.card.wide img { border-radius: 12px; border: 1px solid var(--line); }
+@media (max-width: 820px) { .card.wide { grid-template-columns: 1fr; } }
+
+/* gallery */
+.gallery { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.gallery figure { margin: 0; }
+.gallery img { border-radius: 14px; border: 1px solid var(--line); aspect-ratio: 16 / 9; object-fit: cover; width: 100%; }
+.gallery figcaption { color: var(--text-3); font-size: 14px; margin-top: 8px; }
+
+/* install */
+.steps { counter-reset: step; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+.step { counter-increment: step; }
+.step::before {
+  content: counter(step); display: grid; place-items: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--grad); color: #1a1016; font-weight: 700; margin-bottom: 12px;
+}
+.note { margin-top: 18px; padding: 16px 18px; border-radius: 14px; background: rgba(255, 162, 76, 0.08); border: 1px solid rgba(255, 162, 76, 0.25); color: var(--text-2); font-size: 15px; }
+.note b { color: var(--text); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; background: var(--surface-2); padding: 2px 6px; border-radius: 6px; }
+
+/* faq */
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 4px 20px; margin-bottom: 10px; }
+summary { cursor: pointer; font-weight: 600; padding: 14px 0; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--accent); font-size: 22px; line-height: 1; }
+details[open] summary::after { content: "\2212"; }
+details p { margin: 0 0 16px; color: var(--text-2); font-size: 15px; }
+
+/* footer */
+footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--text-3); font-size: 14px; }
+footer .wrap { display: grid; gap: 10px; }
+footer a { color: var(--text-2); }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="32" height="32"><b>Coffee<span>Flix</span></b></a>
+    <nav aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#screens">Screenshots</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="btn primary" href="#install">Download</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div class="wrap">
+      <span class="eyebrow">Homebrew for the Wii U</span>
+      <h1>Everything you watch and listen to, <span class="grad">on your Wii U.</span></h1>
+      <p class="lede">CoffeeFlix brings YouTube, Jellyfin, Twitch, internet radio, podcasts and your own videos, music, photos and books together in one fast app made for the TV and the GamePad. No accounts, no ads, nothing to set up.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/Roastedd/CoffeeFlix/releases/latest/download/coffeeflix.zip">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1zM5 19a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1z"/></svg>
+          Download for Wii U
+        </a>
+        <a class="btn" href="#install">How to install</a>
+      </div>
+      <p class="meta"><b id="version">Version 2.0</b> · Free for noncommercial use · Needs the Aroma homebrew environment</p>
+      <div class="tv"><img src="assets/shots/home.jpg" alt="The CoffeeFlix home screen: a featured video with recommendations below it" width="1280" height="720"></div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>One app for your couch</h2>
+      <p class="sub">Built for the Wii U from the ground up: hardware video decoding, smooth animations, and controls that work the same on the GamePad, Pro Controller, Wii Remote and the touch screen.</p>
+      <div class="grid">
+        <div class="card wide">
+          <div>
+            <div class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 0 0 2.4 7.2 26 26 0 0 0 2 12a26 26 0 0 0 .4 4.8 2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8A26 26 0 0 0 22 12a26 26 0 0 0-.4-4.8zM10 15V9l5.2 3z"/></svg></div>
+            <h3>YouTube, without an account</h3>
+            <p>A <em>For you</em> feed that learns what you like on the console itself. Nothing is sent anywhere.</p>
+            <ul>
+              <li>Subscriptions with a newest-first feed, imported from Google Takeout or NewPipe</li>
+              <li>Channel pages with videos, Shorts, live streams and playlists</li>
+              <li><em>Watch later</em>, history, saved playlists and captions</li>
+              <li>Skips sponsor segments with SponsorBlock</li>
+            </ul>
+          </div>
+          <img src="assets/shots/channel.jpg" alt="A YouTube channel page with the Subscribed button and a grid of videos" width="1280" height="720" loading="lazy">
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h16V7zm5 2 6 3-6 3z"/></svg></div>
+          <h3>Jellyfin</h3>
+          <p>Your own movie and TV server, with continue watching, next up, seasons, subtitles and resume that syncs back. Sign in with Quick Connect.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3 3 7v12h5v3h3l3-3h4l4-4V3zm15 11-3 3h-5l-3 3v-3H5V5h15zm-4-7h2v5h-2zm-5 0h2v5h-2z"/></svg></div>
+          <h3>Twitch</h3>
+          <p>Live channels, categories, search and a follow list, at the quality you choose (60 fps optional).</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 6H8.3l8.26-3.34-.37-.93L3.46 6.85A2 2 0 0 0 2 8.7V20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zM7 20a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm13-8h-2v-2h-2v2H4V8h16z"/></svg></div>
+          <h3>Radio</h3>
+          <p>Over 40,000 stations from radio-browser.info, by country and genre, with favorites and live "now playing" titles.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm7 10a7 7 0 0 1-6 6.93V21h3v2H8v-2h3v-3.07A7 7 0 0 1 5 11h2a5 5 0 0 0 10 0z"/></svg></div>
+          <h3>Podcasts</h3>
+          <p>Search the Apple Podcasts directory and top charts, subscribe to shows, and pick up episodes where you left off.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg></div>
+          <h3>Your own media</h3>
+          <p>Videos with thumbnails and subtitles, music with cover art, photos and slideshows, and comics (CBZ) and EPUB books, from the SD card.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="11" y="7" width="2" height="3"/><rect x="5" y="10" width="14" height="2"/><rect x="5" y="12" width="2" height="4"/><rect x="17" y="12" width="2" height="4"/><rect x="2" y="16" width="8" height="5" rx="1"/><rect x="14" y="16" width="8" height="5" rx="1"/></svg></div>
+          <h3>Network &amp; media servers</h3>
+          <p>Play straight from a PC, Mac or NAS share (SMB), and from Plex, Jellyfin, Emby and other DLNA servers found automatically.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.32 12.9l5.39 5.4-1.42 1.4-5.39-5.38A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg></div>
+          <h3>Search everything</h3>
+          <p>One search across YouTube, Jellyfin, Twitch, radio and podcasts, and a Home screen that pulls it all together.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="wrap">
+      <h2>Take a look</h2>
+      <p class="sub">Real screenshots of CoffeeFlix, the same on the TV as on the GamePad.</p>
+      <div class="gallery">
+        <figure><img src="assets/shots/youtube.jpg" alt="YouTube tab with the For you feed and videos from subscriptions" width="1280" height="720" loading="lazy"><figcaption>YouTube: For you and your subscriptions</figcaption></figure>
+        <figure><img src="assets/shots/subscriptions.jpg" alt="Subscriptions page with channel avatars and the latest videos" width="1280" height="720" loading="lazy"><figcaption>Subscriptions, stored on your console</figcaption></figure>
+        <figure><img src="assets/shots/player.jpg" alt="The video player showing the Sintel trailer with its controls" width="1280" height="720" loading="lazy"><figcaption>The player, with hardware H.264 decoding</figcaption></figure>
+        <figure><img src="assets/shots/reader.jpg" alt="The book reader showing chapter one of Alice's Adventures in Wonderland" width="1280" height="720" loading="lazy"><figcaption>Comics and EPUB books</figcaption></figure>
+        <figure><img src="assets/shots/radio.jpg" alt="Radio tab with genres and popular stations" width="1280" height="720" loading="lazy"><figcaption>Internet radio</figcaption></figure>
+        <figure><img src="assets/shots/podcasts.jpg" alt="Podcasts tab with the top shows" width="1280" height="720" loading="lazy"><figcaption>Podcasts</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Install</h2>
+      <p class="sub">You need a Wii U with the <a href="https://wiiu.hacks.guide/">Aroma</a> homebrew environment. If you haven't set it up yet, the guide takes you through it step by step.</p>
+      <div class="steps">
+        <div class="card step">
+          <h3>Download</h3>
+          <p>Get <a href="https://github.com/Roastedd/CoffeeFlix/releases/latest/download/coffeeflix.zip">coffeeflix.zip</a>, the latest release.</p>
+        </div>
+        <div class="card step">
+          <h3>Copy to your SD card</h3>
+          <p>Extract the zip to the <b>root</b> of your Wii U's SD card. It creates <code>wiiu/apps/coffeeflix</code>.</p>
+        </div>
+        <div class="card step">
+          <h3>Launch</h3>
+          <p>Put the SD card back and start <b>CoffeeFlix</b> from the Wii U Menu.</p>
+        </div>
+      </div>
+      <p class="note">
+        <b>Just the app file?</b> <a href="https://github.com/Roastedd/CoffeeFlix/releases/latest/download/coffeeflix.wuhb">coffeeflix.wuhb</a> goes in <code>sd:/wiiu/apps/coffeeflix/</code>. Older versions and release notes are on the <a href="https://github.com/Roastedd/CoffeeFlix/releases">releases page</a>.<br>
+        <span id="hbas"><b>Homebrew App Store:</b> coming soon.</span>
+      </p>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <h2>Questions</h2>
+      <details>
+        <summary>Do I need a YouTube, Google or Twitch account?</summary>
+        <p>No. YouTube, Twitch, radio and podcasts work without signing in. Subscriptions, follows, favorites and what the <em>For you</em> feed learns are saved on your SD card and never leave your console. You can bring your YouTube subscriptions over from Google Takeout or NewPipe in <em>Settings</em>.</p>
+      </details>
+      <details>
+        <summary>Is it free?</summary>
+        <p>Yes. CoffeeFlix is free for personal and other noncommercial use under the <a href="https://github.com/Roastedd/CoffeeFlix/blob/master/LICENSE.md">PolyForm Noncommercial License</a>. Please don't sell it or bundle it into paid products.</p>
+      </details>
+      <details>
+        <summary>What can it play?</summary>
+        <p>The Wii U decodes H.264 video in hardware, so YouTube, Twitch and most H.264 files play smoothly up to 720p (1080p for local files). HEVC, VP9 and MPEG files play in software, best at 480p. Audio: MP3, AAC, FLAC, Vorbis, Opus, ALAC, WAV and more. Subtitles: SRT, ASS, WebVTT and embedded tracks.</p>
+      </details>
+      <details>
+        <summary>How do I watch my own movies?</summary>
+        <p>Put them on the SD card in <code>wiiu/apps/coffeeflix/Videos</code>, or play them from a PC or NAS on your network (<em>My Media → Network shares</em>), a DLNA server, or a Jellyfin server.</p>
+      </details>
+      <details>
+        <summary>How do I update?</summary>
+        <p>Download the latest zip and extract it over the old one. Your settings and subscriptions are kept.</p>
+      </details>
+      <details>
+        <summary>Is the source code available?</summary>
+        <p>Yes, on <a href="https://github.com/Roastedd/CoffeeFlix">GitHub</a>. You're welcome to read it, build it and change it for noncommercial purposes.</p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div><a class="brand" href="#top"><img src="assets/icon.png" alt="" width="24" height="24" style="width:24px;height:24px"><b>Coffee<span>Flix</span></b></a></div>
+    <div>Free for noncommercial use under the <a href="https://github.com/Roastedd/CoffeeFlix/blob/master/LICENSE.md">PolyForm Noncommercial License 1.0.0</a>. Includes open-source software listed in <a href="https://github.com/Roastedd/CoffeeFlix/blob/master/content/licenses/NOTICES.txt">NOTICES</a>.</div>
+    <div>CoffeeFlix is not affiliated with or endorsed by Nintendo, Google/YouTube, Twitch, Jellyfin or SponsorBlock. All trademarks belong to their owners.</div>
+    <div>Screenshots show <em>Sintel</em> (© Blender Foundation, CC BY 3.0) and <em>Alice's Adventures in Wonderland</em> (public domain, Project Gutenberg).</div>
+  </div>
+</footer>
+
+<script>
+// Show the latest release's version and date.
+(async () => {
+  try {
+    const r = await fetch("https://api.github.com/repos/Roastedd/CoffeeFlix/releases/latest");
+    if (!r.ok) return;
+    const rel = await r.json();
+    const date = new Date(rel.published_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+    document.getElementById("version").textContent = `Version ${rel.tag_name.replace(/^v/, "")} · ${date}`;
+  } catch (e) { /* offline or rate limited: keep the default text */ }
+})();
+</script>
+</body>
+</html>
