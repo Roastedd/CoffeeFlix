@@ -113,7 +113,7 @@ public:
             gfx::image(tex, Rect((float)fr.x, (float)fr.y, (float)fr.w, (float)fr.h));
         } else if (st == player::OPENING || st == player::BUFFERING) {
             // Artwork placeholder while the first frame loads.
-            const std::string& art = player::source().artwork;
+            std::string art = player::source().artwork;
             if (const images::Image* img = images::get(art, 0, 0, images::BLUR); img && img->ready)
                 gfx::image_cover(img->tex, img->w, img->h, Rect(0, 0, W, H), 0, Color(255, 255, 255, 120));
         }
@@ -310,7 +310,7 @@ private:
         push_layer();
         if (button(id(g, "retry"), Rect(card.cx() - 180, card.b() - 64, 170, 46), error ? "Retry" : "Replay", ic::REFRESH,
                    BTN_PRIMARY, g, F_DEFAULT)) {
-            if (error) player::open(player::source());
+            if (error) player::retry();
             else player::seek(0), player::set_paused(false);
         }
         if (button(id(g, "back"), Rect(card.cx() + 10, card.b() - 64, 170, 46), "Back", ic::ARROW_BACK, BTN_NORMAL, g))

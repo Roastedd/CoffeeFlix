@@ -129,8 +129,8 @@ bool icon_button(Id id, float cx, float cy, float radius, int icon, Id group = 0
                  bool active = false);
 bool chip(Id id, const Rect& r, const char* label, bool selected, Id group = 0, int icon = 0);
 // Settings-style rows
-bool toggle_row(Id id, const Rect& r, const char* label, const char* desc, bool* value, Id group = 0);
-bool value_row(Id id, const Rect& r, const char* label, const char* value, int icon = 0, Id group = 0);
+bool toggle_row(Id id, const Rect& r, const char* label, const char* desc, bool* value, Id group = 0, int flags = 0);
+bool value_row(Id id, const Rect& r, const char* label, const char* value, int icon = 0, Id group = 0, int flags = 0);
 // Horizontal progress/seek bar with optional buffered range.
 void progress_bar(const Rect& r, float progress, float buffered = 0, bool knob = false, float knob_scale = 1);
 

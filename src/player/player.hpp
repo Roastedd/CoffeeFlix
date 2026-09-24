@@ -30,6 +30,11 @@ struct Source {
     std::string extra;           // service data stored with the resume point
     bool remember_position = true;
 
+    // Optional: runs on the player's opener thread before anything is opened,
+    // to turn an id into stream URLs (YouTube, Jellyfin, Twitch). Return false
+    // and set the error message to fail playback.
+    std::function<bool(Source& src, std::string& error)> resolve;
+
     // Service hooks (called on the main thread)
     std::function<void(double position, bool paused)> on_progress;  // ~every 10 s
     std::function<void(double position, bool finished)> on_stop;
@@ -49,6 +54,7 @@ void open(const Source& src);
 // Queue of sources (album, podcast episodes): plays `index`, advances on end.
 void open_queue(std::vector<Source> queue, int index);
 void close();
+void retry();               // reopen the current source from scratch (re-resolving URLs)
 bool next();
 bool previous();
 bool has_next();
@@ -62,7 +68,7 @@ void seek_relative(double delta);
 State state();
 bool active();              // opening/buffering/playing/paused
 const std::string& error();
-const Source& source();
+Source source();            // snapshot (thread-safe)
 double position();
 double duration();
 double buffered_until();    // media time buffered ahead (for the seek bar)
