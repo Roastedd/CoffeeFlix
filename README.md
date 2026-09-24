@@ -16,9 +16,6 @@
 - 📡 **Media servers (DLNA)**: Plex, Jellyfin, Emby, minidlna and most NAS boxes are found automatically on your network, no setup needed.
 - 🔎 **Search everything** at once, with a **Home** screen that pulls it all together.
 - 🎵 **Now Playing** with a live spectrum visualizer, and a mini player that keeps music going while you browse.
-- ✨ **Juicy UI**: spring animations, blurred backdrops, focus zoom, sound effects, five accent colors, a startup animation and a screensaver. The console won't dim or power off mid-movie.
-
-> DRM-protected services (Netflix, Disney+, Spotify and similar) can't run on the Wii U and aren't supported.
 
 ---
 
