@@ -16,3 +16,5 @@ shaders/easter_egg.*
 .clang-format
 .clangd
 .settings
+# Built third-party libraries (tools/build-deps.sh)
+deps/

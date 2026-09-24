@@ -13,9 +13,9 @@ static bool wpad_init = false;
 static uint32_t s_last_wpad_buttons = 0;  // Track last frame's buttons for trigger detection
 
 void input_poll(InputState& state) {
-    static uint64_t last_buttons = 0;
-    static bool last_touch = false;
-    static float last_touch_x = 0.0f, last_touch_y = 0.0f;
+    [[maybe_unused]] static uint64_t last_buttons = 0;
+    [[maybe_unused]] static bool last_touch = false;
+    [[maybe_unused]] static float last_touch_x = 0.0f, last_touch_y = 0.0f;
 
     if (!wpad_init) {
         WPADInit();
