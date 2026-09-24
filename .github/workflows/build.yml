@@ -43,7 +43,7 @@ jobs:
           cp -r coffeeflix.rpx content LICENSE.md "$app/"
           cp branding/hbl_icon.png "$app/icon.png"
           version="${GITHUB_REF_NAME#v}"
-          case "$GITHUB_REF" in refs/tags/v*) ;; *) version="dev-${GITHUB_SHA::7}" ;; esac
+          case "$GITHUB_REF" in refs/tags/v*) ;; *) version="dev-$(echo "$GITHUB_SHA" | cut -c1-7)" ;; esac
           cat > "$app/meta.xml" <<EOF
           <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
           <app version="1">
