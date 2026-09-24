@@ -317,6 +317,7 @@ int run(int, char**) {
         gfx::end_frame();
 
         if (const char* shot = platform::screenshot_request()) platform::save_screenshot(renderer, shot);
+        platform::record_frame(renderer);
         SDL_RenderPresent(renderer);
         g_dead.clear();
         store::tick();
