@@ -21,7 +21,7 @@
 
 ## 📦 Installation
 
-1. [Download the latest release](https://github.com/roastedd/coffeeflix/releases/latest), or grab `coffeeflix-<commit>` from the latest [Build](https://github.com/roastedd/coffeeflix/actions/workflows/build.yml) run.
+1. Download the latest release from the [CoffeeFlix website](https://roastedd.github.io/CoffeeFlix/) or the [releases page](https://github.com/roastedd/coffeeflix/releases/latest), or grab `coffeeflix-<commit>` from the latest [Build](https://github.com/roastedd/coffeeflix/actions/workflows/build.yml) run.
 2. Extract the ZIP file to the **root of your SD card**.
 3. Put your own media into `sd:/wiiu/apps/coffeeflix/` (the app creates `Videos`, `Music`, `Photos` and `Books` folders there).
 4. Launch **CoffeeFlix** from the Wii U Menu (Aroma).
@@ -152,6 +152,10 @@ make -f desktop.mk && ./build-desktop/coffeeflix
 Without FFmpeg in `deps/host` the system's is used. Test files go in `data/media/` (`Videos`, `Music`, `Photos`, `Books`).
 
 Keyboard: arrows move, `Enter`/`Z` = A, `Esc`/`Backspace`/`X` = B, `C` = X, `V` = Y, `Tab` = +, `Q`/`E` = L/R, `1`/`3` = ZL/ZR. Set `COFFEEFLIX_DATA=<dir>` to use a separate settings and media folder.
+
+### Website and Homebrew App Store
+
+The download site is in [`docs/`](docs/index.html) and is served by GitHub Pages. The Homebrew App Store package is in [`packaging/hbas`](packaging/hbas/README.md).
 
 ### Branding
 
