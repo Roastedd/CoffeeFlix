@@ -286,6 +286,11 @@ bool network_connected() { return true; }
 std::string ip_address() { return "127.0.0.1"; }
 void rumble(float) {}
 
+void keep_awake(Awake level) {
+    if (level == AWAKE_FULL) SDL_DisableScreenSaver();
+    else SDL_EnableScreenSaver();
+}
+
 bool scripted() { return g_scripted; }
 float fixed_dt() { return g_scripted ? 1.0f / 60.0f : 0.0f; }
 

@@ -36,6 +36,11 @@ std::string ip_address();
 // Rumble the GamePad briefly (no-op elsewhere).
 void rumble(float seconds);
 
+// Stops the system from dimming the screen or powering off while media plays.
+// The console's own settings come back once playback stops.
+enum Awake { AWAKE_NONE, AWAKE_NO_POWEROFF, AWAKE_FULL };
+void keep_awake(Awake level);
+
 // Desktop test harness: a script can drive input and request screenshots.
 bool scripted();
 float fixed_dt();              // >0 when frames should advance at a fixed rate

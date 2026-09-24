@@ -25,6 +25,7 @@ struct Choice {
 const Choice YT_QUALITY{"yt_quality", {360, 480, 720, 1080}, {"360p", "480p", "720p", "1080p"}, 720};
 const Choice JF_QUALITY{"jf_quality", {480, 720, 1080}, {"480p", "720p", "1080p"}, 1080};
 const Choice TW_QUALITY{"twitch_quality", {360, 480, 720, 1080}, {"360p", "480p", "720p", "1080p"}, 720};
+const Choice SCREENSAVER{"screensaver", {0, 120, 300, 600, 1200}, {"Off", "After 2 min", "After 5 min", "After 10 min", "After 20 min"}, 300};
 const char* COUNTRIES[] = {"US", "GB", "CA", "AU", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "PL", "BR", "MX", "JP", "KR", "IN"};
 
 class SettingsScreen : public app::Screen {
@@ -85,6 +86,7 @@ public:
             }
             track(iid, top, 82);
         }
+        choice_row(g, "saver", SCREENSAVER, "Screensaver", ic::BRIGHTNESS, x0, w, y);
 
         header("PLAYBACK");
         choice_row(g, "yt_q", YT_QUALITY, "YouTube quality", ic::SMART_DISPLAY, x0, w, y);

@@ -20,6 +20,7 @@
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "ui/ui.hpp"
+#include "app/ambient.hpp"
 #include "app/mini_player.hpp"
 #include "player/player.hpp"
 
@@ -150,6 +151,9 @@ void frame(float dt) {
     using namespace ui;
     Screen* s = top();
     bool full = s && s->fullscreen();
+    player::State ps = player::state();
+    bool video_playing = player::has_video() && (ps == player::PLAYING || ps == player::BUFFERING || ps == player::OPENING);
+    ambient::begin(full && video_playing);
 
     if (!s || !s->draws_background()) draw_background();
     bool prompting = screens::prompt_active();
@@ -187,6 +191,7 @@ void frame(float dt) {
     if (!prompting) handle_back();
     screens::draw_prompt();
     draw_overlays();
+    ambient::draw();
     (void)dt;
 }
 
@@ -287,6 +292,14 @@ int run(int, char**) {
         tasks::pump();
         images::begin_frame();
         player::update();
+        {
+            // Keep the screen on for videos and the console on for any playback.
+            player::State ps = player::state();
+            bool playing = ps == player::PLAYING || ps == player::BUFFERING || ps == player::OPENING;
+            platform::keep_awake(!playing ? platform::AWAKE_NONE
+                                 : player::has_video() ? platform::AWAKE_FULL
+                                                       : platform::AWAKE_NO_POWEROFF);
+        }
 
         gfx::begin_frame(gfx::BLACK);
         ui::begin_frame(in, dt);

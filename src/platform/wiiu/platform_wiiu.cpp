@@ -1,6 +1,7 @@
 #include "platform/platform.hpp"
 
 #include <whb/proc.h>
+#include <coreinit/energysaver.h>
 #include <nn/ac.h>
 #include <vpad/input.h>
 #include <padscore/kpad.h>
@@ -23,6 +24,8 @@ namespace {
 bool g_ac_ok = false;
 uint32_t g_ip = 0;
 float g_rumble_left = 0;
+Awake g_awake = AWAKE_NONE;
+uint32_t g_dim_was_on = 0, g_apd_was_on = 0;
 uint8_t g_rumble_pattern[15];
 
 TextInputState g_text_state = TEXT_IDLE;
@@ -141,6 +144,8 @@ bool init() {
         log_message(LOG_WARNING, "Platform", "No network address");
     }
     for (auto& b : g_rumble_pattern) b = 0xFF;
+    IMIsDimEnabled(&g_dim_was_on);
+    IMIsAPDEnabled(&g_apd_was_on);
     util::make_dirs(data_dir());
     return true;
 }
@@ -151,6 +156,7 @@ void post_video_init(SDL_Window*, SDL_Renderer*) {
 }
 
 void shutdown() {
+    keep_awake(AWAKE_NONE);
     VPADStopMotor(VPAD_CHAN_0);
     KPADShutdown();
     WHBProcShutdown();
@@ -259,6 +265,15 @@ std::string ip_address() {
 void rumble(float seconds) {
     VPADControlMotor(VPAD_CHAN_0, g_rumble_pattern, 120);
     g_rumble_left = seconds;
+}
+
+void keep_awake(Awake level) {
+    if (level == g_awake) return;
+    bool dim_off = level == AWAKE_FULL, apd_off = level != AWAKE_NONE;
+    bool was_dim_off = g_awake == AWAKE_FULL, was_apd_off = g_awake != AWAKE_NONE;
+    if (dim_off != was_dim_off && g_dim_was_on) dim_off ? IMDisableDim() : IMEnableDim();
+    if (apd_off != was_apd_off && g_apd_was_on) apd_off ? IMDisableAPD() : IMEnableAPD();
+    g_awake = level;
 }
 
 // --- text input (system keyboard) -----------------------------------------------
