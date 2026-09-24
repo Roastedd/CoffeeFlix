@@ -248,6 +248,7 @@ void set_mini_player_visible(bool v) { g_mini_visible = v; }
 
 int run(int, char**) {
     if (!platform::init()) return 1;
+    log_to_file(platform::data_dir());
     log_message(LOG_OK, "App", "CoffeeFlix starting on %s", platform::name());
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");

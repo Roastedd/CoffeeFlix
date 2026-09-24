@@ -49,9 +49,22 @@ fetch() { # fetch <dir> <repo> <rev>
 
 sha1() { if command -v sha1sum >/dev/null; then sha1sum; else shasum; fi; }  # macOS has only shasum
 
-# A library is rebuilt when its revision or its build function changes.
+# A library is rebuilt when its revision, its build function or its patches change.
 stamp_for() { # stamp_for <name> <rev>
-    echo "$PREFIX/.$1-$2-$(declare -f "build_$1" | sha1 | cut -c1-12)"
+    local patches="$(cat "$ROOT/tools/patches/$1"/*.patch 2>/dev/null | sha1 | cut -c1-12)"
+    echo "$PREFIX/.$1-$2-$(declare -f "build_$1" | sha1 | cut -c1-12)-$patches"
+}
+
+# Applies tools/patches/<name>/*.patch on a pristine checkout.
+apply_patches() { # apply_patches <name> <dir>
+    git -C "$2" reset -q --hard
+    git -C "$2" clean -fdxq   # out-of-tree builds need a pristine source dir
+    local p
+    for p in "$ROOT/tools/patches/$1"/*.patch; do
+        [ -f "$p" ] || continue
+        echo "$1: applying $(basename "$p")"
+        git -C "$2" apply "$p"
+    done
 }
 
 build_ffmpeg() {
@@ -60,7 +73,7 @@ build_ffmpeg() {
 
     fetch ffmpeg "$FFMPEG_REPO" "$FFMPEG_REV"
     local src="$DEPS/src/ffmpeg"
-    git -C "$src" clean -fdxq   # out-of-tree builds need a pristine source dir
+    apply_patches ffmpeg "$src"
     local build="$DEPS/build/ffmpeg-$([ $HOST = 1 ] && echo host || echo wiiu)"
     rm -rf "$build" && mkdir -p "$build" && cd "$build"
 

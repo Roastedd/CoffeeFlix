@@ -116,6 +116,7 @@ ffmpeg -i <input> -map 0 -c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv420
 - **Audio**: MP3, AAC, FLAC, Vorbis, Opus, ALAC, WavPack, WAV and AC-3/E-AC-3. Surround is downmixed to stereo.
 - **Subtitles**: embedded SRT/ASS/WebVTT/mov_text, and `.srt` files next to the video.
 - **Jellyfin** direct-plays what the Wii U can decode and asks the server to transcode the rest to H.264/AAC at your quality setting.
+- **Something went wrong?** CoffeeFlix keeps a log of each run in `sd:/wiiu/apps/coffeeflix/coffeeflix.log` (and the run before in `coffeeflix-previous.log`, handy after a freeze). Attach it when you report a problem.
 
 ---
 

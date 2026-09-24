@@ -1,6 +1,7 @@
 #include "player/convert.hpp"
 
 #include <algorithm>
+#include <cstring>
 
 extern "C" {
 #include <libavutil/pixdesc.h>
@@ -29,23 +30,41 @@ void init_clip() {
     g_clip_init = true;
 }
 
-// Two output rows sharing one chroma row. `uv_step` is 1 for planar U/V,
+// One RGBA32 pixel (bytes R, G, B, A in memory) as a single word store.
+inline uint32_t rgba(int yy, int r, int g, int b) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return (uint32_t)clip(yy + r) << 24 | (uint32_t)clip(yy + g) << 16 | (uint32_t)clip(yy + b) << 8 | 0xFFu;
+#else
+    return (uint32_t)clip(yy + r) | (uint32_t)clip(yy + g) << 8 | (uint32_t)clip(yy + b) << 16 | 0xFF000000u;
+#endif
+}
+
+// Two output rows sharing one chroma row. `UVStep` is 1 for planar U/V,
 // 2 for interleaved NV12 (with v = u + 1).
-inline void convert_pair(const uint8_t* y0, const uint8_t* y1, const uint8_t* u, const uint8_t* v, int uv_step,
-                         uint8_t* d0, uint8_t* d1, int w, const Coeffs& c, bool has_second) {
-    for (int x = 0; x < w; x += 2) {
-        int cu = u[(x >> 1) * uv_step] - 128, cv = v[(x >> 1) * uv_step] - 128;
+template <int UVStep, bool Second>
+void convert_pair(const uint8_t* y0, const uint8_t* y1, const uint8_t* u, const uint8_t* v, uint8_t* d0, uint8_t* d1,
+                  int w, const Coeffs& c) {
+    const int cy = c.y, yoff = c.yoff;
+    int x = 0;
+    for (; x + 1 < w; x += 2) {
+        int cu = u[(x >> 1) * UVStep] - 128, cv = v[(x >> 1) * UVStep] - 128;
         int r = c.rv * cv + 128, g = c.gu * cu + c.gv * cv + 128, b = c.bu * cu + 128;
-        int n = (x + 1 < w) ? 2 : 1;
-        for (int k = 0; k < n; k++) {
-            int yy = (y0[x + k] - c.yoff) * c.y;
-            uint8_t* p = d0 + (x + k) * 4;
-            p[0] = clip(yy + r); p[1] = clip(yy + g); p[2] = clip(yy + b); p[3] = 255;
-            if (has_second) {
-                yy = (y1[x + k] - c.yoff) * c.y;
-                p = d1 + (x + k) * 4;
-                p[0] = clip(yy + r); p[1] = clip(yy + g); p[2] = clip(yy + b); p[3] = 255;
-            }
+        uint32_t p[2] = {rgba((y0[x] - yoff) * cy, r, g, b), rgba((y0[x + 1] - yoff) * cy, r, g, b)};
+        std::memcpy(d0 + x * 4, p, sizeof(p));
+        if (Second) {
+            p[0] = rgba((y1[x] - yoff) * cy, r, g, b);
+            p[1] = rgba((y1[x + 1] - yoff) * cy, r, g, b);
+            std::memcpy(d1 + x * 4, p, sizeof(p));
+        }
+    }
+    if (x < w) {  // odd width
+        int cu = u[(x >> 1) * UVStep] - 128, cv = v[(x >> 1) * UVStep] - 128;
+        int r = c.rv * cv + 128, g = c.gu * cu + c.gv * cv + 128, b = c.bu * cu + 128;
+        uint32_t p = rgba((y0[x] - yoff) * cy, r, g, b);
+        std::memcpy(d0 + x * 4, &p, sizeof(p));
+        if (Second) {
+            p = rgba((y1[x] - yoff) * cy, r, g, b);
+            std::memcpy(d1 + x * 4, &p, sizeof(p));
         }
     }
 }
@@ -102,7 +121,15 @@ void FrameConverter::convert_rows(const AVFrame* f, uint8_t* dst, int pitch, int
             u = f->data[1] + (size_t)(y >> 1) * f->linesize[1];
             v = f->data[2] + (size_t)(y >> 1) * f->linesize[2];
         }
-        convert_pair(yr0, yr1, u, v, nv12 ? 2 : 1, dst + (size_t)y * pitch, dst + (size_t)(y + 1) * pitch, w, c, second);
+        uint8_t* d0 = dst + (size_t)y * pitch;
+        uint8_t* d1 = d0 + pitch;
+        if (nv12) {
+            if (second) convert_pair<2, true>(yr0, yr1, u, v, d0, d1, w, c);
+            else convert_pair<2, false>(yr0, yr1, u, v, d0, d1, w, c);
+        } else {
+            if (second) convert_pair<1, true>(yr0, yr1, u, v, d0, d1, w, c);
+            else convert_pair<1, false>(yr0, yr1, u, v, d0, d1, w, c);
+        }
     }
 }
 
