@@ -1,4 +1,4 @@
-// YouTube: home shelves, topics, subscriptions (local, no account), search.
+// YouTube: home shelves, on-device recommendations, topics, subscriptions (local, no account), search.
 #include <algorithm>
 
 #include "core/store.hpp"
@@ -8,6 +8,7 @@
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/youtube.hpp"
+#include "services/yt_recs.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -84,6 +85,7 @@ void toggle_subscription(const youtube::Video& v) {
     }
     store::Fav f{v.channel_id, v.channel, "", youtube::thumbnail(v.id), ""};
     bool on = store::fav_toggle("yt_channel", f);
+    yt_recs::on_subscribe(v.channel_id, on);
     toast(on ? "Subscribed to " + v.channel : "Unsubscribed from " + v.channel, on ? ic::CHECK_CIRCLE : ic::REMOVE);
 }
 
@@ -148,7 +150,7 @@ class YouTubeScreen : public app::Screen {
 public:
     YouTubeScreen() {
         trending_.fetch = [](const std::string& c) {
-            return c.empty() ? youtube::trending() : youtube::search("", "", c);
+            return c.empty() ? youtube::trending() : youtube::Results();
         };
         trending_.load();
         for (auto& tp : youtube::topics()) {
@@ -158,12 +160,16 @@ public:
             topic_feeds_.push_back(std::move(f));
         }
         load_subscriptions();
+        foryou_.fetch = [](const std::string& c) { return c.empty() ? yt_recs::for_you() : youtube::Results(); };
+        load_for_you();
     }
 
     app::Section section() const override { return app::SEC_YOUTUBE; }
 
     void on_enter() override {
         if (subs_count_ != store::favs("yt_channel").size()) load_subscriptions();
+        // Rebuild once something new was learned (a watch, search, subscription...).
+        if (yt_recs::version() != foryou_version_ && !foryou_.loading) load_for_you();
     }
 
     void frame() override {
@@ -233,7 +239,8 @@ public:
             hint_bar({{"A", "Select"}});
             return;
         }
-        y += video_shelf(id(g, "trending"), x0, y, "Trending", trending_) + 12;
+        if (personal_) y += video_shelf(id(g, "foryou"), x0, y, "For you", foryou_) + 12;
+        y += video_shelf(id(g, "trending"), x0, y, "Popular this week", trending_) + 12;
 
         if (!subs_.res.items.empty() || subs_.loading) {
             y += video_shelf(id(g, "subs"), x0, y, "From your subscriptions", subs_) + 12;
@@ -260,10 +267,16 @@ public:
             y += video_shelf(id(g, (int64_t)(100 + i)), x0, y, tps[i].name, f) + 12;
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Play"}, {"X", "Subscribe"}});
+        hint_bar({{"A", "Play"}, {"X", "Subscribe"}, {"Y", "Not interested"}});
     }
 
 private:
+    void load_for_you() {
+        personal_ = yt_recs::has_profile();
+        foryou_version_ = yt_recs::version();
+        if (personal_) foryou_.reload();
+    }
+
     float video_shelf(Id sid, float x, float y, const char* title, Feed& f) {
         if (f.loaded && f.res.items.empty()) {
             if (!f.res.error.empty()) {
@@ -285,6 +298,11 @@ private:
             if (i >= (int)f.res.items.size() - 4) f.more();
         };
         s.on_x = [&f](int i) { toggle_subscription(f.res.items[i]); };
+        s.on_y = [&f](int i) {
+            yt_recs::not_interested(f.res.items[i]);
+            f.res.items.erase(f.res.items.begin() + i);
+            toast("Got it, you'll see less like this", ic::CHECK_CIRCLE);
+        };
         return shelf(sid, x, y, s, &page_);
     }
 
@@ -292,6 +310,7 @@ private:
         prompt_text("Search YouTube", "", "Search YouTube", [](std::string q) {
             if (q.empty()) return;
             store::add_recent_search("youtube", q);
+            yt_recs::on_search(q);
             app::push(std::make_unique<VideoGridScreen>(q, "Search results", [q](const std::string& c) {
                 return youtube::search(q, youtube::PARAMS_VIDEOS, c);
             }));
@@ -323,7 +342,9 @@ private:
         subs_.reload();
     }
 
-    Feed trending_, subs_;
+    Feed trending_, subs_, foryou_;
+    bool personal_ = false;
+    int foryou_version_ = -1;
     size_t subs_count_ = 0;
     std::vector<std::unique_ptr<Feed>> topic_feeds_;
     Page page_;

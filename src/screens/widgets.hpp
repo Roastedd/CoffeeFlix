@@ -62,6 +62,7 @@ struct ShelfSpec {
     std::function<void(int)> on_click;
     std::function<void(int)> on_focus;   // e.g. update the backdrop
     std::function<void(int)> on_x;       // secondary action (X button)
+    std::function<void(int)> on_y;       // another one (Y button)
 };
 float shelf(Id id, float x, float y, const ShelfSpec& spec, Page* page = nullptr);
 
@@ -77,6 +78,7 @@ struct GridSpec {
     std::function<void(int)> on_click;
     std::function<void(int)> on_focus;
     std::function<void(int)> on_x;
+    std::function<void(int)> on_y;
     std::function<void()> on_reach_end;  // pagination
 };
 float grid(Id id, float x, float y, const GridSpec& spec, Page* page = nullptr);
