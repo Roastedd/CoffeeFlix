@@ -31,6 +31,7 @@ constexpr float RAIL_W = 84.0f;
 constexpr float RAIL_OPEN_W = 272.0f;
 
 std::vector<std::unique_ptr<Screen>> g_stack;
+std::vector<ui::Id> g_saved_focus;  // focus of each covered screen, restored on pop
 std::vector<std::unique_ptr<Screen>> g_dead;  // destroyed at end of frame
 Section g_section = SEC_HOME;
 double g_trans_start = -10;
@@ -195,6 +196,8 @@ float Screen::content_x() { return RAIL_W + 36.0f; }
 
 void push(std::unique_ptr<Screen> s) {
     if (!s) return;
+    g_saved_focus.resize(g_stack.size());
+    if (!g_stack.empty()) g_saved_focus.back() = ui::focused();
     g_stack.push_back(std::move(s));
     ui::reset_focus();
     start_transition(1);
@@ -206,6 +209,9 @@ void pop() {
     g_dead.push_back(std::move(g_stack.back()));
     g_stack.pop_back();
     ui::reset_focus();
+    if (g_saved_focus.size() >= g_stack.size() && g_saved_focus[g_stack.size() - 1])
+        ui::set_focus(g_saved_focus[g_stack.size() - 1]);
+    g_saved_focus.resize(g_stack.size() - 1);
     start_transition(-1);
     g_stack.back()->on_enter();
 }
@@ -213,6 +219,7 @@ void pop() {
 void open_section(Section s) {
     for (auto& sc : g_stack) g_dead.push_back(std::move(sc));
     g_stack.clear();
+    g_saved_focus.clear();
     g_section = s;
     g_stack.push_back(screens::make_section_root(s));
     ui::reset_focus();

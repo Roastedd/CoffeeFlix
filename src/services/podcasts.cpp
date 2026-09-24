@@ -55,7 +55,8 @@ std::string upsize_artwork(std::string url) {
 
 Shows search(const std::string& query) {
     Shows out;
-    http::Response r = http::get("https://itunes.apple.com/search?media=podcast&entity=podcast&limit=40&term=" +
+    http::Response r = http::get(util::env_or("COFFEEFLIX_ITUNES_API", "https://itunes.apple.com") +
+                                 "/search?media=podcast&entity=podcast&limit=40&term=" +
                                  util::url_encode(query), {}, 15);
     if (!r.ok()) {
         out.error = r.error;
@@ -73,7 +74,8 @@ Shows search(const std::string& query) {
 
 Shows top(const std::string& country) {
     Shows out;
-    http::Response r = http::get("https://rss.applemarketingtools.com/api/v2/" + country + "/podcasts/top/40/podcasts.json", {}, 15);
+    http::Response r = http::get(util::env_or("COFFEEFLIX_CHARTS_API", "https://rss.applemarketingtools.com") + "/api/v2/" +
+                                 country + "/podcasts/top/40/podcasts.json", {}, 15);
     if (!r.ok()) {
         out.error = r.error;
         return out;
@@ -90,7 +92,8 @@ Shows top(const std::string& country) {
         return out;
     }
     // The chart doesn't include feed URLs: look them up in one batch.
-    http::Response lr = http::get("https://itunes.apple.com/lookup?entity=podcast&id=" + ids, {}, 15);
+    http::Response lr = http::get(util::env_or("COFFEEFLIX_ITUNES_API", "https://itunes.apple.com") +
+                                  "/lookup?entity=podcast&id=" + ids, {}, 15);
     if (!lr.ok()) {
         out.error = lr.error;
         return out;

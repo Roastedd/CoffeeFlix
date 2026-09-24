@@ -54,6 +54,7 @@ uint64_t g_frame = 0;
 
 std::vector<Reg> g_cur, g_prev;
 Id g_focus = 0;
+int g_focus_grace = 0;  // frames to keep an explicitly set focus that isn't drawn yet
 Id g_last_focus_group = 0;
 int g_layer = 0;
 std::vector<int> g_layer_stack;
@@ -162,6 +163,10 @@ void do_navigation() {
     int top = top_layer(g_cur);
     const Reg* cur = find(g_cur, g_focus);
 
+    if (g_focus_grace > 0) {
+        g_focus_grace--;
+        if (!cur) return;  // the target screen appears next frame
+    }
     // Keep focus valid: fall back to a default item in the top layer.
     if (!cur || cur->layer != top) {
         const Reg* def = nullptr;
@@ -343,6 +348,7 @@ void reset_focus() {
 
 void set_focus(Id id) {
     g_focus = id;
+    g_focus_grace = 2;
     if (const Reg* r = find(g_cur, id)) g_last_focus_group = r->group;
 }
 

@@ -8,6 +8,7 @@
 #include <ctime>
 #include <random>
 #include <cerrno>
+#include <cstdlib>
 
 namespace util {
 
@@ -293,6 +294,11 @@ std::string clock_hhmm() {
     char buf[16];
     strftime(buf, sizeof(buf), "%H:%M", &lt);
     return buf;
+}
+
+std::string env_or(const char* name, const std::string& def) {
+    const char* v = getenv(name);
+    return v && *v ? std::string(v) : def;
 }
 
 bool file_exists(const std::string& path) {

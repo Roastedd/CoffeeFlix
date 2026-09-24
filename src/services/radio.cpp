@@ -57,7 +57,8 @@ List fetch(const std::string& path) {
     int n = (int)(sizeof(SERVERS) / sizeof(SERVERS[0]));
     for (int k = 0; k < n; k++) {
         int i = (start + k) % n;
-        http::Response r = http::get(std::string(SERVERS[i]) + path, {{"User-Agent", "CoffeeFlix/2.0"}}, 15);
+        std::string base = util::env_or("COFFEEFLIX_RADIO_API", SERVERS[i]);
+        http::Response r = http::get(base + path, {{"User-Agent", "CoffeeFlix/2.0"}}, 15);
         if (!r.ok()) {
             list.error = r.error;
             continue;
@@ -132,7 +133,7 @@ player::Source make_source(const Station& s) {
     // Count the click (helps the directory rank stations); fire and forget.
     std::string uuid = s.uuid;
     tasks::submit(tasks::API, [uuid]() -> std::function<void()> {
-        http::get(std::string(SERVERS[0]) + "/json/url/" + uuid, {{"User-Agent", "CoffeeFlix/2.0"}}, 8);
+        http::get(util::env_or("COFFEEFLIX_RADIO_API", SERVERS[0]) + "/json/url/" + uuid, {{"User-Agent", "CoffeeFlix/2.0"}}, 8);
         return nullptr;
     });
     return src;

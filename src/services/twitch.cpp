@@ -43,7 +43,7 @@ json::Doc gql(const std::string& query, const std::string& variables_json, std::
     }
     std::string payload = json::dump(body);
     json_decref(body);
-    http::Response r = http::post_json("https://gql.twitch.tv/gql", payload,
+    http::Response r = http::post_json(util::env_or("COFFEEFLIX_TWITCH_GQL", "https://gql.twitch.tv/gql"), payload,
                                        {{"Client-ID", CLIENT_ID}, {"X-Device-Id", device_id()}}, 15);
     if (!r.ok()) {
         error = r.error;
@@ -120,9 +120,9 @@ bool resolve(const std::string& login, player::Source& src, std::string& error) 
         return false;
     }
     std::string usher = util::fmt(
-        "https://usher.ttvnw.net/api/channel/hls/%s.m3u8?sig=%s&token=%s&allow_source=true&allow_audio_only=true"
+        "%s/api/channel/hls/%s.m3u8?sig=%s&token=%s&allow_source=true&allow_audio_only=true"
         "&fast_bread=true&playlist_include_framerate=true&player_backend=mediaplayer&supported_codecs=avc1&p=%d",
-        util::lower(login).c_str(), sig.c_str(), util::url_encode(value).c_str(), rand() % 999999);
+        util::env_or("COFFEEFLIX_TWITCH_USHER", "https://usher.ttvnw.net").c_str(), util::lower(login).c_str(), sig.c_str(), util::url_encode(value).c_str(), rand() % 999999);
     http::Response r = http::get(usher, {}, 15);
     if (r.status == 404) {
         error = "This channel is offline";

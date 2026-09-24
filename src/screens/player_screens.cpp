@@ -276,9 +276,9 @@ private:
         float cy = H - 64 + slide;
         float cx = W * 0.5f;
         bool paused = st == player::PAUSED;
-        if (icon_button(id(g, "back10"), cx - 90, cy, 26, ic::REPLAY_10, g) && !live) seek_by(-10);
+        if (!live && icon_button(id(g, "back10"), cx - 90, cy, 26, ic::REPLAY_10, g)) seek_by(-10);
         if (icon_button(id(g, "play"), cx, cy, 34, paused || st == player::ENDED ? ic::PLAY : ic::PAUSE, g, F_DEFAULT, true)) toggle();
-        if (icon_button(id(g, "fwd10"), cx + 90, cy, 26, ic::FORWARD_10, g) && !live) seek_by(10);
+        if (!live && icon_button(id(g, "fwd10"), cx + 90, cy, 26, ic::FORWARD_10, g)) seek_by(10);
         float rx = W - 90;
         if (player::has_next()) {
             if (icon_button(id(g, "next"), rx, cy, 26, ic::SKIP_NEXT, g)) player::next();

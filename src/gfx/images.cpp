@@ -13,6 +13,7 @@
 #include "core/util.hpp"
 #include "gfx/gfx.hpp"
 #include "logger/logger.hpp"
+#include "player/thumbnailer.hpp"
 
 namespace images {
 
@@ -138,6 +139,22 @@ void load_job(std::shared_ptr<Entry> e) {
         }
         std::string data;
         bool ok;
+        if (util::starts_with(e->url, "thumb://")) {
+            // Still frame from a local video file.
+            SDL_Surface* s = player::video_thumbnail(e->url.substr(8), e->max_w > 0 ? e->max_w : 320);
+            s = to_rgba(s);
+            std::lock_guard<std::mutex> lk(g_m);
+            if (s) {
+                e->pending = s;
+                e->state = DECODED;
+                g_ready_to_upload.push_back(e);
+            } else {
+                e->state = FAILED;
+                e->failed_at = util::now_seconds() + 1e9;  // don't retry
+                e->img.failed = true;
+            }
+            return nullptr;
+        }
         if (util::starts_with(e->url, "http://") || util::starts_with(e->url, "https://")) {
             http::Request req;
             req.url = e->url;
@@ -240,6 +257,11 @@ const Image* get(const std::string& url, int max_w, int max_h, int flags) {
     std::string key = make_key(url, max_w, max_h, flags);
     std::lock_guard<std::mutex> lk(g_m);
     auto it = g_entries.find(key);
+    if (it == g_entries.end() && (max_w || max_h)) {
+        // Images inserted with put() (e.g. embedded cover art) have no size key.
+        auto put_it = g_entries.find(make_key(url, 0, 0, flags));
+        if (put_it != g_entries.end() && put_it->second->state == READY) it = put_it;
+    }
     std::shared_ptr<Entry> e;
     if (it == g_entries.end()) {
         e = std::make_shared<Entry>();

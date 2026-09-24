@@ -184,6 +184,9 @@ public:
                 if (e.kind == K_IMAGE) {
                     c.image = e.path;
                     c.image_w = 360;
+                } else if (e.kind == K_VIDEO) {
+                    c.image = "thumb://" + e.path;
+                    c.image_w = 320;
                 }
                 if (e.kind == K_DIR) {
                     c.subtitle = "Folder";

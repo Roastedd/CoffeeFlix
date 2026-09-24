@@ -34,6 +34,10 @@ double now_seconds();          // monotonic
 int64_t unix_time();           // wall clock seconds
 std::string clock_hhmm();      // local time for the status bar
 
+// Environment override (used by the desktop test harness to point services at
+// local mocks); returns `def` when unset, which is always the case on Wii U.
+std::string env_or(const char* name, const std::string& def);
+
 bool file_exists(const std::string& path);
 bool dir_exists(const std::string& path);
 bool make_dirs(const std::string& path);
