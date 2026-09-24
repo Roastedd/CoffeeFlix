@@ -274,7 +274,7 @@ int run(int, char**) {
     gfx::init(renderer);
     if (!text::init(content)) log_message(LOG_ERROR, "App", "Fonts missing in %s", content.c_str());
     store::load(platform::data_dir() + "/coffeeflix.json");
-    http::init(content + "/cacert.pem");
+    http::init(content + "/cacert.pem", platform::tune_socket);
     http::set_verify_tls(store::get_bool("verify_tls", true));
     tasks::init();
     images::init(platform::is_wiiu() ? (80u << 20) : (256u << 20));
