@@ -368,5 +368,6 @@ bool scripted() { return false; }
 float fixed_dt() { return 0; }
 const char* screenshot_request() { return nullptr; }
 void save_screenshot(SDL_Renderer*, const char*) {}
+void record_frame(SDL_Renderer*) {}
 
 }  // namespace platform

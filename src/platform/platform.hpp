@@ -49,5 +49,6 @@ bool scripted();
 float fixed_dt();              // >0 when frames should advance at a fixed rate
 const char* screenshot_request();  // path to save after this frame, or nullptr
 void save_screenshot(SDL_Renderer* r, const char* path);
+void record_frame(SDL_Renderer* r);  // desktop: the frame goes into the COFFEEFLIX_RECORD video
 
 }  // namespace platform

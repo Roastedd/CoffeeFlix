@@ -5,11 +5,17 @@
 //
 // Script commands (one per line): wait <frames> | press <button> |
 // hold <button> <frames> | tap <x> <y> | type <text> | shot <file.png> | quit
+//
+// COFFEEFLIX_RECORD=clip records the screen in real time (for trailers): clip.mkv (60 fps,
+// through the ffmpeg command) and clip.s16 (the sound, 48 kHz stereo). The log gives the
+// sound's offset for joining them:
+//   ffmpeg -i clip.mkv -itsoffset <offset> -f s16le -ar 48000 -ac 2 -i clip.s16 clip.mp4
 #include "platform/platform.hpp"
 
 #include <SDL2/SDL_image.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -19,7 +25,9 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
+#include "audio/mixer.hpp"
 #include "core/util.hpp"
 #include "logger/logger.hpp"
 #include "platform/text_input.hpp"
@@ -178,6 +186,22 @@ float pad_axis(SDL_GameControllerAxis a, bool invert) {
     return invert ? -v : v;
 }
 
+// screen recording
+std::string g_record;  // path without extension
+FILE* g_rec_video = nullptr;
+FILE* g_rec_audio = nullptr;
+double g_rec_start = -1;  // wall time of the first frame
+int64_t g_rec_frames = 0;
+std::vector<uint8_t> g_rec_pixels;
+std::atomic<double> g_rec_audio_start{-1};
+
+double wall() { return SDL_GetPerformanceCounter() / (double)SDL_GetPerformanceFrequency(); }
+
+void record_audio(const int16_t* frames, int count) {
+    if (g_rec_audio_start < 0) g_rec_audio_start = wall();
+    fwrite(frames, sizeof(int16_t) * audio::CHANNELS, (size_t)count, g_rec_audio);
+}
+
 }  // namespace
 
 bool init() {
@@ -185,6 +209,11 @@ bool init() {
     if (const char* d = getenv("COFFEEFLIX_DATA")) g_data = d;
     util::make_dirs(g_data);
     if (const char* s = getenv("COFFEEFLIX_SCRIPT")) load_script(s);
+    if (const char* r = getenv("COFFEEFLIX_RECORD")) {
+        g_record = r;
+        g_rec_audio = fopen((g_record + ".s16").c_str(), "wb");
+        if (g_rec_audio) audio::set_tap(record_audio);
+    }
     return true;
 }
 
@@ -201,6 +230,18 @@ void post_video_init(SDL_Window*, SDL_Renderer*) {
 
 void shutdown() {
     if (g_pad) SDL_GameControllerClose(g_pad);
+    if (g_rec_audio) {
+        audio::set_tap(nullptr);
+        SDL_Delay(50);  // a callback may still be writing
+        fclose(g_rec_audio);
+        g_rec_audio = nullptr;
+    }
+    if (g_rec_video) {
+        pclose(g_rec_video);
+        g_rec_video = nullptr;
+        log_message(LOG_OK, "Platform", "Recorded %.1f s to %s.mkv, sound offset %.3f s", g_rec_frames / 60.0,
+                    g_record.c_str(), g_rec_audio_start >= 0 ? g_rec_audio_start - g_rec_start : 0.0);
+    }
 }
 
 bool running() { return !g_quit; }
@@ -293,9 +334,37 @@ void keep_awake(Awake level) {
 }
 
 bool scripted() { return g_scripted; }
-float fixed_dt() { return g_scripted ? 1.0f / 60.0f : 0.0f; }
+// Recording runs in real time, so animations match the (wall clock) video playback.
+float fixed_dt() { return g_scripted && g_record.empty() ? 1.0f / 60.0f : 0.0f; }
 
 const char* screenshot_request() { return g_shot.empty() ? nullptr : g_shot.c_str(); }
+
+// Writes as many copies of the frame as the 60 fps timeline needs by now (none when the
+// display refreshes faster, several after a slow frame).
+void record_frame(SDL_Renderer* r) {
+    if (g_record.empty()) return;
+    int w = 0, h = 0;
+    SDL_GetRendererOutputSize(r, &w, &h);
+    if (!g_rec_video) {
+        std::string cmd = util::fmt(
+            "ffmpeg -y -loglevel error -f rawvideo -pix_fmt rgba -s %dx%d -r 60 -i - "
+            "-c:v libx264 -preset ultrafast -crf 10 -pix_fmt yuv444p '%s.mkv'",
+            w, h, g_record.c_str());
+        g_rec_video = popen(cmd.c_str(), "w");
+        if (!g_rec_video) {
+            log_message(LOG_ERROR, "Platform", "Can't start ffmpeg for recording");
+            g_record.clear();
+            return;
+        }
+        g_rec_start = wall();
+        g_rec_pixels.resize((size_t)w * h * 4);
+        log_message(LOG_OK, "Platform", "Recording %dx%d to %s.mkv", w, h, g_record.c_str());
+    }
+    int64_t due = (int64_t)((wall() - g_rec_start) * 60) + 1;
+    if (g_rec_frames >= due) return;
+    if (SDL_RenderReadPixels(r, nullptr, SDL_PIXELFORMAT_RGBA32, g_rec_pixels.data(), w * 4) != 0) return;
+    for (; g_rec_frames < due; g_rec_frames++) fwrite(g_rec_pixels.data(), 1, g_rec_pixels.size(), g_rec_video);
+}
 
 void save_screenshot(SDL_Renderer* r, const char* path) {
     int w = 0, h = 0;

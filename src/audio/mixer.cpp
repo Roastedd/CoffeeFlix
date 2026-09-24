@@ -113,6 +113,8 @@ void analyze(const int16_t* stereo, int frames) {
     }
 }
 
+std::atomic<void (*)(const int16_t*, int)> g_tap{nullptr};
+
 void callback(void*, Uint8* out_bytes, int len) {
     int16_t* out = (int16_t*)out_bytes;
     int frames = len / (int)(sizeof(int16_t) * CHANNELS);
@@ -155,6 +157,7 @@ void callback(void*, Uint8* out_bytes, int len) {
             }
         }
     }
+    if (auto tap = g_tap.load()) tap(out, frames);
 }
 
 // --- procedural UI sounds ------------------------------------------------------
@@ -219,6 +222,8 @@ bool init() {
     log_message(LOG_OK, "Audio", "Output %d Hz, %d frames/callback", have.freq, have.samples);
     return true;
 }
+
+void set_tap(void (*tap)(const int16_t* frames, int count)) { g_tap = tap; }
 
 void shutdown() {
     if (g_dev) SDL_CloseAudioDevice(g_dev);

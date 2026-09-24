@@ -13,6 +13,8 @@ constexpr int CHANNELS = 2;
 
 bool init();
 void shutdown();
+// Receives everything the device plays (desktop screen recording), on the audio thread.
+void set_tap(void (*tap)(const int16_t* frames, int count));
 
 // --- media stream ------------------------------------------------------------
 // Appends interleaved S16 stereo frames; `pts` is the media time of the first
