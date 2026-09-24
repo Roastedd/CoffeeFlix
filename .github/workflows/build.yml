@@ -53,3 +53,7 @@ jobs:
             coffeeflix.zip
             coffeeflix.wuhb
           generate_release_notes: true
+          body: |
+            **Install:** extract `coffeeflix.zip` to the root of your SD card (or put `coffeeflix.wuhb` in `sd:/wiiu/apps/coffeeflix/`) and start CoffeeFlix from the Wii U Menu. Needs [Aroma](https://aroma.foryour.cafe).
+
+            ☕ Enjoying CoffeeFlix? You can support it on [Ko-fi](https://ko-fi.com/ubecatstudio).
