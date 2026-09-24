@@ -10,7 +10,7 @@ A media app for the Wii U. It plays YouTube, Twitch, your Jellyfin server, inter
 
 ## What it does
 
-- **YouTube** without signing in. Subscriptions live on your SD card, and so does the *For you* feed, which learns from what you watch without sending anything anywhere. You get channel pages (videos, Shorts, live, playlists), search, *Watch later*, history, captions and [SponsorBlock](https://sponsor.ajay.app) skipping. Pick 360p to 1080p from the player; 720p is the default.
+- **YouTube** without signing in. Subscriptions live on your SD card, and so does the *For you* feed, which learns from what you watch without sending anything anywhere. You get channel pages (videos, Shorts, live, playlists), search, *Watch later*, history, captions and [SponsorBlock](https://sponsor.ajay.app) skipping. Pick 360p to 1080p from the player; 720p is the default. Videos with dubbed audio play in their original language, and the player lists the dubs if you'd rather hear one.
 - **Jellyfin**: sign in with Quick Connect or a password. Continue watching, next up, seasons and episodes, server subtitles, and your progress syncs back to the server.
 - **Twitch**: live channels, search and a follow list, at the quality you choose.
 - **Radio**: the 40,000+ stations of radio-browser.info, by country or genre, with the song that's playing.
@@ -52,7 +52,7 @@ The GamePad (including the touch screen), Pro Controller, Classic Controller and
 | D-Pad left / right | Back / forward 10 seconds |
 | L, ZL / R, ZR | Back / forward 30 seconds |
 | Y | Subtitles |
-| X | Audio track |
+| X | Audio track (on YouTube, the language) |
 | D-Pad up / down | Show the controls: quality, subtitles and, on YouTube, *Subscribe* |
 | B | Close |
 
@@ -60,7 +60,7 @@ In photos, L and R flip through pictures, A zooms and Y starts a slideshow. In t
 
 ## Settings
 
-Accent color, sounds, screensaver, default quality for YouTube, Jellyfin and Twitch, 60 fps video, subtitles and captions, SponsorBlock, your region, and importing or exporting YouTube subscriptions. They're saved in `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
+Accent color, sounds, screensaver, default quality for YouTube, Jellyfin and Twitch, 60 fps video, how the Wii U decodes video, subtitles and captions, SponsorBlock, your region, and importing or exporting YouTube subscriptions. They're saved in `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
 
 ## Formats and tips
 
@@ -73,7 +73,9 @@ ffmpeg -i input.mkv -map 0 -c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv4
 
 Audio can be MP3, AAC, FLAC, Vorbis, Opus, ALAC, WavPack, WAV or AC-3 (surround is mixed down to stereo). Subtitles can be embedded SRT, ASS, WebVTT or mov_text, or an `.srt` file next to the video. Jellyfin plays what the Wii U can handle directly and has the server convert the rest.
 
-If a video stutters, lower the quality from the player. 60 fps video is off by default because it's twice the work for the console.
+If a video stutters, lower the quality from the player. 60 fps video is off by default because it's twice the work for the console; YouTube only has 30 fps versions of 60 fps videos up to 480p.
+
+If the Wii U's hardware decoder gives no picture, the player switches to a safer mode by itself (hardware decoding without B-frames, then software decoding) and remembers it. You can change it back under *Settings > Video decoding*.
 
 **If something goes wrong**, CoffeeFlix writes a log of every run to `sd:/wiiu/apps/coffeeflix/coffeeflix.log`, and keeps the one before as `coffeeflix-previous.log` (the one you want after a freeze). Please attach it when you report a problem.
 

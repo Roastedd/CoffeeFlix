@@ -307,7 +307,7 @@ void reset() {
     learned_locked();
 }
 
-youtube::Results for_you() {
+static youtube::Results build_feed() {
     Brain b;
     {
         std::lock_guard<std::mutex> lk(g_m);
@@ -480,6 +480,26 @@ youtube::Results for_you() {
     log_message(LOG_OK, "YouTube", "For you: %zu videos from %zu seeds, %zu channels, %zu searches (%zu candidates)",
                 out.items.size(), seeds.size(), chans.size(), queries.size(), cands.size());
     return out;
+}
+
+// Home and the YouTube page ask for the feed at the same time; building it takes several
+// searches (slow on a Wii U), so it is built once and shared until something is learned or
+// 10 minutes have passed. A second caller waits for the first one's result.
+youtube::Results for_you() {
+    static std::mutex m;
+    static youtube::Results cached;
+    static int cached_version = -1;
+    static int64_t cached_at = 0;
+    std::lock_guard<std::mutex> lk(m);
+    int v = version();
+    if (v == cached_version && now() - cached_at < 10 * 60 && !cached.items.empty()) return cached;
+    youtube::Results r = build_feed();
+    if (!r.items.empty()) {
+        cached = r;
+        cached_version = v;
+        cached_at = now();
+    }
+    return r;
 }
 
 }  // namespace yt_recs

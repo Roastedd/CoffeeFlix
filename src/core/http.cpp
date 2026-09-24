@@ -3,7 +3,9 @@
 #include <curl/curl.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <cstdlib>
 #include <mutex>
 #include <vector>
 
@@ -175,7 +177,9 @@ Response perform(const Request& req) {
         }
     }
 
+    double t0 = util::now_seconds();
     CURLcode rc = curl_easy_perform(curl);
+    double took = util::now_seconds() - t0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp.status);
     char* eff = nullptr;
     if (curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &eff) == CURLE_OK && eff) resp.effective_url = eff;
@@ -203,6 +207,11 @@ Response perform(const Request& req) {
             log_message(LOG_WARNING, "HTTP", "%s %s -> %ld", req.method.c_str(), req.url.substr(0, 96).c_str(),
                         resp.status);
     }
+    // Slow requests, for the log (the first few; COFFEEFLIX_HTTP_TRACE logs all of them).
+    static std::atomic<int> slow_logged{0};
+    if (getenv("COFFEEFLIX_HTTP_TRACE") || (took > 5.0 && slow_logged++ < 20))
+        log_message(took > 5.0 ? LOG_WARNING : LOG_DEBUG, "HTTP", "%s %s: %ld, %zu KB in %.2f s", req.method.c_str(),
+                    req.url.substr(0, 90).c_str(), resp.status, resp.body.size() / 1024, took);
     return resp;
 }
 
