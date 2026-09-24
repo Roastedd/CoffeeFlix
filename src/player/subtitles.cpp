@@ -92,7 +92,7 @@ void Subtitles::load(const std::string& data) {
             finish();
             continue;
         }
-        if (in_cue) cur.text += line + "\n";
+        if (in_cue && !util::trim(line).empty()) cur.text += line + "\n";  // YouTube pads cues with " " lines
     }
     finish();
     std::sort(cues_.begin(), cues_.end(), [](const Cue& a, const Cue& b) { return a.start < b.start; });

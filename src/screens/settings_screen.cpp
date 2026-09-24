@@ -7,6 +7,8 @@
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
+#include "services/yt_recs.hpp"
+#include "screens/youtube_common.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -94,6 +96,9 @@ public:
         choice_row(g, "tw_q", TW_QUALITY, "Twitch quality", ic::LIVE_TV, x0, w, y);
         bool_row(g, "60fps", "allow_60fps", false, "Allow 60 fps streams", "Smoother but harder for the Wii U; may drop frames", x0, w, y);
         bool_row(g, "subs", "subs_default_on", true, "Subtitles on by default", "When a video comes with subtitles", x0, w, y);
+        bool_row(g, "ytcc", "yt_captions", false, "YouTube captions", "Turn captions on automatically (your language first)", x0, w, y);
+        bool_row(g, "ytsb", "yt_sponsorblock", true, "Skip sponsors on YouTube",
+                 "SponsorBlock: jumps over sponsor segments, self-promotion and subscribe reminders", x0, w, y);
 
         header("REGION");
         {
@@ -156,6 +161,33 @@ public:
                 store::resume_clear();
                 toast("Watch history cleared", ic::DELETE);
             }
+            track(iid, top, 64);
+        }
+        {
+            Id iid = id(g, "recs");
+            float top = row_h(64);
+            bool learned = yt_recs::has_profile();
+            if (value_row(iid, Rect(x0, top, w, 64), "Reset YouTube recommendations", learned ? "Learning" : "Nothing yet",
+                          ic::AUTO_AWESOME, g) && learned) {
+                yt_recs::reset();
+                toast("YouTube recommendations reset", ic::DELETE);
+            }
+            track(iid, top, 64);
+        }
+        {
+            Id iid = id(g, "ytimport");
+            float top = row_h(64);
+            if (value_row(iid, Rect(x0, top, w, 64), "Import YouTube subscriptions", "Takeout or NewPipe file", ic::FILE_DOWNLOAD, g))
+                toast(yt::import_subscriptions(), ic::SUBSCRIPTIONS);
+            track(iid, top, 64);
+        }
+        {
+            Id iid = id(g, "ytexport");
+            float top = row_h(64);
+            size_t n = yt::subscriptions().size();
+            std::string v = n ? util::fmt("%zu channels", n) : "None yet";
+            if (value_row(iid, Rect(x0, top, w, 64), "Export YouTube subscriptions", v.c_str(), ic::FILE_UPLOAD, g) && n)
+                toast(yt::export_subscriptions(), ic::SUBSCRIPTIONS);
             track(iid, top, 64);
         }
 

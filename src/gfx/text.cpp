@@ -85,6 +85,12 @@ const Glyph& get_glyph(Weight w, int px, uint32_t cp) {
     if (!font) return g_glyphs[key] = g;
 
     if (!TTF_GlyphIsProvided32(font, cp)) {
+        // Emoji and pictographs (all over YouTube titles and captions) have no font here: leave
+        // them out rather than drawing a box each. Other missing characters still show one.
+        bool pictograph = (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF) ||
+                          (cp >= 0x2B00 && cp <= 0x2BFF) || (cp >= 0xFE00 && cp <= 0xFE0F) || cp == 0x200D ||
+                          cp == 0x20E3 || (cp >= 0xE0020 && cp <= 0xE007F);
+        if (pictograph) return g_glyphs[key] = g;
         if (cp == 0x00A0 || cp == 0x2009 || cp == 0x202F) cp = ' ';
         else if (cp == 0x2019 || cp == 0x2018) cp = '\'';
         else if (cp == 0x201C || cp == 0x201D) cp = '"';

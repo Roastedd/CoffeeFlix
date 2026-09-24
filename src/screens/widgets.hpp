@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "app/app.hpp"
 #include "ui/ui.hpp"
@@ -62,6 +63,7 @@ struct ShelfSpec {
     std::function<void(int)> on_click;
     std::function<void(int)> on_focus;   // e.g. update the backdrop
     std::function<void(int)> on_x;       // secondary action (X button)
+    std::function<void(int)> on_y;       // another one (Y button)
 };
 float shelf(Id id, float x, float y, const ShelfSpec& spec, Page* page = nullptr);
 
@@ -77,6 +79,7 @@ struct GridSpec {
     std::function<void(int)> on_click;
     std::function<void(int)> on_focus;
     std::function<void(int)> on_x;
+    std::function<void(int)> on_y;
     std::function<void()> on_reach_end;  // pagination
 };
 float grid(Id id, float x, float y, const GridSpec& spec, Page* page = nullptr);
@@ -96,6 +99,19 @@ void prompt_text(const std::string& title, const std::string& initial, const std
 // Draws the keyboard overlay; called by the app every frame.
 void draw_prompt();
 bool prompt_active();
+
+// Side panel of actions for one item (the X "More" button). B or an action closes it; the
+// action runs after it has closed, so it can open screens or other menus.
+struct MenuItem {
+    std::string label;
+    int icon = 0;
+    std::function<void()> action;
+};
+void show_menu(const std::string& title, const std::string& subtitle, std::vector<MenuItem> items);
+bool menu_active();
+void close_menu();
+// Draws the menu; called by the app every frame.
+void draw_menu();
 
 // Other screens
 std::unique_ptr<app::Screen> make_media_folder(const std::string& path, const std::string& title);

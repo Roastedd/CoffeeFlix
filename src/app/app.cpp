@@ -157,6 +157,11 @@ void frame(float dt) {
 
     if (!s || !s->draws_background()) draw_background();
     bool prompting = screens::prompt_active();
+    bool menu = screens::menu_active();
+    if (menu && !prompting && ui::input().pressed_(BTN_B)) {
+        ui::input().eat(BTN_B);  // B closes the menu, not the screen under it
+        screens::close_menu();
+    }
     if (prompting) {
         ui::input().eat_all();
         ui::input().eat(BTN_B);
@@ -188,8 +193,11 @@ void frame(float dt) {
         set_focus(rail_id(g_section));
         g_focus_rail_request = false;
     }
-    if (!prompting) handle_back();
+    if (!prompting && !menu) handle_back();
+    screens::draw_menu();
     screens::draw_prompt();
+    std::string skipped = player::take_skip_notice();
+    if (!skipped.empty()) toast(skipped, ic::FAST_FORWARD);
     draw_overlays();
     ambient::draw();
     (void)dt;
