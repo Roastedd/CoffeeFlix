@@ -29,6 +29,9 @@ FFMPEG_REPO="https://github.com/GaryOderNichts/FFmpeg-wiiu.git"
 FFMPEG_REV="24997bdb3e5a3bc666f05e1497b0c102390f9ae0"
 MUPDF_REPO="https://github.com/ArtifexSoftware/mupdf.git"
 MUPDF_REV="73d3100d46d8a9ad634f6ef035bbe78f0f947886"  # 1.27.2
+# libsmb2 master after 6.2 (2024), which misses a year of PDU validation fixes.
+LIBSMB2_REPO="https://github.com/sahlberg/libsmb2.git"
+LIBSMB2_REV="557e837d3e00636b543f17ba1b9bdf872fa1644d"
 
 mkdir -p "$DEPS/src" "$PREFIX"
 
@@ -156,6 +159,33 @@ EOF
     touch "$stamp"
 }
 
+# SMB2/3 client for network shares. The Wii U CMake wrapper selects the
+# library's CafeOS port.
+build_libsmb2() {
+    local stamp="$(stamp_for libsmb2 "$LIBSMB2_REV")"
+    [ -f "$stamp" ] && { echo "libsmb2: up to date"; return; }
+
+    local cmake opts=(
+        -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DENABLE_EXAMPLES=OFF
+        -DENABLE_LIBKRB5=OFF -DENABLE_GSSAPI=OFF -DENABLE_LIBDCERPC=OFF
+    )
+    if [ $HOST = 1 ]; then
+        cmake=cmake
+        opts+=(-DCMAKE_POSITION_INDEPENDENT_CODE=ON)  # linked into a PIE
+    else
+        cmake="$DEVKITPRO/portlibs/wiiu/bin/powerpc-eabi-cmake"  # no PIC: elf2rpl rejects it
+    fi
+    fetch libsmb2 "$LIBSMB2_REPO" "$LIBSMB2_REV"
+    local build="$DEPS/build/libsmb2-$([ $HOST = 1 ] && echo host || echo wiiu)"
+    rm -rf "$build"
+    "$cmake" -S "$DEPS/src/libsmb2" -B "$build" -DCMAKE_INSTALL_PREFIX="$PREFIX" "${opts[@]}"
+    cmake --build "$build" -j"$JOBS"
+    cmake --install "$build"
+    rm -f "$PREFIX"/.libsmb2-*
+    touch "$stamp"
+}
+
 build_ffmpeg
 build_mupdf
+build_libsmb2
 echo "Dependencies installed to $PREFIX"

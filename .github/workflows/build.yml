@@ -23,6 +23,8 @@ jobs:
         with:
           path: deps/install
           key: deps-${{ hashFiles('tools/build-deps.sh') }}
+          # Start from an older cache: per-library stamps rebuild only what changed.
+          restore-keys: deps-
 
       - name: Build third-party libraries
         run: ./tools/build-deps.sh
