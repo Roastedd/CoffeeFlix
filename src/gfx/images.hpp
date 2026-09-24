@@ -34,6 +34,9 @@ const Image* get(const std::string& url, int max_w = 0, int max_h = 0, int flags
 float fade(const Image* img, float duration = 0.25f);
 // Insert an image produced locally (e.g. embedded album art). Takes the surface.
 void put(const std::string& key, SDL_Surface* surface, int flags = 0);
+// Decodes jpg/png/webp/gif bytes to an RGBA32 surface that fits max_w x max_h
+// (0 = unlimited). Any thread; nullptr on failure.
+SDL_Surface* decode(const std::string& data, int max_w = 0, int max_h = 0, int flags = 0);
 void clear();
 size_t bytes_used();
 

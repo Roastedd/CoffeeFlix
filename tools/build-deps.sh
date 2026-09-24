@@ -27,6 +27,8 @@ fi
 
 FFMPEG_REPO="https://github.com/GaryOderNichts/FFmpeg-wiiu.git"
 FFMPEG_REV="24997bdb3e5a3bc666f05e1497b0c102390f9ae0"
+MUPDF_REPO="https://github.com/ArtifexSoftware/mupdf.git"
+MUPDF_REV="73d3100d46d8a9ad634f6ef035bbe78f0f947886"  # 1.27.2
 
 mkdir -p "$DEPS/src" "$PREFIX"
 
@@ -42,8 +44,13 @@ fetch() { # fetch <dir> <repo> <rev>
     fi
 }
 
+# A library is rebuilt when its revision or its build function changes.
+stamp_for() { # stamp_for <name> <rev>
+    echo "$PREFIX/.$1-$2-$(declare -f "build_$1" | sha1sum | cut -c1-12)"
+}
+
 build_ffmpeg() {
-    local stamp="$PREFIX/.ffmpeg-$FFMPEG_REV-$(sha1sum "$0" | cut -c1-12)"
+    local stamp="$(stamp_for ffmpeg "$FFMPEG_REV")"
     [ -f "$stamp" ] && { echo "ffmpeg: up to date"; return; }
 
     fetch ffmpeg "$FFMPEG_REPO" "$FFMPEG_REV"
@@ -99,5 +106,56 @@ build_ffmpeg() {
     touch "$stamp"
 }
 
+# PDF/EPUB rendering for the reader. Freetype, harfbuzz, libjpeg and zlib come
+# from the system (the app links them already); jbig2dec, openjpeg and gumbo
+# are MuPDF's bundled copies (mujs only for its regexp source). No JavaScript,
+# colour management, hyphenation or CJK/Noto fonts (only the Base 14 set)
+# keeps the library small.
+build_mupdf() {
+    local stamp="$(stamp_for mupdf "$MUPDF_REV")"
+    [ -f "$stamp" ] && { echo "mupdf: up to date"; return; }
+
+    fetch mupdf "$MUPDF_REPO" "$MUPDF_REV"
+    local src="$DEPS/src/mupdf" lib url
+    for lib in jbig2dec openjpeg gumbo-parser mujs; do
+        url="$(git -C "$src" config -f .gitmodules "submodule.thirdparty/$lib.url")"
+        fetch "mupdf/thirdparty/$lib" "${MUPDF_REPO%/*}/${url#../}" "$(git -C "$src" rev-parse "HEAD:thirdparty/$lib")"
+    done
+    local out="$DEPS/build/mupdf-$([ $HOST = 1 ] && echo host || echo wiiu)"
+    rm -rf "$out" && mkdir -p "$out"
+
+    local features="-DFZ_ENABLE_ICC=0 -DFZ_ENABLE_HYPHEN=0 -DFZ_ENABLE_OFFICE=0 -DFZ_ENABLE_FB2=0 -DFZ_ENABLE_MOBI=0 -DFZ_ENABLE_TXT=0"
+    local target
+    if [ $HOST = 1 ]; then
+        target=(XCFLAGS="$features")
+    else
+        cat > "$out/wiiu-compat.h" <<'EOF'
+/* newlib's <sys/types.h> defines `quad` as a macro, which breaks fz_stext_char::quad. */
+#include <sys/types.h>
+#undef quad
+/* Missing from newlib; the app provides it (src/vendor/pdf/wiiu_time_utils.c). */
+#include <time.h>
+time_t timegm(struct tm *tm);
+EOF
+        local ppc="$DEVKITPRO/portlibs/ppc"
+        target=(
+            OS=wiiu CC=powerpc-eabi-gcc CXX=powerpc-eabi-g++ AR=powerpc-eabi-ar RANLIB=powerpc-eabi-ranlib
+            XCFLAGS="$features -D__WIIU__ -mcpu=750 -meabi -mhard-float -include $out/wiiu-compat.h -I$ppc/include"
+            SYS_FREETYPE_CFLAGS="-I$ppc/include/freetype2" SYS_HARFBUZZ_CFLAGS="-I$ppc/include/harfbuzz"
+        )
+    fi
+
+    make -C "$src" -j"$JOBS" "${target[@]}" \
+        OUT="$out" prefix="$PREFIX" build=release shared=no \
+        HAVE_X11=no HAVE_GLUT=no HAVE_CURL=no HAVE_OBJCOPY=no \
+        mujs=no brotli=no extract=no xps=no tofu=yes tofu_cjk=yes \
+        USE_SYSTEM_FREETYPE=yes USE_SYSTEM_HARFBUZZ=yes USE_SYSTEM_LIBJPEG=yes USE_SYSTEM_ZLIB=yes \
+        LCMS2_SRC= \
+        install-libs
+    rm -f "$PREFIX"/.mupdf-*
+    touch "$stamp"
+}
+
 build_ffmpeg
+build_mupdf
 echo "Dependencies installed to $PREFIX"
