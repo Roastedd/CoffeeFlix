@@ -201,13 +201,20 @@ public:
             text::draw(font::title, r.x + 100, r.y + 24, "CoffeeFlix 2.0", t.text);
             text::draw(font::small, r.x + 100, r.y + 60, util::fmt("%s \xC2\xB7 built %s", platform::name(), __DATE__), t.text3);
             text::draw_wrapped(font::small, Rect(r.x + 24, r.y + 96, r.w - 48, 50),
-                               "Open source. Uses FFmpeg, SDL, libcurl, Inter and Material Icons. Not affiliated with "
-                               "Nintendo, YouTube, Twitch or Jellyfin.",
+                               "Free for noncommercial use (PolyForm Noncommercial). Not affiliated with Nintendo, "
+                               "YouTube, Twitch or Jellyfin.",
                                t.text3, 2);
             Id iid = id(g, "about");
             Item it = focusable(iid, r, g);
             focus_ring(r, 16, it.f);
             track(iid, top, 150);
+        }
+        {
+            Id iid = id(g, "licenses");
+            float top = row_h(64);
+            if (value_row(iid, Rect(x0, top, w, 64), "Licenses", "CoffeeFlix and the software it includes", ic::DESCRIPTION, g))
+                app::push(make_licenses());
+            track(iid, top, 64);
         }
         page_.end(y + page_.scroll());
         hint_bar({{"A", "Change"}, {"B", "Back"}});
