@@ -44,11 +44,12 @@ Every push is built by GitHub Actions ([`.github/workflows/build.yml`](.github/w
 To build locally you only need Docker:
 
 ```bash
-tools/docker-build.sh            # first run also builds FFmpeg-wiiu into deps/
+tools/docker-build.sh            # first run also builds FFmpeg-wiiu and MuPDF into deps/
 tools/docker-build.sh DEBUG=1    # unoptimized build with debug logging
 ```
 
-With devkitPro installed natively (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-giflib`), run `tools/build-deps.sh` once, then `make`.
+With devkitPro installed natively (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-giflib`, `ppc-libzip`, `ppc-libjpeg-turbo`), run `tools/build-deps.sh` once, then `make`.
+Without MuPDF in `deps/` the app still builds; the reader then opens comic books (CBZ) only.
 To push a build to a Wii U running an FTP server: `WIIU_IP=192.168.x.x ./deploy.sh`.
 
 ### 🎥 Controls – Video Player
@@ -77,6 +78,18 @@ To push a build to a Wii U running an FTP server: `WIIU_IP=192.168.x.x ./deploy.
 | `Left Stick L/R` | Show next / previous photo |
 | `ZR / RL`        | Zoom in / Zoom out         |
 | `Touch`          | Pan                        |
+
+### 📖 Controls – Reader (CBZ, PDF, EPUB)
+
+| Button                 | Action                                  |
+|------------------------|-----------------------------------------|
+| `D-Pad L/R`, `L / R`, swipe | Previous / next page               |
+| `A` / `ZR`, `ZL`       | Zoom in, zoom out                       |
+| `D-Pad`, `Left Stick`, drag | Pan when zoomed, scroll in fit width |
+| `Y`                    | Fit page / fit width                    |
+| `B`                    | Reset zoom, then back                   |
+
+The reader reopens every book on the page you left it.
 
 ### 📺 Controls – YouTube
 
@@ -133,7 +146,7 @@ ffmpeg -i <input> \
 * 🎥 **Video Playback**: H.264 up to 1080p with hardware acceleration, VP8/VP9, HEVC, MPEG1/2/4
 * 🎵 **Audio Playback**: MP3, AAC, FLAC (16/24-bit), Vorbis, Opus, and more
 * 🖼️ **Image Viewer**: JPEG, PNG, BMP, GIF with zoom and pan
-* 📄 **PDF Viewer**: Full PDF and EPUB document support
+* 📄 **Reader**: Comic books (CBZ), PDF and EPUB with zoom, fit width and resume
 * 📺 **YouTube Integration**: Search, trending, popular videos, and direct URL playback
 * ⏩ **Media Seeking**: 5-second skip/rewind for videos and audio
 * 🎮 **Full Controller Support**: GamePad, Wii Remote, Wii Remote + Nunchuk, Pro Controller
@@ -197,5 +210,6 @@ ffmpeg -i <input> \
 * 🧰 **FFmpeg Wii U Configure Script by GaryOderNichts**: [Github](https://github.com/GaryOderNichts/FFmpeg-wiiu/blob/master/configure-wiiu)
 * 🖼️ **Nuklear GUI Library**: [GitHub](https://github.com/Immediate-Mode-UI/Nuklear)
 * 🔧 **Wii U Toolchain (WUT)**: [GitHub](https://github.com/devkitPro/wut)
+* 📄 **MuPDF**: [GitHub](https://github.com/ArtifexSoftware/mupdf)
 * 📄 **mupdf port by hito16**: [GitHub](https://github.com/hito16/mupdf-devkitppc)
-* 🔧 **Helper files from hito16** [Github](https://github.com/hito16/SDLReader/blob/main/ports/wiiu/wiiu_mupdf_hb_wrappers.c) [Github](https://github.com/hito16/SDLReader/blob/main/ports/wiiu/wiiu_time_utils.c)
+* 🔧 **Helper file from hito16** [Github](https://github.com/hito16/SDLReader/blob/main/ports/wiiu/wiiu_time_utils.c)
