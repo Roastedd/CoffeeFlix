@@ -35,7 +35,7 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist/wiiu/apps/coffeeflix
-          cp coffeeflix.wuhb dist/wiiu/apps/coffeeflix/
+          cp coffeeflix.wuhb LICENSE.md content/licenses/NOTICES.txt dist/wiiu/apps/coffeeflix/
           cd dist && zip -qr ../coffeeflix.zip wiiu
 
       - uses: actions/upload-artifact@v4
