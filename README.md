@@ -11,7 +11,7 @@
 - 🟣 **Twitch**: live channels, search and a local follow list, at your chosen quality (60 fps optional).
 - 📻 **Radio**: over 40,000 stations from radio-browser.info, by country and genre, with favorites and live "now playing" titles.
 - 🎙️ **Podcasts**: search the Apple Podcasts directory and top charts, subscribe to shows, and resume episodes where you left off.
-- 📁 **My Media**: videos (with thumbnails, resume and `.srt` subtitles), music (folder queues, embedded and folder cover art), photos (zoom, pan, slideshow), and comics and books (CBZ, PDF, EPUB) from the SD card.
+- 📁 **My Media**: videos (with thumbnails, resume and `.srt` subtitles), music (folder queues, embedded and folder cover art), photos (zoom, pan, slideshow), and comics and books (CBZ, EPUB) from the SD card.
 - 🖧 **Network shares**: browse and play from a Windows PC, Mac, Samba or NAS share (SMB 2/3).
 - 📡 **Media servers (DLNA)**: Plex, Jellyfin, Emby, minidlna and most NAS boxes are found automatically on your network, no setup needed.
 - 🔎 **Search everything** at once, with a **Home** screen that pulls it all together.
@@ -80,8 +80,8 @@ The GamePad, Pro Controller, Classic Controller and Wii Remote (with pointer) al
 | `Y` | Slideshow |
 | `B` | Back |
 
-| Button | Reader (CBZ, PDF, EPUB) |
-|--------|-------------------------|
+| Button | Reader (CBZ, EPUB) |
+|--------|--------------------|
 | `D-Pad ←/→`, `L`/`R`, swipe | Previous / next page |
 | `A`/`ZR`, `ZL` | Zoom in / out |
 | `D-Pad`, `Left Stick`, drag | Pan when zoomed, scroll in fit width |
@@ -126,11 +126,11 @@ Every push is built by GitHub Actions ([`.github/workflows/build.yml`](.github/w
 To build locally you only need Docker:
 
 ```bash
-tools/docker-build.sh            # first run also builds FFmpeg-wiiu, MuPDF and libsmb2 into deps/
+tools/docker-build.sh            # first run also builds FFmpeg-wiiu and libsmb2 into deps/
 tools/docker-build.sh DEBUG=1    # unoptimized build with debug logging
 ```
 
-With devkitPro installed natively (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-tinyxml2`, `ppc-giflib`, `ppc-libzip`, `ppc-libjpeg-turbo`), run `tools/build-deps.sh` once, then `make`. Without MuPDF in `deps/` the app still builds; the reader then opens comic books (CBZ) only.
+With devkitPro installed natively (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-tinyxml2`, `ppc-giflib`, `ppc-libzip`, `ppc-libjpeg-turbo`), run `tools/build-deps.sh` once, then `make`.
 
 To push a build to a Wii U running an FTP server: `WIIU_IP=192.168.x.x ./deploy.sh`.
 
@@ -141,11 +141,11 @@ The same code runs on macOS and Linux, which makes UI work much faster.
 ```bash
 # macOS (Homebrew)
 brew install pkg-config cmake sdl2 sdl2_ttf sdl2_image ffmpeg curl jansson tinyxml2 libzip
-tools/build-deps.sh --host libsmb2   # once; add `mupdf` for PDF/EPUB in the reader
+tools/build-deps.sh --host libsmb2   # once
 make -f desktop.mk -j8 run
 
 # Linux
-tools/build-deps.sh --host           # FFmpeg, MuPDF and libsmb2 for the host
+tools/build-deps.sh --host           # FFmpeg and libsmb2 for the host
 make -f desktop.mk && ./build-desktop/coffeeflix
 ```
 
@@ -159,15 +159,23 @@ Keyboard: arrows move, `Enter`/`Z` = A, `Esc`/`Backspace`/`X` = B, `C` = X, `V` 
 
 ---
 
+## 📜 License
+
+CoffeeFlix is **source-available** under the [PolyForm Noncommercial License 1.0.0](LICENSE.md): you're free to use it, change it and share it for any noncommercial purpose. Selling it, or using it in a commercial product or service, isn't allowed without permission.
+
+CoffeeFlix includes open-source libraries, fonts and data under their own licenses. They're listed with their license texts in [`content/licenses`](content/licenses/NOTICES.txt), which ships inside the app (*Settings → Licenses*). FFmpeg and libsmb2 are under the GNU LGPL: you may change them and rebuild CoffeeFlix with your versions using the source and build scripts in this repository.
+
+---
+
 ## 🙏 Credits
 
 - 🛠️ **devkitPro, wut and the Wii U SDL2 port**: [devkitPro](https://github.com/devkitPro)
 - 🎞️ **FFmpeg** and **FFmpeg-wiiu** (hardware H.264) by GaryOderNichts: [FFmpeg](https://github.com/FFmpeg/FFmpeg) · [FFmpeg-wiiu](https://github.com/GaryOderNichts/FFmpeg-wiiu)
-- 📄 **MuPDF** (PDF/EPUB, AGPL): [GitHub](https://github.com/ArtifexSoftware/mupdf); Wii U hints from [hito16/mupdf-devkitppc](https://github.com/hito16/mupdf-devkitppc) and [SDLReader](https://github.com/hito16/SDLReader/blob/main/ports/wiiu/wiiu_time_utils.c)
 - 🖧 **libsmb2** by Ronnie Sahlberg: [GitHub](https://github.com/sahlberg/libsmb2)
 - 🔤 **Inter** by Rasmus Andersson (SIL OFL) and **Material Icons** by Google (Apache 2.0)
 - 📻 **radio-browser.info** community station directory
-- 💬 **stdout logger by dkosmari**: [GitHub](https://github.com/dkosmari/devkitpro-autoconf/blob/main/examples/wiiu/sdl2-swkbd/src/stdout.cpp)
-- 🔔 **Boot sound**: [LightMister on Freesound](https://freesound.org/people/LightMister/sounds/769925/)
+- ⏭️ **SponsorBlock** segment data (CC BY-NC-SA 4.0): [sponsor.ajay.app](https://sponsor.ajay.app)
+- 🔔 **Boot sound**: "Game-Main-Menu-Fluids" by [LightMister on Freesound](https://freesound.org/people/LightMister/sounds/769925/) (CC0)
+- ☕ CoffeeFlix started as a fork of [cafemp](https://github.com/whateveritwas/cafemp) by whateveritwas, and has since been rewritten from the ground up.
 
 Made with ❤️ and ☕
