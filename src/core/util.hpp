@@ -15,6 +15,7 @@ std::string lower(std::string_view s);
 bool starts_with(std::string_view s, std::string_view prefix);
 bool ends_with(std::string_view s, std::string_view suffix);
 bool icontains(std::string_view haystack, std::string_view needle);
+bool natural_less(std::string_view a, std::string_view b);  // "Episode 2" before "Episode 10"
 std::vector<std::string> split(std::string_view s, char sep);
 std::string replace_all(std::string s, std::string_view from, std::string_view to);
 std::string file_extension(std::string_view path);  // lower-case, without dot

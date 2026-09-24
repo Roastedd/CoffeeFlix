@@ -1,6 +1,7 @@
 #include "core/util.hpp"
 
 #include <sys/stat.h>
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cctype>
@@ -149,6 +150,31 @@ bool ends_with(std::string_view s, std::string_view p) { return s.size() >= p.si
 bool icontains(std::string_view h, std::string_view n) {
     if (n.empty()) return true;
     return lower(h).find(lower(n)) != std::string::npos;
+}
+
+bool natural_less(std::string_view a, std::string_view b) {
+    size_t i = 0, j = 0;
+    while (i < a.size() && j < b.size()) {
+        if (std::isdigit((unsigned char)a[i]) && std::isdigit((unsigned char)b[j])) {
+            size_t i2 = i, j2 = j;
+            while (i2 < a.size() && std::isdigit((unsigned char)a[i2])) i2++;
+            while (j2 < b.size() && std::isdigit((unsigned char)b[j2])) j2++;
+            // Compare by value without overflowing: drop leading zeros, then length, then digits.
+            std::string_view x = a.substr(i, i2 - i), y = b.substr(j, j2 - j);
+            x.remove_prefix(std::min(x.find_first_not_of('0'), x.size()));
+            y.remove_prefix(std::min(y.find_first_not_of('0'), y.size()));
+            if (x.size() != y.size()) return x.size() < y.size();
+            if (x != y) return x < y;
+            i = i2;
+            j = j2;
+            continue;
+        }
+        char ca = (char)std::tolower((unsigned char)a[i]), cb = (char)std::tolower((unsigned char)b[j]);
+        if (ca != cb) return ca < cb;
+        i++;
+        j++;
+    }
+    return a.size() - i < b.size() - j;
 }
 
 std::vector<std::string> split(std::string_view s, char sep) {
