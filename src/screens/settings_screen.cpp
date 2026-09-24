@@ -1,9 +1,12 @@
 // Settings: appearance, playback quality, region, network, accounts, about.
+#include <cstring>
+
 #include "audio/mixer.hpp"
 #include "core/http.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
 #include "platform/platform.hpp"
+#include "player/player.hpp"
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
@@ -27,6 +30,10 @@ struct Choice {
 const Choice YT_QUALITY{"yt_quality", {360, 480, 720, 1080}, {"360p", "480p", "720p", "1080p"}, 720};
 const Choice JF_QUALITY{"jf_quality", {480, 720, 1080}, {"480p", "720p", "1080p"}, 1080};
 const Choice TW_QUALITY{"twitch_quality", {360, 480, 720, 1080}, {"360p", "480p", "720p", "1080p"}, 720};
+// Wii U hardware H.264 decoding: 0 every picture, 1 without pictures nothing refers to (most
+// B-frames; fewer frames per second but what the original FFmpeg-wiiu did), 2 software only. The
+// player steps down by itself when the hardware decoder gives no pictures.
+const Choice VIDEO_DECODING{"video_decoding", {0, 1, 2}, {"Hardware", "Hardware, fewer frames", "Software"}, 0};
 const Choice SCREENSAVER{"screensaver", {0, 120, 300, 600, 1200}, {"Off", "After 2 min", "After 5 min", "After 10 min", "After 20 min"}, 300};
 const char* COUNTRIES[] = {"US", "GB", "CA", "AU", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "PL", "BR", "MX", "JP", "KR", "IN"};
 
@@ -95,6 +102,7 @@ public:
         choice_row(g, "jf_q", JF_QUALITY, "Jellyfin quality", ic::VIDEO_LIBRARY, x0, w, y);
         choice_row(g, "tw_q", TW_QUALITY, "Twitch quality", ic::LIVE_TV, x0, w, y);
         bool_row(g, "60fps", "allow_60fps", false, "Allow 60 fps streams", "Smoother but harder for the Wii U; may drop frames", x0, w, y);
+        if (platform::is_wiiu()) choice_row(g, "vdec", VIDEO_DECODING, "Video decoding", ic::TUNE, x0, w, y);
         bool_row(g, "subs", "subs_default_on", true, "Subtitles on by default", "When a video comes with subtitles", x0, w, y);
         bool_row(g, "ytcc", "yt_captions", false, "YouTube captions", "Turn captions on automatically (your language first)", x0, w, y);
         bool_row(g, "ytsb", "yt_sponsorblock", true, "Skip sponsors on YouTube",
@@ -231,6 +239,7 @@ private:
         if (value_row(iid, Rect(x0, top, w, 64), label, c.labels[idx], icon, g)) {
             idx = (idx + 1) % c.values.size();
             store::set_int(c.key, c.values[idx]);
+            if (!std::strcmp(c.key, "video_decoding")) player::reset_decoding_fallback();
         }
         if (focused() == iid) page_.focus_range(top + page_.scroll() - 60, top + 64 + page_.scroll() + 20);
         y += 74;

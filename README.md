@@ -60,7 +60,7 @@ In photos, L and R flip through pictures, A zooms and Y starts a slideshow. In t
 
 ## Settings
 
-Accent color, sounds, screensaver, default quality for YouTube, Jellyfin and Twitch, 60 fps video, subtitles and captions, SponsorBlock, your region, and importing or exporting YouTube subscriptions. They're saved in `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
+Accent color, sounds, screensaver, default quality for YouTube, Jellyfin and Twitch, 60 fps video, how the Wii U decodes video, subtitles and captions, SponsorBlock, your region, and importing or exporting YouTube subscriptions. They're saved in `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
 
 ## Formats and tips
 
@@ -73,7 +73,9 @@ ffmpeg -i input.mkv -map 0 -c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv4
 
 Audio can be MP3, AAC, FLAC, Vorbis, Opus, ALAC, WavPack, WAV or AC-3 (surround is mixed down to stereo). Subtitles can be embedded SRT, ASS, WebVTT or mov_text, or an `.srt` file next to the video. Jellyfin plays what the Wii U can handle directly and has the server convert the rest.
 
-If a video stutters, lower the quality from the player. 60 fps video is off by default because it's twice the work for the console.
+If a video stutters, lower the quality from the player. 60 fps video is off by default because it's twice the work for the console; YouTube only has 30 fps versions of 60 fps videos up to 480p.
+
+If the Wii U's hardware decoder gives no picture, the player switches to a safer mode by itself (hardware decoding without B-frames, then software decoding) and remembers it. You can change it back under *Settings > Video decoding*.
 
 **If something goes wrong**, CoffeeFlix writes a log of every run to `sd:/wiiu/apps/coffeeflix/coffeeflix.log`, and keeps the one before as `coffeeflix-previous.log` (the one you want after a freeze). Please attach it when you report a problem.
 
