@@ -284,6 +284,7 @@ int volumes(Volume* out, int max) {
 
 bool network_connected() { return true; }
 std::string ip_address() { return "127.0.0.1"; }
+void tune_socket(int) {}
 void rumble(float) {}
 
 void keep_awake(Awake level) {

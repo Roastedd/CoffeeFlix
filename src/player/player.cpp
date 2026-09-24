@@ -284,7 +284,8 @@ AVFormatContext* open_input(Session& s, const std::string& url, bool& network) {
         std::vector<std::pair<std::string, std::string>> headers = s.src.headers;
         headers.emplace_back("User-Agent", s.src.user_agent.empty() ? http::user_agent() : s.src.user_agent);
         std::string err;
-        if (!(fmt->pb = http_io_open(url, headers, &s.abort, err))) {
+        bool audio_track = !s.src.audio_url.empty() && url == s.src.audio_url;
+        if (!(fmt->pb = http_io_open(url, headers, &s.abort, audio_track, err))) {
             avformat_free_context(fmt);
             if (!s.abort) set_error(s, err);
             return nullptr;
