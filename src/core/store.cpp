@@ -162,6 +162,35 @@ bool fav_toggle(const char* service, const Fav& f) {
     return now;
 }
 
+void fav_update(const char* service, const Fav& f) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_t* a = array_in(section("favorites"), service);
+    for (size_t i = 0; i < json_array_size(a); i++) {
+        json_t* o = json_array_get(a, i);
+        if (json::str(o, {"id"}) != f.id) continue;
+        json_object_set_new(o, "title", json_string(f.title.c_str()));
+        json_object_set_new(o, "subtitle", json_string(f.subtitle.c_str()));
+        json_object_set_new(o, "image", json_string(f.image.c_str()));
+        json_object_set_new(o, "extra", json_string(f.extra.c_str()));
+        mark_dirty();
+        return;
+    }
+}
+
+void fav_trim(const char* service, size_t max) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_t* a = array_in(section("favorites"), service);
+    if (json_array_size(a) <= max) return;
+    while (json_array_size(a) > max) json_array_remove(a, json_array_size(a) - 1);
+    mark_dirty();
+}
+
+void fav_clear(const char* service) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_array_clear(array_in(section("favorites"), service));
+    mark_dirty();
+}
+
 // --- resume ---
 
 void resume_save(const Resume& r) {

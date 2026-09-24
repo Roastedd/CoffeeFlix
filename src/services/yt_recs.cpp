@@ -373,7 +373,8 @@ youtube::Results for_you() {
         jobs.push_back({SUBSCRIPTION, std::async(std::launch::async, [id = subs[i].id] { return youtube::channel_videos(id); })});
     for (auto& q : queries)
         jobs.push_back({DISCOVERY, std::async(std::launch::async, [q] { return youtube::search(q, youtube::PARAMS_VIDEOS); })});
-    if (jobs.size() < 3) jobs.push_back({POPULAR, std::async(std::launch::async, youtube::trending)});
+    // Little to go on yet (nothing watched to find related videos for): fill up with what's popular.
+    if (seeds.empty() || jobs.size() < 4) jobs.push_back({POPULAR, std::async(std::launch::async, youtube::trending)});
 
     struct Candidate {
         youtube::Video v;
@@ -419,7 +420,6 @@ youtube::Results for_you() {
     auto by_score = [](const Candidate& a, const Candidate& b) { return a.score > b.score; };
     std::sort(ranked.begin(), ranked.end(), by_score);
     std::sort(resting.begin(), resting.end(), by_score);
-    if (ranked.size() < 10) ranked.insert(ranked.end(), resting.begin(), resting.end());
 
     // Variety: at most two videos per channel, and nothing that's the same thing as a video you
     // watched or one already picked.
@@ -427,24 +427,39 @@ youtube::Results for_you() {
     std::map<std::string, int> per_channel;
     std::vector<std::vector<std::string>> taken;
     for (auto& w : b.history) taken.push_back(tokens(w.title));
-    for (auto& c : ranked) {
-        if (out.items.size() >= FEED_SIZE) break;
-        std::string ch = c.v.channel_id.empty() ? c.v.channel : c.v.channel_id;
-        auto words = tokens(c.v.title);
-        if (per_channel[ch] >= 2 ||
-            std::any_of(taken.begin(), taken.end(), [&](const std::vector<std::string>& t) { return same_thing(words, t); }))
-            continue;
-        per_channel[ch]++;
-        taken.push_back(std::move(words));
-        out.items.push_back(c.v);
+    std::set<std::string> picked;
+    // Looser passes when the first leaves the feed thin (e.g. most candidates come from a few
+    // subscriptions): more per channel, then the resting videos after all.
+    struct Pass {
+        const std::vector<Candidate>* pool;
+        int max_per_channel;
+    };
+    for (const Pass& pass : {Pass{&ranked, 2}, Pass{&ranked, 4}, Pass{&resting, 4}}) {
+        if (pass.pool != &ranked || pass.max_per_channel > 2)
+            if (out.items.size() >= FEED_SIZE / 2) break;
+        int max_per_channel = pass.max_per_channel;
+        for (auto& c : *pass.pool) {
+            if (out.items.size() >= FEED_SIZE) break;
+            if (picked.count(c.v.id)) continue;
+            std::string ch = c.v.channel_id.empty() ? c.v.channel : c.v.channel_id;
+            auto words = tokens(c.v.title);
+            if (per_channel[ch] >= max_per_channel ||
+                std::any_of(taken.begin(), taken.end(), [&](const std::vector<std::string>& t) { return same_thing(words, t); }))
+                continue;
+            per_channel[ch]++;
+            picked.insert(c.v.id);
+            taken.push_back(std::move(words));
+            out.items.push_back(c.v);
+        }
     }
     out.ok = !out.items.empty() || first_error.empty();
     if (!out.ok) out.error = first_error;
 
     {
         std::lock_guard<std::mutex> lk(g_m);
-        for (auto& v : out.items) {
-            auto& s = g_b.seen[v.id];
+        // Only the first few are what you actually see without scrolling.
+        for (size_t i = 0; i < out.items.size() && i < 10; i++) {
+            auto& s = g_b.seen[out.items[i].id];
             s.first++;
             s.second = t;
         }

@@ -192,6 +192,8 @@ struct Session {
     double last_clock = 0;
     double buffering_since = 0;
     double last_progress_report = 0;
+    std::vector<char> skipped;  // per src.skip_segments: already jumped over
+    std::string skip_notice;
     bool user_paused = false;
 };
 
@@ -812,8 +814,8 @@ void open_session(std::shared_ptr<Session> sp) {
     fill_metadata(s, f0);
     extract_artwork(s, f0);
 
-    // External subtitles (downloaded or read now so switching is instant).
-    if (!s.src.external_subs.empty()) {
+    // External subtitles: the first track is loaded now when it should be on from the start.
+    if (!s.src.external_subs.empty() && s.src.subs_auto && store::get_bool("subs_default_on", true)) {
         std::string data;
         const std::string& u = s.src.external_subs[0].second;
         bool ok = util::starts_with(u, "http") ? [&] {
@@ -821,7 +823,7 @@ void open_session(std::shared_ptr<Session> sp) {
             data = std::move(r.body);
             return r.ok();
         }() : smb::is_url(u) ? smb::read_file(u, data) : util::read_file(u, data);
-        if (ok && store::get_bool("subs_default_on", true)) {
+        if (ok) {
             s.subs.load(data);
             s.sub_external = 0;
         }
@@ -1329,7 +1331,28 @@ void update() {
             return;
         }
     }
+    if (st == PLAYING && s.seekable && !s.src.skip_segments.empty()) {
+        s.skipped.resize(s.src.skip_segments.size(), 0);
+        for (size_t i = 0; i < s.src.skip_segments.size(); i++) {
+            const SkipSegment& seg = s.src.skip_segments[i];
+            // Once per pass: seeking back into a skipped part plays it, going back before it re-arms it.
+            if (clock < seg.start - 1) s.skipped[i] = 0;
+            if (s.skipped[i] || clock < seg.start || clock >= seg.end - 0.5) continue;
+            s.skipped[i] = 1;
+            s.skip_notice = seg.label;
+            log_message(LOG_OK, "Player", "%s (%.1f -> %.1f)", seg.label.c_str(), clock, seg.end);
+            seek(seg.end);
+            return;
+        }
+    }
     if (st == PLAYING) report_progress(s, false);
+}
+
+std::string take_skip_notice() {
+    if (!g_s) return "";
+    std::string n;
+    n.swap(g_s->skip_notice);
+    return n;
 }
 
 SDL_Texture* video_texture() { return g_s && g_shown_gen != 0 ? g_tex : nullptr; }
