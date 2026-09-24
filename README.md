@@ -1,23 +1,33 @@
-# CoffeeFlix – Premium Media Player for the Nintendo Wii U
+<p align="center">
+  <img src="branding/store_screen.png" alt="CoffeeFlix" width="100%">
+</p>
 
-## 🎬 About
+# CoffeeFlix – the all-in-one entertainment app for the Wii U
 
-**CoffeeFlix** is a feature-rich, open-source media player for the Wii U, supporting local media playback and YouTube streaming. It handles most common video and audio formats with **H.264 hardware acceleration up to 1080p**. Crafted with a coffee-themed aesthetic for an elegant viewing experience.
+**CoffeeFlix** puts your movies, videos, live streams, music, radio, podcasts, photos and comics in one fast, animated app built for the TV and the GamePad.
 
-This is an **actively developed project**—most features are stable, but some experimental functionality may have occasional issues.
+- 📺 **YouTube**: trending, music, gaming and more, plus search, subscriptions and watch history. Plays in up to 720p with hardware H.264 decoding.
+- 🍿 **Jellyfin**: your own movie and TV server. Sign in with Quick Connect or a password. Includes continue watching, next up, libraries, seasons and episodes, direct play or transcoding, server subtitles, and resume that syncs back to the server.
+- 🟣 **Twitch**: live channels, search and a local follow list, at your chosen quality (60 fps optional).
+- 📻 **Radio**: over 40,000 stations from radio-browser.info, by country and genre, with favorites and live "now playing" titles.
+- 🎙️ **Podcasts**: search the Apple Podcasts directory and top charts, subscribe to shows, and resume episodes where you left off.
+- 📁 **My Media**: videos (with thumbnails, resume and `.srt` subtitles), music (folder queues, embedded and folder cover art), photos (zoom, pan, slideshow), and comics and books (CBZ, PDF, EPUB) from the SD card.
+- 🖧 **Network shares**: browse and play from a Windows PC, Mac, Samba or NAS share (SMB 2/3).
+- 📡 **Media servers (DLNA)**: Plex, Jellyfin, Emby, minidlna and most NAS boxes are found automatically on your network, no setup needed.
+- 🔎 **Search everything** at once, with a **Home** screen that pulls it all together.
+- 🎵 **Now Playing** with a live spectrum visualizer, and a mini player that keeps music going while you browse.
+- ✨ **Juicy UI**: spring animations, blurred backdrops, focus zoom, sound effects, five accent colors, a startup animation and a screensaver. The console won't dim or power off mid-movie.
 
-Made with ❤️ and ☕ 
-
-> ℹ️ **Note:** Best performance with H.264 videos. 1080p requires hardware acceleration, 720p works perfectly for all content.
+> DRM-protected services (Netflix, Disney+, Spotify and similar) can't run on the Wii U and aren't supported.
 
 ---
 
 ## 📦 Installation
 
-1. [Download the latest release](https://github.com/whateveritwas/cafemp/releases/latest).
+1. [Download the latest release](https://github.com/roastedd/coffeeflix/releases/latest), or grab `coffeeflix-<commit>` from the latest [Build](https://github.com/roastedd/coffeeflix/actions/workflows/build.yml) run.
 2. Extract the ZIP file to the **root of your SD card**.
-3. Place your media files into:  
-   `sd:/wiiu/apps/coffeeflix/`
+3. Put your own media into `sd:/wiiu/apps/coffeeflix/` (the app creates `Videos`, `Music`, `Photos` and `Books` folders there).
+4. Launch **CoffeeFlix** from the Wii U Menu (Aroma).
 
 **or**
 
@@ -27,161 +37,138 @@ Made with ❤️ and ☕
   </a>
 </p>
 
----
+### Connecting your services
 
-## 🎮 Using CoffeeFlix
-
-1. Launch **CoffeeFlix** from the Wii U main menu or Homebrew Launcher.
-2. Select your desired media type from the sidebar.
-3. Use the file browser to locate and select and play your media.
-
-> 📋 **For Developers**: Check out our [Development Roadmap](DEVELOPMENT_ROADMAP.md) for planned features and contributing guidelines.
-
-### 🎥 Controls – Video Player
-
-| Button | Action                |
-|--------|-----------------------|
-| `A`    | Play / Pause          |
-| `B`    | Return to file browser|
-| `X`    | Change audio track    |
-| `D-Pad L/R` | Seek backward / forward (5s) |
-
-### 🎵 Controls – Audio Player
-
-| Button      | Action                 |
-|-------------|------------------------|
-| `A`         | Play / Pause           |
-| `B`         | Return to file browser |
-| `D-Pad L/R` | Skip / Rewind          |
-
-### 🖼️ Controls – Photo Viewer
-
-| Button           | Action                     |
-|------------------|----------------------------|
-| `B`              | Return to file browser     |
-| `X`              | Change audio track         |
-| `Left Stick L/R` | Show next / previous photo |
-| `ZR / RL`        | Zoom in / Zoom out         |
-| `Touch`          | Pan                        |
-
-### 📺 Controls – YouTube
-
-| Button     | Action                       |
-|------------|------------------------------|
-| `A`        | Select video / Play          |
-| `B`        | Back to previous screen      |
-| `D-Pad`    | Navigate menus               |
-| `MINUS`    | Toggle sidebar               |
-| `Touch`    | Touch input for UI           |
-
-### 🎮 Universal Controls
-
-| Button     | Action                       |
-|------------|------------------------------|
-| `MINUS`    | Toggle sidebar on/off        |
-| `D-Pad`    | Navigate UI elements         |
-| `Left Stick` | Navigate UI (analog)       |
-| `A`        | Select / Confirm             |
-| `B`        | Back / Cancel                |
+- **Jellyfin**: open *Jellyfin* and enter your server address, e.g. `http://192.168.1.20:8096`. Then approve the Quick Connect code in the Jellyfin app on your phone, or type your password.
+- **Network shares**: open *My Media → Network shares → Add share*. Enter the computer's IP address (or `\\host\share`), the share name and your login. Leave the login empty for guest shares.
+- **Media servers (DLNA)** show up by themselves under *My Media → Media servers* once DLNA sharing is on in the server.
+- **YouTube, Twitch, radio and podcasts** work without an account. Subscriptions, follows and favorites are stored on your SD card.
 
 ---
 
-## ⚙️ Compatibility Tips
+## 🎮 Controls
 
-For best results, re-encode your videos using this FFmpeg command:
+The GamePad, Pro Controller, Classic Controller and Wii Remote (with pointer) all work. The GamePad touch screen works too: tap to select, drag to scroll.
 
-**For 720p (recommended for maximum compatibility):**
+| Button | Everywhere |
+|--------|------------|
+| `D-Pad` / `Left Stick` | Move around |
+| `A` | Select |
+| `B` | Back; at the top of a section it opens the sidebar, and again goes Home |
+| `X` | The action shown at the bottom right: favorite, subscribe, follow, remove |
+| `+` | Open *Now Playing* while music or radio plays in the background |
+
+| Button | Video player |
+|--------|--------------|
+| `A` | Play / pause |
+| `D-Pad ←/→` | Back / forward 10 s |
+| `L`/`ZL`, `R`/`ZR` | Back / forward 30 s |
+| `Y` | Subtitles |
+| `X` | Audio track |
+| `D-Pad ↑/↓` | Show the controls |
+| `B` | Close |
+
+| Button | Now Playing |
+|--------|-------------|
+| `A` | Buttons on screen (previous, play/pause, next, stop) |
+| `L` / `R` | Back 15 s / forward 30 s |
+| `B` | Back (music keeps playing) |
+
+| Button | Photos |
+|--------|--------|
+| `D-Pad ←/→`, `L`/`R` | Previous / next photo |
+| `A`/`ZR`, `ZL` | Zoom in / out (`D-Pad` pans when zoomed) |
+| `Y` | Slideshow |
+| `B` | Back |
+
+| Button | Reader (CBZ, PDF, EPUB) |
+|--------|-------------------------|
+| `D-Pad ←/→`, `L`/`R`, swipe | Previous / next page |
+| `A`/`ZR`, `ZL` | Zoom in / out |
+| `D-Pad`, `Left Stick`, drag | Pan when zoomed, scroll in fit width |
+| `Y` | Fit page / fit width |
+| `B` | Reset zoom, then back |
+
+The reader reopens every book on the page where you stopped.
+
+---
+
+## ⚙️ Settings
+
+Accent color, interface sounds, screensaver delay, streaming quality for YouTube, Jellyfin and Twitch, 60 fps streams, default subtitles, your region (used for trending and radio), connection security, and Jellyfin sign-out. Everything is saved to `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
+
+---
+
+## ⚙️ Compatibility tips
+
+The Wii U decodes **H.264 in hardware** (up to 1080p); everything else is decoded in software. For the smoothest local playback, re-encode other formats:
+
 ```bash
-ffmpeg -i <input> \
--map 0 \
--c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p \
--preset ultrafast -tune fastdecode -crf 23 -vf "scale=-2:720" \
--c:a aac -b:a 256k \
--c:s copy \
-<output>
+# 720p – plays everywhere
+ffmpeg -i <input> -map 0 -c:v libx264 -profile:v high -level 3.1 -pix_fmt yuv420p \
+  -preset medium -crf 21 -vf "scale=-2:720" -c:a aac -b:a 192k -c:s copy <output>.mkv
+
+# 1080p
+ffmpeg -i <input> -map 0 -c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv420p \
+  -preset medium -crf 20 -vf "scale=-2:1080" -c:a aac -b:a 256k -c:s copy <output>.mkv
 ```
 
-**For 1080p (requires H.264 hardware acceleration):**
+- **Video**: H.264 (hardware), plus HEVC, VP8/VP9 and MPEG-1/2/4 in software (best at 480p or lower).
+- **Audio**: MP3, AAC, FLAC, Vorbis, Opus, ALAC, WavPack, WAV and AC-3/E-AC-3. Surround is downmixed to stereo.
+- **Subtitles**: embedded SRT/ASS/WebVTT/mov_text, and `.srt` files next to the video.
+- **Jellyfin** direct-plays what the Wii U can decode and asks the server to transcode the rest to H.264/AAC at your quality setting.
+
+---
+
+## 🛠️ Building
+
+Every push is built by GitHub Actions ([`.github/workflows/build.yml`](.github/workflows/build.yml)); pushing a `v*` tag publishes a release.
+
+To build locally you only need Docker:
+
 ```bash
-ffmpeg -i <input> \
--map 0 \
--c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv420p \
--preset medium -tune film -crf 20 -vf "scale=-2:1080" \
--c:a aac -b:a 320k \
--c:s copy \
-<output>
+tools/docker-build.sh            # first run also builds FFmpeg-wiiu, MuPDF and libsmb2 into deps/
+tools/docker-build.sh DEBUG=1    # unoptimized build with debug logging
 ```
 
----
+With devkitPro installed natively (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-tinyxml2`, `ppc-giflib`, `ppc-libzip`, `ppc-libjpeg-turbo`), run `tools/build-deps.sh` once, then `make`. Without MuPDF in `deps/` the app still builds; the reader then opens comic books (CBZ) only.
 
-## ✅ Features
+To push a build to a Wii U running an FTP server: `WIIU_IP=192.168.x.x ./deploy.sh`.
 
-* 🎥 **Video Playback**: H.264 up to 1080p with hardware acceleration, VP8/VP9, HEVC, MPEG1/2/4
-* 🎵 **Audio Playback**: MP3, AAC, FLAC (16/24-bit), Vorbis, Opus, and more
-* 🖼️ **Image Viewer**: JPEG, PNG, BMP, GIF with zoom and pan
-* 📄 **PDF Viewer**: Full PDF and EPUB document support
-* 📺 **YouTube Integration**: Search, trending, popular videos, and direct URL playback
-* ⏩ **Media Seeking**: 5-second skip/rewind for videos and audio
-* 🎮 **Full Controller Support**: GamePad, Wii Remote, Wii Remote + Nunchuk, Pro Controller
-* 🎬 **Subtitles**: SRT subtitle support with customizable display
-* 🎚️ **Multi-Audio**: Switch between audio tracks on-the-fly
-* 💾 **Settings Persistence**: Saves preferences to SD card
+### Desktop preview
 
----
+The same code runs on macOS and Linux, which makes UI work much faster.
 
-## 🔜 Planned Features
+```bash
+# macOS (Homebrew)
+brew install pkg-config cmake sdl2 sdl2_ttf sdl2_image ffmpeg curl jansson tinyxml2 libzip
+tools/build-deps.sh --host libsmb2   # once; add `mupdf` for PDF/EPUB in the reader
+make -f desktop.mk -j8 run
 
-* 🌐 DLNA / Jellyfin streaming
-* 💾 USB drive support (ext4, exFAT)
-* 📊 Audio visualizations
-* 📺 Playlist support (M3U, M3U8)
-* 🔍 YouTube search history and favorites
-* 🎨 Theme customization
-* 📱 Resume playback from last position
+# Linux
+tools/build-deps.sh --host           # FFmpeg, MuPDF and libsmb2 for the host
+make -f desktop.mk && ./build-desktop/coffeeflix
+```
 
----
+Without FFmpeg in `deps/host` the system's is used. Test files go in `data/media/` (`Videos`, `Music`, `Photos`, `Books`).
 
-## 🐞 Known Issues
+Keyboard: arrows move, `Enter`/`Z` = A, `Esc`/`Backspace`/`X` = B, `C` = X, `V` = Y, `Tab` = +, `Q`/`E` = L/R, `1`/`3` = ZL/ZR. Set `COFFEEFLIX_DATA=<dir>` to use a separate settings and media folder.
 
-* ❗ **Audio/Video Desync**
-  Playback may fall out of sync, especially with high-resolution or complex video files. Re-encoding with the recommended FFmpeg settings may help.
+### Branding
 
-* ❗ **App Stability on Exit**
-  Significantly improved cleanup procedures have reduced exit crashes. Proper resource cleanup and thread management now prevent most crashes when returning to the Wii U system menu.
-
-* ❗ **Unstable / Experimental Behavior**
-  CoffeeFlix is in early development. Expect occasional hangs, crashes, or features not working as intended.
-
-* ✅ **Controller Support**
-  All Wii U controllers now supported: GamePad, Wii Remote, Wii Remote + Nunchuk, and Pro Controller with full D-Pad/stick navigation.
-
-* ℹ️ **Video Codec Performance**
-  - **H.264**: Best performance with hardware acceleration (up to 1080p)
-  - **VP8/VP9**: Software decoding (recommended ≤480p for smooth playback)
-  - **HEVC/H.265**: Experimental hardware + software (performance varies)
-  - **MPEG1/2/4**: Software decoding (good performance at standard resolutions)
-
-* ℹ️ **Audio Format Support**
-  - **FLAC**: 16-bit and 24-bit work perfectly, multichannel auto-downmixes to stereo
-  - **High sample rates**: >192kHz may cause performance issues
-  - **MP3/AAC/Vorbis/Opus**: Full support with excellent performance
-
-* ℹ️ **YouTube Playback**
-  - Streams via YouTube InnerTube API (quality: 360p/480p/720p/1080p)
-  - Best with 720p setting for H.264 hardware acceleration
-  - Network connection required, performance depends on internet speed
+`tools/make-branding.py` renders the icon, splash screens and store art from the app's own fonts and colors.
 
 ---
 
 ## 🙏 Credits
 
-* 🎵 **Ambiance Music**: [LightMister on Freesound](https://freesound.org/people/LightMister/sounds/769925/)
-* 🛠️ **devkitPro**: [GitHub](https://github.com/devkitPro)
-* 💬 **stdout implementation by dkosmari**: [Github](https://github.com/dkosmari/devkitpro-autoconf/blob/main/examples/wiiu/sdl2-swkbd/src/stdout.cpp)
-* 💬 **srtparser.h**: [Github](https://github.com/saurabhshri/simple-yet-powerful-srt-subtitle-parser-cpp)
-* 🎞️ **FFmpeg**: [GitHub](https://github.com/FFmpeg/FFmpeg/)
-* 🧰 **FFmpeg Wii U Configure Script by GaryOderNichts**: [Github](https://github.com/GaryOderNichts/FFmpeg-wiiu/blob/master/configure-wiiu)
-* 🖼️ **Nuklear GUI Library**: [GitHub](https://github.com/Immediate-Mode-UI/Nuklear)
-* 🔧 **Wii U Toolchain (WUT)**: [GitHub](https://github.com/devkitPro/wut)
-* 📄 **mupdf port by hito16**: [GitHub](https://github.com/hito16/mupdf-devkitppc)
-* 🔧 **Helper files from hito16** [Github](https://github.com/hito16/SDLReader/blob/main/ports/wiiu/wiiu_mupdf_hb_wrappers.c) [Github](https://github.com/hito16/SDLReader/blob/main/ports/wiiu/wiiu_time_utils.c)
+- 🛠️ **devkitPro, wut and the Wii U SDL2 port**: [devkitPro](https://github.com/devkitPro)
+- 🎞️ **FFmpeg** and **FFmpeg-wiiu** (hardware H.264) by GaryOderNichts: [FFmpeg](https://github.com/FFmpeg/FFmpeg) · [FFmpeg-wiiu](https://github.com/GaryOderNichts/FFmpeg-wiiu)
+- 📄 **MuPDF** (PDF/EPUB, AGPL): [GitHub](https://github.com/ArtifexSoftware/mupdf); Wii U hints from [hito16/mupdf-devkitppc](https://github.com/hito16/mupdf-devkitppc) and [SDLReader](https://github.com/hito16/SDLReader/blob/main/ports/wiiu/wiiu_time_utils.c)
+- 🖧 **libsmb2** by Ronnie Sahlberg: [GitHub](https://github.com/sahlberg/libsmb2)
+- 🔤 **Inter** by Rasmus Andersson (SIL OFL) and **Material Icons** by Google (Apache 2.0)
+- 📻 **radio-browser.info** community station directory
+- 💬 **stdout logger by dkosmari**: [GitHub](https://github.com/dkosmari/devkitpro-autoconf/blob/main/examples/wiiu/sdl2-swkbd/src/stdout.cpp)
+- 🔔 **Boot sound**: [LightMister on Freesound](https://freesound.org/people/LightMister/sounds/769925/)
+
+Made with ❤️ and ☕
