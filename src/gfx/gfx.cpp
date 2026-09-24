@@ -203,7 +203,11 @@ SDL_Color grad_color(float x, float y, const void* ctx) {
 struct UvCtx { Rect dst; Rect uv; };
 SDL_FPoint rect_uv(float x, float y, const void* ctx) {
     const UvCtx* u = (const UvCtx*)ctx;
-    return SDL_FPoint{u->uv.x + (x - u->dst.x) / u->dst.w * u->uv.w, u->uv.y + (y - u->dst.y) / u->dst.h * u->uv.h};
+    // SDL_RenderGeometry rejects the whole batch if any uv is outside [0, 1],
+    // and the anti-aliasing fringe sits slightly outside the image.
+    float fu = u->uv.x + (x - u->dst.x) / u->dst.w * u->uv.w;
+    float fv = u->uv.y + (y - u->dst.y) / u->dst.h * u->uv.h;
+    return SDL_FPoint{std::clamp(fu, 0.0f, 1.0f), std::clamp(fv, 0.0f, 1.0f)};
 }
 
 // Ring between radii r0 < r1 along the current path, with feathered edges.
@@ -292,7 +296,10 @@ void flush() {
         return;
     }
     if (S.batch_tex == S.atlas) upload_dirty();
-    SDL_RenderGeometry(S.renderer, S.batch_tex, S.verts.data(), (int)S.verts.size(), S.idx.data(), (int)S.idx.size());
+    if (SDL_RenderGeometry(S.renderer, S.batch_tex, S.verts.data(), (int)S.verts.size(), S.idx.data(), (int)S.idx.size()) != 0) {
+        static int reported = 0;
+        if (reported++ < 5) log_message(LOG_ERROR, "gfx", "RenderGeometry failed: %s", SDL_GetError());
+    }
     S.verts.clear();
     S.idx.clear();
 }

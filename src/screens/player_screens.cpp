@@ -291,7 +291,6 @@ private:
         if (player::audio_tracks().size() > 1) {
             if (icon_button(id(g, "audio"), rx, cy, 26, ic::AUDIOTRACK, g)) menu_.show(false);
         }
-        hint_bar({{"B", "Back"}}, cy);
 
         if (st == player::FAILED) draw_message(ic::ERROR_OUTLINE, "Playback failed", player::error().c_str(), true);
         else if (st == player::ENDED) draw_message(ic::REFRESH, "Finished", "", false);
