@@ -11,6 +11,7 @@
 #include "services/twitch.hpp"
 #include "services/youtube.hpp"
 #include "services/yt_recs.hpp"
+#include "screens/youtube_common.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -105,9 +106,28 @@ public:
                 c.icon = ic::SMART_DISPLAY;
                 return c;
             };
-            s.on_click = [this](int i) { play_video(youtube::make_source(yt_[i])); };
+            s.on_click = [this](int i) { yt::play(yt_[i]); };
             s.on_focus = [this](int i) { set_backdrop(youtube::thumbnail_hq(yt_[i].id)); };
+            s.on_x = [this](int i) { yt::video_menu(yt_[i]); };
             y += shelf(id(g, "yt"), x0, y, s, &page_) + 10;
+        }
+        if (!ytc_.empty()) {
+            any = true;
+            ShelfSpec s;
+            s.title = "YouTube channels";
+            s.count = (int)ytc_.size();
+            s.shape = CARD_CIRCLE;
+            s.item_w = 130;
+            s.item = [this](int i) {
+                CardInfo c;
+                c.image = ytc_[i].avatar;
+                c.title = ytc_[i].name;
+                c.subtitle = ytc_[i].subscribers;
+                c.icon = ic::PERSON;
+                return c;
+            };
+            s.on_click = [this](int i) { app::push(yt::make_channel(ytc_[i].id, ytc_[i].name, ytc_[i].avatar)); };
+            y += shelf(id(g, "ytc"), x0, y, s, &page_) + 10;
         }
         if (!tw_.empty() || tw_loading_) {
             any = true;
@@ -197,6 +217,7 @@ private:
         errors_.clear();
         jf_.clear();
         yt_.clear();
+        ytc_.clear();
         tw_.clear();
         radio_.clear();
         pods_.clear();
@@ -211,6 +232,10 @@ private:
             yt_ = std::move(r.items);
             if (!r.error.empty()) errors_ = r.error;
             yt_loading_ = false;
+        });
+        scope_.run<youtube::ChannelResults>([q] { return youtube::search_channels(q); }, [this](youtube::ChannelResults r) {
+            ytc_ = std::move(r.items);
+            if (ytc_.size() > 8) ytc_.resize(8);
         });
         scope_.run<twitch::Streams>([q] { return twitch::search(q); }, [this](twitch::Streams s) {
             tw_ = std::move(s.items);
@@ -229,6 +254,7 @@ private:
     std::string query_, errors_;
     std::vector<jellyfin::Item> jf_;
     std::vector<youtube::Video> yt_;
+    std::vector<youtube::Channel> ytc_;
     std::vector<twitch::Stream> tw_;
     std::vector<radio::Station> radio_;
     std::vector<podcasts::Show> pods_;

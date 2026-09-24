@@ -15,6 +15,12 @@
 
 namespace player {
 
+// A stretch the player jumps over by itself (SponsorBlock).
+struct SkipSegment {
+    double start = 0, end = 0;
+    std::string label;  // "Skipped sponsor"
+};
+
 struct Source {
     std::string url;             // video+audio, or audio only
     std::string audio_url;       // optional separate audio stream (YouTube DASH)
@@ -23,6 +29,8 @@ struct Source {
     double start = 0;            // seconds
     bool live = false;           // no seeking, unknown duration
     std::vector<std::pair<std::string, std::string>> external_subs;  // {label, url or path}
+    bool subs_auto = true;       // turn the first external track on (with the "on by default" setting)
+    std::vector<SkipSegment> skip_segments;
 
     // UI / bookkeeping
     std::string title, subtitle, artwork;
@@ -90,6 +98,8 @@ std::vector<Track> subtitle_tracks();
 int subtitle_track();       // -1 = off
 void set_subtitle_track(int index);
 std::string subtitle_text();
+// Label of a segment that was just skipped (once), for a toast.
+std::string take_skip_notice();
 
 // Main thread, once per frame: advances the state machine and uploads the
 // frame that is due. Returns the texture to draw (may be null).

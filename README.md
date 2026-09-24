@@ -6,7 +6,7 @@
 
 **CoffeeFlix** puts your movies, videos, live streams, music, radio, podcasts, photos and comics in one fast, animated app built for the TV and the GamePad.
 
-- 📺 **YouTube**: a *For you* feed that learns what you like on the console itself (no account, nothing leaves the Wii U), popular videos by topic, search, subscriptions and watch history. Plays in up to 720p with hardware H.264 decoding.
+- 📺 **YouTube**, no account needed: a *For you* feed that learns what you like on the console itself (nothing leaves the Wii U), subscriptions with a newest-first feed, channel pages (videos, Shorts, live streams, playlists), playlists you can play through or save, search for videos and channels, *Watch later* and history, captions, and skipping sponsor segments with [SponsorBlock](https://sponsor.ajay.app). Plays in up to 720p with hardware H.264 decoding.
 - 🍿 **Jellyfin**: your own movie and TV server. Sign in with Quick Connect or a password. Includes continue watching, next up, libraries, seasons and episodes, direct play or transcoding, server subtitles, and resume that syncs back to the server.
 - 🟣 **Twitch**: live channels, search and a local follow list, at your chosen quality (60 fps optional).
 - 📻 **Radio**: over 40,000 stations from radio-browser.info, by country and genre, with favorites and live "now playing" titles.
@@ -40,6 +40,7 @@
 - **Network shares**: open *My Media → Network shares → Add share*. Enter the computer's IP address (or `\\host\share`), the share name and your login. Leave the login empty for guest shares.
 - **Media servers (DLNA)** show up by themselves under *My Media → Media servers* once DLNA sharing is on in the server.
 - **YouTube, Twitch, radio and podcasts** work without an account. Subscriptions, follows and favorites are stored on your SD card.
+- **Bring your YouTube subscriptions**: put `subscriptions.csv` from [Google Takeout](https://takeout.google.com) (*YouTube and YouTube Music → subscriptions*) or a NewPipe/LibreTube export named `subscriptions.json` in `sd:/wiiu/apps/coffeeflix/`, then pick *Settings → Import YouTube subscriptions*. *Export* writes them back out in NewPipe's format.
 
 ---
 
@@ -52,7 +53,7 @@ The GamePad, Pro Controller, Classic Controller and Wii Remote (with pointer) al
 | `D-Pad` / `Left Stick` | Move around |
 | `A` | Select |
 | `B` | Back; at the top of a section it opens the sidebar, and again goes Home |
-| `X` | The action shown at the bottom right: favorite, subscribe, follow, remove |
+| `X` | The action shown at the bottom right: favorite, follow, remove. On YouTube videos it opens *More*: go to the channel, subscribe, save to *Watch later*, *Not interested* |
 | `Y` | On YouTube videos: *Not interested* (you'll see less like it) |
 | `+` | Open *Now Playing* while music or radio plays in the background |
 
@@ -93,7 +94,7 @@ The reader reopens every book on the page where you stopped.
 
 ## ⚙️ Settings
 
-Accent color, interface sounds, screensaver delay, streaming quality for YouTube, Jellyfin and Twitch, 60 fps streams, default subtitles, your region (used for popular videos and radio), connection security, Jellyfin sign-out, and resetting what the YouTube *For you* feed has learned. Everything is saved to `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
+Accent color, interface sounds, screensaver delay, streaming quality for YouTube, Jellyfin and Twitch, 60 fps streams, default subtitles, YouTube captions, SponsorBlock, your region (used for popular videos and radio), connection security, Jellyfin sign-out, importing and exporting YouTube subscriptions, and resetting what the YouTube *For you* feed has learned. Everything is saved to `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
 
 ---
 
