@@ -96,25 +96,6 @@ With devkitPro installed (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-
 
 FFmpeg-wiiu is patched during the build; the patches are in [tools/patches](tools/patches).
 
-### Running it on a computer
-
-The same code runs on macOS and Linux, which is much quicker for working on the interface.
-
-```bash
-# macOS
-brew install pkg-config cmake sdl2 sdl2_ttf sdl2_image ffmpeg curl jansson tinyxml2 libzip
-tools/build-deps.sh --host libsmb2   # once
-make -f desktop.mk -j8 run
-
-# Linux: install the same libraries, then
-tools/build-deps.sh --host
-make -f desktop.mk && ./build-desktop/coffeeflix
-```
-
-Keys: arrows move, Enter or Z is A, Esc, Backspace or X is B, C is X, V is Y, Tab is +, Q and E are L and R, 1 and 3 are ZL and ZR. Test media goes in `data/media/`, or set `COFFEEFLIX_DATA` to another folder.
-
-The download site is in [docs](docs/index.html) (GitHub Pages), the Homebrew App Store package in [packaging/hbas](packaging/hbas/README.md), and `tools/make-branding.py` draws the icon, splash screens and store art.
-
 ## Support
 
 CoffeeFlix is free and made in my spare time. If it's become part of your Wii U setup and you'd like to say thanks, you can [support it on Ko-fi](https://ko-fi.com/ubecatstudio). Bug reports and ideas in the [issues](https://github.com/Roastedd/CoffeeFlix/issues) help just as much.
