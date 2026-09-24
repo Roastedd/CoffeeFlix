@@ -1007,23 +1007,31 @@ void start_session(const Source& src, int pref_audio) {
     s->opener = std::thread(open_session, s);
 }
 
-// FFmpeg's warnings and errors go to our log (and its file); its chatter is left out.
+// FFmpeg's warnings and errors go to our log (and its file), each distinct message once: some
+// streams repeat a harmless one ("Late SEI is not implemented") for every frame. Its chatter
+// below warnings is left out.
 void ffmpeg_log(void* avcl, int level, const char* fmt, va_list vl) {
     if (level > AV_LOG_WARNING) return;
-    static std::atomic<int> window{0}, lines{0};
-    int w = (int)(now() / 10);
-    if (window.exchange(w) != w) lines = 0;
-    int n = ++lines;
-    if (n > 20) {
-        if (n == 21) log_message(LOG_WARNING, "FFmpeg", "(more messages left out)");
-        return;
-    }
     char line[1024];
-    int prefix = 1;
-    av_log_format_line(avcl, level, fmt, vl, line, sizeof(line), &prefix);
+    int prefix = 0;  // no "[h264 @ 0x...]": the address would make every message distinct
+    av_log_format_line(nullptr, level, fmt, vl, line, sizeof(line), &prefix);
     size_t len = std::strlen(line);
-    while (len && (line[len - 1] == '\n' || line[len - 1] == '\r')) line[--len] = 0;
-    if (len) log_message(level <= AV_LOG_ERROR ? LOG_ERROR : LOG_WARNING, "FFmpeg", "%s", line);
+    while (len && (line[len - 1] == '\n' || line[len - 1] == '\r' || line[len - 1] == ' ')) line[--len] = 0;
+    if (!len) return;
+
+    static std::mutex m;
+    static std::vector<uint32_t> seen;
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < len; i++) h = (h ^ (uint8_t)line[i]) * 16777619u;
+    {
+        std::lock_guard<std::mutex> lk(m);
+        if (std::find(seen.begin(), seen.end(), h) != seen.end()) return;
+        if (seen.size() >= 256) seen.erase(seen.begin());
+        seen.push_back(h);
+    }
+    const AVClass* cls = avcl ? *(const AVClass**)avcl : nullptr;
+    const char* who = cls ? cls->item_name(avcl) : "FFmpeg";
+    log_message(level <= AV_LOG_ERROR ? LOG_ERROR : LOG_WARNING, "FFmpeg", "%s: %s", who, line);
 }
 
 }  // namespace
@@ -1109,6 +1117,19 @@ void retry() {
     auto queue = std::move(g_queue);
     int qi = g_queue_index;
     start_session(src, -1);
+    g_queue = std::move(queue);
+    g_queue_index = qi;
+}
+
+void set_quality(int height) {
+    if (!g_s || g_s->original.quality == height) return;
+    Source src = g_s->original;
+    src.quality = height;
+    if (!src.live) src.start = std::max(src.start, g_s->last_clock);
+    auto queue = std::move(g_queue);
+    int qi = g_queue_index;
+    if (qi >= 0 && qi < (int)queue.size()) queue[qi].quality = height;
+    start_session(src, g_s->pref_audio);
     g_queue = std::move(queue);
     g_queue_index = qi;
 }
