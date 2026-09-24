@@ -55,28 +55,6 @@ int kind_icon(Kind k) {
     }
 }
 
-// Natural sort: "Episode 2" before "Episode 10".
-bool natural_less(const std::string& a, const std::string& b) {
-    size_t i = 0, j = 0;
-    while (i < a.size() && j < b.size()) {
-        if (isdigit((unsigned char)a[i]) && isdigit((unsigned char)b[j])) {
-            size_t i2 = i, j2 = j;
-            while (i2 < a.size() && isdigit((unsigned char)a[i2])) i2++;
-            while (j2 < b.size() && isdigit((unsigned char)b[j2])) j2++;
-            long long x = atoll(a.substr(i, i2 - i).c_str()), y = atoll(b.substr(j, j2 - j).c_str());
-            if (x != y) return x < y;
-            i = i2;
-            j = j2;
-            continue;
-        }
-        char ca = (char)tolower((unsigned char)a[i]), cb = (char)tolower((unsigned char)b[j]);
-        if (ca != cb) return ca < cb;
-        i++;
-        j++;
-    }
-    return a.size() - i < b.size() - j;
-}
-
 struct Listing {
     std::vector<Entry> entries;
     bool ok = false;
@@ -110,7 +88,7 @@ Listing list_local(const std::string& dir) {
     closedir(d);
     std::sort(out.entries.begin(), out.entries.end(), [](const Entry& a, const Entry& b) {
         if ((a.kind == K_DIR) != (b.kind == K_DIR)) return a.kind == K_DIR;
-        return natural_less(a.name, b.name);
+        return util::natural_less(a.name, b.name);
     });
     out.ok = true;
     return out;
