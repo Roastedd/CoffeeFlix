@@ -61,8 +61,8 @@ size_t header_cb(char* buffer, size_t size, size_t nitems, void* userdata) {
     return n;
 }
 
-int sockopt_cb(void*, curl_socket_t fd, curlsocktype) {
-    if (g_socket_setup) g_socket_setup((int)fd);
+int sockopt_cb(void* big_buffers, curl_socket_t fd, curlsocktype) {
+    if (g_socket_setup && big_buffers) g_socket_setup((int)fd);
     return CURL_SOCKOPT_OK;
 }
 
@@ -89,7 +89,7 @@ CURL* acquire_handle() {
 
 void release_handle(CURL* h) {
     std::lock_guard<std::mutex> lk(g_pool_m);
-    if (g_pool.size() < 10) g_pool.push_back(h);  // the player downloads over 4 at once
+    if (g_pool.size() < 8) g_pool.push_back(h);  // the player downloads over 3 at once
     else curl_easy_cleanup(h);
 }
 
@@ -163,7 +163,13 @@ Response perform(const Request& req) {
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");  // gzip/deflate/brotli as built
     curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent());
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
-    if (g_socket_setup) curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_cb);
+    // Each pooled handle keeps its last connection only: the Wii U runs out of sockets after a
+    // few dozen, and handles that talked to many hosts (logos, thumbnails) would hoard them.
+    curl_easy_setopt(curl, CURLOPT_MAXCONNECTS, 1L);
+    if (g_socket_setup) {
+        curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_cb);
+        curl_easy_setopt(curl, CURLOPT_SOCKOPTDATA, req.big_buffers ? (void*)1 : nullptr);
+    }
 
     if (g_verify) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);

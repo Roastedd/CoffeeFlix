@@ -172,6 +172,7 @@ void download(HttpStream& s, const std::shared_ptr<Chunk>& c) {
         req.headers.emplace_back("Range", util::fmt("bytes=%lld-%lld", (long long)from, (long long)to));
         req.timeout = 30;
         req.cancel = &c->cancel;
+        req.big_buffers = true;
         req.on_data = [&](const http::Response& r, const char* data, size_t n) {
             if (c->cancel || aborted(s)) return false;
             std::lock_guard<std::mutex> lk(s.m);
@@ -215,7 +216,8 @@ void download(HttpStream& s, const std::shared_ptr<Chunk>& c) {
                             (long long)c->filled / 1024, (long long)s.size / 1024, now - t0,
                             c->filled / 1024.0 / std::max(now - t0, 0.001));
             }
-            if (s.downloaded >= SPEED_SAMPLE && !s.speed_logged) {
+            // Measured over the first read-ahead, while nothing holds the downloads back.
+            if (s.downloaded >= std::min(SPEED_SAMPLE, s.ahead * CHUNK) && !s.speed_logged) {
                 s.speed_logged = true;
                 log_message(LOG_OK, "Player", "Downloading at %.0f KB/s (%d connection%s)",
                             s.downloaded / 1024.0 / std::max(now - s.opened_at, 0.001), s.connections,

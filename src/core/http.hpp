@@ -22,6 +22,8 @@ struct Request {
     // Hands the body over as it arrives instead of collecting it in Response::body (the
     // status and headers are already in the response). Return false to stop the transfer.
     std::function<bool(const Response& so_far, const char* data, size_t size)> on_data;
+    // Media downloads: new sockets get the socket_setup from init() (large receive buffers).
+    bool big_buffers = false;
 };
 
 struct Response {
@@ -34,7 +36,8 @@ struct Response {
     bool ok() const { return error.empty() && status >= 200 && status < 300; }
 };
 
-// socket_setup, when given, runs on every new socket before it connects (Wii U buffer sizes).
+// socket_setup, when given, runs on new sockets of big_buffers requests before they connect
+// (Wii U buffer sizes).
 void init(const std::string& ca_bundle_path, void (*socket_setup)(int fd) = nullptr);
 void shutdown();
 void set_verify_tls(bool verify);
