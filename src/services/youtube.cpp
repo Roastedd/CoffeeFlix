@@ -373,7 +373,33 @@ const char* const PARAMS_CHANNELS = "EgIQAg==";
 struct Format {
     std::string url, mime;
     int itag = 0, width = 0, height = 0, bitrate = 0, fps = 0;
+    // Audio: videos with dubs have one set of formats per language.
+    std::string audio_id, audio_label;  // "en-US.4", "English (US) original"
+    bool audio_original = false, audio_dubbed = false, drc = false;
 };
+
+// Decodes URL-safe base64 (padding optional); stops at the first character outside it.
+std::string base64url_decode(const std::string& in) {
+    std::string out;
+    unsigned buf = 0;
+    int bits = 0;
+    for (char ch : in) {
+        int v = ch >= 'A' && ch <= 'Z'   ? ch - 'A'
+                : ch >= 'a' && ch <= 'z' ? ch - 'a' + 26
+                : ch >= '0' && ch <= '9' ? ch - '0' + 52
+                : ch == '-' || ch == '+' ? 62
+                : ch == '_' || ch == '/' ? 63
+                                         : -1;
+        if (v < 0) break;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out += (char)((buf >> bits) & 0xFF);
+        }
+    }
+    return out;
+}
 
 std::vector<Format> formats(json_t* arr) {
     std::vector<Format> out;
@@ -388,9 +414,61 @@ std::vector<Format> formats(json_t* arr) {
         fm.height = (int)json::num(f, {"height"});
         fm.bitrate = (int)json::num(f, {"bitrate"});
         fm.fps = (int)json::num(f, {"fps"});
+        json_t* track = json_object_get(f, "audioTrack");
+        fm.audio_id = json::str(track, {"id"});
+        fm.audio_label = json::str(track, {"displayName"});
+        fm.audio_original = json::boolean(track, {"audioIsDefault"});
+        // xtags is a small protobuf naming the kind of track: "acont" = "original" / "dubbed-auto".
+        fm.audio_dubbed = base64url_decode(json::str(f, {"xtags"})).find("dubbed-auto") != std::string::npos;
+        fm.drc = json::boolean(f, {"isDrc"});
         out.push_back(fm);
     }
     return out;
+}
+
+// AAC audio in the language asked for (src.audio_language, "" = the original), or the original
+// when that isn't there. Videos with dubs have a full set of formats per language, and the
+// original isn't the one with the highest bitrate. Fills src.audio_languages when there is a choice.
+const Format* pick_audio(const std::vector<Format>& formats, player::Source& src) {
+    std::vector<const Format*> aac;
+    for (const Format& f : formats)
+        if (util::starts_with(f.mime, "audio/mp4")) aac.push_back(&f);
+    auto best = [&](auto match) {
+        const Format* b = nullptr;
+        for (const Format* f : aac) {
+            if (!match(*f)) continue;
+            // Full dynamic range over the "stable volume" (DRC) copy, then the higher bitrate.
+            if (!b || (b->drc && !f->drc) || (b->drc == f->drc && f->bitrate > b->bitrate)) b = f;
+        }
+        return b;
+    };
+    const Format* a = nullptr;
+    if (!src.audio_language.empty()) a = best([&](const Format& f) { return f.audio_id == src.audio_language; });
+    if (!a) a = best([](const Format& f) { return f.audio_original || f.audio_id.empty(); });
+    if (!a) a = best([](const Format& f) { return !f.audio_dubbed; });
+    if (!a) a = best([](const Format&) { return true; });
+
+    src.audio_languages.clear();
+    for (const Format* f : aac) {
+        if (f->audio_id.empty()) continue;
+        bool seen = false;
+        for (auto& l : src.audio_languages) seen = seen || l.first == f->audio_id;
+        if (seen) continue;
+        std::string label = f->audio_label.empty() ? f->audio_id : f->audio_label;
+        if (f->audio_dubbed) label += " (auto-dubbed)";
+        src.audio_languages.emplace_back(f->audio_id, label);
+    }
+    // The original first, the rest by name.
+    std::string original = a && a->audio_original ? a->audio_id : "";
+    for (const Format* f : aac)
+        if (f->audio_original) original = f->audio_id;
+    std::sort(src.audio_languages.begin(), src.audio_languages.end(), [&](const auto& x, const auto& y) {
+        if ((x.first == original) != (y.first == original)) return x.first == original;
+        return x.second < y.second;
+    });
+    if (src.audio_languages.size() < 2) src.audio_languages.clear();
+    if (a) src.audio_language = a->audio_id;
+    return a;
 }
 
 bool from_hls(const std::string& manifest, int max_height, const Client& c, player::Source& src, std::string& error) {
@@ -503,13 +581,13 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
             if (better) best_v = &f;
         }
     }
-    for (const Format& f : adaptive)
-        if (util::starts_with(f.mime, "audio/mp4") && (!best_a || f.bitrate > best_a->bitrate)) best_a = &f;
+    best_a = pick_audio(adaptive, src);
     if (best_v && best_a) {
         src.url = best_v->url;
         src.audio_url = best_a->url;
-        log_message(LOG_OK, "YouTube", "%s: itag %d (%dp%d) + itag %d via %s", id.c_str(), best_v->itag,
-                    best_v->height, best_v->fps, best_a->itag, c.name);
+        log_message(LOG_OK, "YouTube", "%s: itag %d (%dp%d) + itag %d%s%s via %s", id.c_str(), best_v->itag,
+                    best_v->height, best_v->fps, best_a->itag, best_a->audio_label.empty() ? "" : ", ",
+                    best_a->audio_label.c_str(), c.name);
         return true;
     }
     // Progressive (video+audio in one file) fallback: usually 360p.
@@ -562,6 +640,16 @@ Results search(const std::string& query, const std::string& params, const std::s
 }
 
 Results trending() {
+    // Six searches: the YouTube page, Home and For you all want this at the start, so it is
+    // fetched once (the others wait) and kept for 10 minutes per region.
+    static std::mutex m;
+    static Results cached;
+    static std::string cached_region;
+    static double cached_at = -1e9;
+    std::lock_guard<std::mutex> lk(m);
+    std::string region = store::get_str("yt_region", "US");
+    if (region == cached_region && util::now_seconds() - cached_at < 10 * 60 && !cached.items.empty()) return cached;
+
     // YouTube retired the Trending page (FEtrending now answers 400). Searching for "trending"
     // mostly finds spam tagged #trending, so mix the most-viewed videos of the week from a few
     // broad topics instead.
@@ -581,6 +669,11 @@ Results trending() {
         for (auto& r : got)
             if (k < r.items.size() && seen.insert(r.items[k].id).second) out.items.push_back(r.items[k]);
     out.ok = !out.items.empty() || out.error.empty();
+    if (!out.items.empty()) {
+        cached = out;
+        cached_region = region;
+        cached_at = util::now_seconds();
+    }
     return out;
 }
 
