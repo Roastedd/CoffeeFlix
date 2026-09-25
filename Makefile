@@ -98,6 +98,13 @@ LIBDIRS 	:= $(TOPDIR)/deps/install $(PORTLIBS) $(WUT_ROOT)
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 #-------------------------------------------------------------------------------
 
+# The version the app reports (src/core/version.hpp): CI passes the release tag, other builds
+# ask git. The header is rewritten only when it changes, so only what includes it rebuilds.
+APP_VERSION ?= $(shell git describe --tags --always 2>/dev/null | sed 's/^v//')
+$(shell mkdir -p $(BUILD) && printf '#define APP_VERSION "%s"\n' '$(or $(APP_VERSION),dev)' > $(BUILD)/app_version.h.new \
+	&& (cmp -s $(BUILD)/app_version.h.new $(BUILD)/app_version.h || cp $(BUILD)/app_version.h.new $(BUILD)/app_version.h); \
+	rm -f $(BUILD)/app_version.h.new)
+
 export OUTPUT := $(CURDIR)/$(TARGET)
 export TOPDIR := $(CURDIR)
 

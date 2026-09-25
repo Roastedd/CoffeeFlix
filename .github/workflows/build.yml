@@ -30,7 +30,11 @@ jobs:
         run: ./tools/build-deps.sh
 
       - name: Build CoffeeFlix
-        run: make -j"$(nproc)"
+        # The app compares its version with the latest release's tag to offer updates.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$GITHUB_REF" in refs/tags/v*) ;; *) version="dev-$(echo "$GITHUB_SHA" | cut -c1-7)" ;; esac
+          make -j"$(nproc)" APP_VERSION="$version"
 
       - name: Package
         run: |

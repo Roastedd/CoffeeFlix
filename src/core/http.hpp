@@ -24,6 +24,9 @@ struct Request {
     std::function<bool(const Response& so_far, const char* data, size_t size)> on_data;
     // Media downloads: new sockets get the socket_setup from init() (large receive buffers).
     bool big_buffers = false;
+    // Checks the server's certificate even when set_verify_tls(false), and follows redirects to
+    // https only: for what gets installed (app updates).
+    bool require_tls = false;
 };
 
 struct Response {

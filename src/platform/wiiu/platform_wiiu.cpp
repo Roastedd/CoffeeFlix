@@ -1,6 +1,7 @@
 #include "platform/platform.hpp"
 
 #include <whb/proc.h>
+#include <coreinit/dynload.h>
 #include <coreinit/energysaver.h>
 #include <nn/ac.h>
 #include <nn/nets2/somemopt.h>
@@ -8,6 +9,7 @@
 #include <vpad/input.h>
 #include <padscore/kpad.h>
 #include <padscore/wpad.h>
+#include <sysapp/launch.h>
 
 #include <SDL2/SDL_syswm.h>
 
@@ -208,6 +210,67 @@ void shutdown() {
 }
 
 bool running() { return WHBProcIsRunning(); }
+void exit_to_menu() { SYSLaunchMenu(); }
+
+namespace {
+
+// Aroma's RPX loader, which started us from the .wuhb: which file that was, and letting go of
+// it so the updater can replace it. Its exports as librpxloader (wiiu-env) reaches them: the
+// path needs its API version 2, unmounting version 1. Functions return 0 on success.
+struct RpxLoader {
+    uint32_t version = 0;
+    int (*get_path)(char* out, uint32_t size) = nullptr;
+    int (*unmount)() = nullptr;
+};
+
+const RpxLoader& rpx_loader() {
+    static RpxLoader l;
+    static bool tried = false;
+    if (tried) return l;
+    tried = true;
+    // Only from a bundle: the Tiramisu build runs from the Homebrew Launcher, without it.
+    if (content_dir() != "/vol/content") return l;
+    OSDynLoad_Module m = nullptr;
+    int (*get_version)(uint32_t*) = nullptr;
+    if (OSDynLoad_Acquire("homebrew_rpx_loader", &m) != OS_DYNLOAD_OK ||
+        OSDynLoad_FindExport(m, OS_DYNLOAD_EXPORT_FUNC, "RL_GetVersion", (void**)&get_version) != OS_DYNLOAD_OK ||
+        get_version(&l.version) != 0) {
+        log_message(LOG_WARNING, "Platform", "Aroma's RPX loader isn't answering");
+        return l;
+    }
+    if (l.version >= 2)
+        OSDynLoad_FindExport(m, OS_DYNLOAD_EXPORT_FUNC, "RL_GetPathOfRunningExecutable", (void**)&l.get_path);
+    if (l.version >= 1)
+        OSDynLoad_FindExport(m, OS_DYNLOAD_EXPORT_FUNC, "RL_UnmountCurrentRunningBundle", (void**)&l.unmount);
+    return l;
+}
+
+}  // namespace
+
+std::string app_bundle() {
+    const RpxLoader& l = rpx_loader();
+    char buf[256] = {};
+    if (!l.get_path || l.get_path(buf, sizeof(buf) - 1) != 0) return "";
+    // Relative to the SD card's root.
+    std::string p = buf;
+    if (util::starts_with(p, "fs:")) p.erase(0, 3);
+    while (util::starts_with(p, "/")) p.erase(0, 1);
+    if (!util::starts_with(p, "vol/external01/")) p = "vol/external01/" + p;
+    p = "/" + p;
+    if (util::file_extension(p) != "wuhb" || !util::file_exists(p)) {
+        log_message(LOG_WARNING, "Platform", "Started from %s, which can't be updated in place", buf);
+        return "";
+    }
+    return p;
+}
+
+bool release_app_bundle() {
+    const RpxLoader& l = rpx_loader();
+    if (!l.unmount) return false;
+    int rc = l.unmount();
+    if (rc != 0) log_message(LOG_ERROR, "Platform", "Aroma didn't let go of the bundle (%d)", rc);
+    return rc == 0;
+}
 
 void poll(RawInput& raw) {
     raw = RawInput();
