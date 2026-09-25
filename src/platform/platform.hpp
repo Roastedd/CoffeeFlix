@@ -6,6 +6,9 @@
 
 #include "core/input.hpp"
 
+struct AVCodecContext;
+struct AVFrame;
+
 namespace platform {
 
 // Called before SDL_Init (Wii U: ProcUI, network, logging).
@@ -35,6 +38,20 @@ std::string ip_address();
 // Prepares a new TCP socket before it connects (Wii U: large receive buffers, which a single
 // connection's speed depends on). Nothing elsewhere.
 void tune_socket(int fd);
+
+// Video the GPU draws from where the Wii U hardware decoder wrote it, with no copy on the way to
+// the screen. Elsewhere the decoder's frames are left alone and uploaded.
+// Before avcodec_open2: the decoder's NV12 frames come from memory the GPU can read, laid out like
+// its textures. detach_video_frames undoes it, before avcodec_free_context (frames still in use
+// stay valid).
+void attach_video_frames(AVCodecContext* ctx);
+void detach_video_frames(AVCodecContext* ctx);
+// Points an NV12 texture at such a frame. False for any other frame, or when the texture can't
+// take it: upload the frame then. The GPU can read the frame until another has been shown and
+// the screen updated twice, or the texture destroyed.
+bool show_video_frame(SDL_Texture* tex, const AVFrame* f);
+// Before the CPU reads such a frame: it may still have what the memory held before cached.
+void video_frame_cpu_read(const AVFrame* f);
 
 // Rumble the GamePad briefly (no-op elsewhere).
 void rumble(float seconds);

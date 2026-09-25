@@ -326,6 +326,10 @@ int volumes(Volume* out, int max) {
 bool network_connected() { return true; }
 std::string ip_address() { return "127.0.0.1"; }
 void tune_socket(int) {}
+void attach_video_frames(AVCodecContext*) {}
+void detach_video_frames(AVCodecContext*) {}
+bool show_video_frame(SDL_Texture*, const AVFrame*) { return false; }
+void video_frame_cpu_read(const AVFrame*) {}
 void rumble(float) {}
 
 void keep_awake(Awake level) {
