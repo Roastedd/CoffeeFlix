@@ -16,6 +16,7 @@ struct WorkerPool {
     std::deque<std::function<std::function<void()>()>> queue;
     std::vector<std::thread> threads;
     bool lifo = false;  // image loads: newest requests first (what's on screen now)
+    bool held = false;
 };
 
 WorkerPool g_pools[2];
@@ -28,7 +29,7 @@ void worker_loop(WorkerPool* pool) {
         std::function<std::function<void()>()> job;
         {
             std::unique_lock<std::mutex> lk(pool->m);
-            pool->cv.wait(lk, [&] { return !g_running || !pool->queue.empty(); });
+            pool->cv.wait(lk, [&] { return !g_running || (!pool->held && !pool->queue.empty()); });
             if (!g_running) return;
             if (pool->lifo) {
                 job = std::move(pool->queue.back());
@@ -81,6 +82,15 @@ void submit(Pool pool, std::function<std::function<void()>()> work) {
         p.queue.push_back(std::move(work));
     }
     p.cv.notify_one();
+}
+
+void hold(Pool pool, bool held) {
+    WorkerPool& p = g_pools[pool];
+    {
+        std::lock_guard<std::mutex> lk(p.m);
+        p.held = held;
+    }
+    if (!held) p.cv.notify_all();
 }
 
 void on_main(std::function<void()> fn) {

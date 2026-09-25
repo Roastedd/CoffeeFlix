@@ -213,7 +213,7 @@ public:
             gfx::pop_alpha();
         } else {
             text::draw(font::display, x0, ty, "CoffeeFlix", t.text);
-            text::draw(font::body, x0, ty + 64, "Movies, shows, music, radio and more \xE2\x80\x94 on your Wii U.", t.text2);
+            text::draw(font::body, x0, ty + 64, "YouTube, Twitch, Jellyfin, radio, podcasts and your own files.", t.text2);
         }
 
         // --- shelves --------------------------------------------------------------------
@@ -340,9 +340,9 @@ private:
                 dirty_ = true;
             });
         }
-        yt_personal_ = yt_recs::has_profile();
+        yt_personal_ = yt::has_for_you();
         bool personal = yt_personal_;
-        scope_.run<youtube::Results>([personal] { return personal ? yt_recs::for_you() : youtube::trending(); },
+        scope_.run<youtube::Results>([personal] { return personal ? yt::for_you() : youtube::trending(); },
                                      [this](youtube::Results r) {
             yt_ = std::move(r.items);
             yt_loading_ = false;

@@ -1,5 +1,6 @@
 // Pieces shared by the YouTube screens: feeds, cards, the "More" menu, and the local library
-// (subscriptions, Watch later, history, saved playlists). Nothing needs an account.
+// (subscriptions, Watch later, history, saved playlists). Signing in is optional: it adds the
+// account's recommendations, subscriptions feed and channels.
 #pragma once
 
 #include <functional>
@@ -48,6 +49,18 @@ void update_channels(const std::vector<youtube::Channel>& channels);
 // folder; returns a message for a toast.
 std::string import_subscriptions();
 std::string export_subscriptions();
+
+// The account's channels (signed in) followed by those subscribed to only on this console.
+std::vector<youtube::Channel> with_local_subscriptions(std::vector<youtube::Channel> account);
+
+// --- account (optional) ---------------------------------------------------------------------
+std::unique_ptr<app::Screen> make_sign_in();
+// Opens sign-in, or offers to sign out when signed in.
+void account_menu();
+// "For you": YouTube's own recommendations when signed in, otherwise the ones learned on this
+// console (yt_recs). Blocks on the network.
+youtube::Results for_you(const std::string& continuation = "");
+bool has_for_you();
 
 // --- library ------------------------------------------------------------------------------
 bool in_watch_later(const std::string& video_id);

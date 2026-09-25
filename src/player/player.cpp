@@ -1385,7 +1385,7 @@ void retry() {
 void reset_decoding_fallback() { g_decoding_floor = 0; }
 
 float max_fps(int height) {
-    if (!store::get_bool("allow_60fps", false)) return 31;
+    if (!store::get_bool("allow_60fps", true)) return 31;
     return platform::is_wiiu() && height > 720 ? 31 : 61;
 }
 
@@ -1671,6 +1671,16 @@ void playback_stats(Session& s, double t, int st) {
 }
 
 void update() {
+    // Screens' own downloads (a feed can be a couple of MB) wait while a video starts, so it
+    // has the Wi-Fi to itself. At most 20 s, in case it never does.
+    static bool holding = false;
+    bool starting = g_s && !g_s->started && (g_s->state == OPENING || g_s->state == BUFFERING) &&
+                    now() - g_s->created < 20;
+    if (starting != holding) {
+        holding = starting;
+        tasks::hold(tasks::API, starting);
+    }
+
     if (!g_s) return;
     std::shared_ptr<Session> sp = g_s;
     Session& s = *sp;

@@ -1,4 +1,5 @@
-// YouTube: home shelves, on-device recommendations, topics, subscriptions (local, no account), search.
+// YouTube: home shelves, recommendations (on-device, or the account's when signed in), topics,
+// subscriptions, search.
 #include <algorithm>
 
 #include "core/store.hpp"
@@ -9,6 +10,7 @@
 #include "screens/widgets.hpp"
 #include "screens/youtube_common.hpp"
 #include "services/youtube.hpp"
+#include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 #include "ui/ui.hpp"
 
@@ -142,7 +144,7 @@ public:
             topic_feeds_.push_back(std::move(f));
         }
         load_subscriptions();
-        foryou_.fetch = [](const std::string& c) { return c.empty() ? yt_recs::for_you() : youtube::Results(); };
+        foryou_.fetch = [](const std::string& c) { return yt::for_you(c); };
         load_for_you();
         later_ = yt::watch_later();
     }
@@ -151,17 +153,22 @@ public:
 
     void on_enter() override {
         refresh_library();
-        // Rebuild once something new was learned (a watch, search, subscription...).
-        if (yt_recs::version() != foryou_version_ && !foryou_.loading) load_for_you();
+        // Rebuild once something new was learned (a watch, search, subscription...) or on signing in or out.
+        if ((yt_recs::version() != foryou_version_ || yt_account::version() != account_version_) && !foryou_.loading)
+            load_for_you();
     }
 
     void frame() override {
         const Theme& t = theme();
         float x0 = content_x();
         Id g = id("youtube");
-        // Menu actions can change subscriptions and Watch later (For you waits for the next visit).
+        // Menu actions can change subscriptions and Watch later (For you waits for the next visit,
+        // unless the account menu signed out).
         bool menu = menu_active();
-        if (menu_open_ && !menu) refresh_library();
+        if (menu_open_ && !menu) {
+            refresh_library();
+            if (yt_account::version() != account_version_) load_for_you();
+        }
         menu_open_ = menu;
         page_.begin(id(g, "page"));
 
@@ -171,7 +178,9 @@ public:
         float bx = W - 60 - 28;  // library buttons at the right of the search bar
         if (icon_button(id(top, "library"), bx, y + 32, 28, ic::VIDEO_LIBRARY, top)) app::push(yt::make_library());
         if (icon_button(id(top, "subs"), bx - 70, y + 32, 28, ic::SUBSCRIPTIONS, top)) app::push(yt::make_subscriptions());
-        if (search_bar(id(top, "search"), Rect(x0 + 300, y + 4, bx - 70 - 28 - 24 - x0 - 300, 56), "", "Search YouTube", top,
+        if (icon_button(id(top, "account"), bx - 140, y + 32, 28, ic::ACCOUNT_CIRCLE, top, 0, yt_account::signed_in()))
+            yt::account_menu();
+        if (search_bar(id(top, "search"), Rect(x0 + 300, y + 4, bx - 140 - 28 - 24 - x0 - 300, 56), "", "Search YouTube", top,
                        F_DEFAULT))
             open_search();
         y += 84;
@@ -288,8 +297,9 @@ private:
     }
 
     void load_for_you() {
-        personal_ = yt_recs::has_profile();
+        personal_ = yt::has_for_you();
         foryou_version_ = yt_recs::version();
+        account_version_ = yt_account::version();
         if (personal_) foryou_.reload();
     }
 
@@ -337,7 +347,7 @@ private:
     }
 
     static std::string subs_key() {
-        std::string k;
+        std::string k = std::to_string(yt_account::version());
         for (const youtube::Channel& c : yt::subscriptions()) k += c.id;
         return k;
     }
@@ -345,6 +355,16 @@ private:
     void load_subscriptions() {
         chans_ = yt::subscriptions();
         subs_key_ = subs_key();
+        chans_scope_.reset();
+        if (yt_account::signed_in()) {
+            chans_scope_.run<youtube::ChannelResults>([] { return youtube::account_channels(); },
+                                                      [this](youtube::ChannelResults r) {
+                if (r.ok) chans_ = yt::with_local_subscriptions(std::move(r.items));
+            });
+            subs_.fetch = [](const std::string& c) { return youtube::account_subscriptions(c); };
+            subs_.reload();
+            return;
+        }
         if (chans_.empty()) {
             subs_.scope.reset();
             subs_.res = youtube::Results();
@@ -366,7 +386,8 @@ private:
 
     Feed trending_, subs_, foryou_;
     bool personal_ = false, menu_open_ = false;
-    int foryou_version_ = -1;
+    int foryou_version_ = -1, account_version_ = -1;
+    tasks::Scope chans_scope_;
     std::string subs_key_;
     std::vector<youtube::Channel> chans_;
     std::vector<youtube::Video> later_;

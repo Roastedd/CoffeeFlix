@@ -23,6 +23,8 @@ void pump();  // main thread, once per frame
 // Low-level: run `work` on a worker, then `done` on the main thread.
 void submit(Pool pool, std::function<std::function<void()>()> work);
 void on_main(std::function<void()> fn);  // thread-safe
+// While held, a pool's workers start nothing new (jobs already running carry on).
+void hold(Pool pool, bool held);
 
 class Scope {
 public:

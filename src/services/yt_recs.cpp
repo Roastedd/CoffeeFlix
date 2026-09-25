@@ -483,8 +483,8 @@ static youtube::Results build_feed() {
 }
 
 // Home and the YouTube page ask for the feed at the same time; building it takes several
-// searches (slow on a Wii U), so it is built once and shared until something is learned or
-// 10 minutes have passed. A second caller waits for the first one's result.
+// searches (slow on a Wii U), so it is built once and shared for 10 minutes. A second caller
+// waits for the first one's result.
 youtube::Results for_you() {
     static std::mutex m;
     static youtube::Results cached;
@@ -492,7 +492,29 @@ youtube::Results for_you() {
     static int64_t cached_at = 0;
     std::lock_guard<std::mutex> lk(m);
     int v = version();
-    if (v == cached_version && now() - cached_at < 10 * 60 && !cached.items.empty()) return cached;
+    int64_t age = now() - cached_at;
+    if (!cached.items.empty() && v == cached_version && age < 10 * 60) return cached;
+    // Something new was learned. A rebuild keeps the Wi-Fi busy for several seconds, often just as
+    // the next video starts, so it waits 5 minutes: until then, the same feed without what was
+    // watched or turned down since.
+    if (!cached.items.empty() && age < 5 * 60) {
+        youtube::Results r = cached;
+        {
+            std::lock_guard<std::mutex> lk2(g_m);
+            int64_t t = now();
+            auto gone = [&](const youtube::Video& x) {
+                for (auto& w : g_b.history)
+                    if (w.id == x.id) return true;
+                for (const std::string& key : {x.id, "c:" + x.channel_id}) {
+                    auto it = g_b.blocked.find(key);
+                    if (it != g_b.blocked.end() && it->second > t) return true;
+                }
+                return false;
+            };
+            r.items.erase(std::remove_if(r.items.begin(), r.items.end(), gone), r.items.end());
+        }
+        if (r.items.size() >= 12) return r;
+    }
     youtube::Results r = build_feed();
     if (!r.items.empty()) {
         cached = r;

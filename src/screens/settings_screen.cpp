@@ -10,6 +10,7 @@
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
+#include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 #include "screens/youtube_common.hpp"
 #include "ui/ui.hpp"
@@ -101,7 +102,7 @@ public:
         choice_row(g, "yt_q", YT_QUALITY, "YouTube quality", ic::SMART_DISPLAY, x0, w, y);
         choice_row(g, "jf_q", JF_QUALITY, "Jellyfin quality", ic::VIDEO_LIBRARY, x0, w, y);
         choice_row(g, "tw_q", TW_QUALITY, "Twitch quality", ic::LIVE_TV, x0, w, y);
-        bool_row(g, "60fps", "allow_60fps", false, "Allow 60 fps streams", "Up to 720p; 1080p stays at 30 fps", x0, w, y);
+        bool_row(g, "60fps", "allow_60fps", true, "Allow 60 fps streams", "Up to 720p; 1080p stays at 30 fps", x0, w, y);
         if (platform::is_wiiu()) choice_row(g, "vdec", VIDEO_DECODING, "Video decoding", ic::TUNE, x0, w, y);
         bool_row(g, "subs", "subs_default_on", true, "Subtitles on by default", "When a video comes with subtitles", x0, w, y);
         bool_row(g, "ytcc", "yt_captions", false, "YouTube captions", "Turn captions on automatically (your language first)", x0, w, y);
@@ -156,6 +157,21 @@ public:
                     toast("Signed out of Jellyfin", ic::LOGOUT);
                 } else {
                     app::open_section(app::SEC_JELLYFIN);
+                }
+            }
+            track(iid, top, 64);
+        }
+        {
+            Id iid = id(g, "yt");
+            float top = row_h(64);
+            bool in = yt_account::signed_in();
+            if (value_row(iid, Rect(x0, top, w, 64), in ? "YouTube \xC2\xB7 Sign out" : "YouTube",
+                          in ? yt_account::name().c_str() : "Not signed in (optional)", ic::SMART_DISPLAY, g)) {
+                if (in) {
+                    yt_account::sign_out();
+                    toast("Signed out of YouTube", ic::LOGOUT);
+                } else {
+                    app::push(yt::make_sign_in());
                 }
             }
             track(iid, top, 64);
