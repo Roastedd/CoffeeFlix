@@ -1,5 +1,5 @@
-// YouTube via the InnerTube API (no account). Browsing uses the WEB client;
-// playback uses clients whose stream URLs don't need the JS player.
+// YouTube via the InnerTube API. Browsing uses the WEB client, or a TV/VR client for the optional
+// signed-in account; playback uses clients whose stream URLs don't need the JS player.
 #pragma once
 
 #include <cstdint>
@@ -77,6 +77,16 @@ Results subscription_feed(const std::vector<std::string>& channel_ids, size_t pe
 int64_t age_seconds(const std::string& published);
 // Videos YouTube suggests next to this one (the watch page's sidebar).
 Results related(const std::string& video_id);
+
+// --- signed in (services/yt_account); these fail when nobody is --------------------------------
+// YouTube's own recommendations and the account's subscriptions feed.
+Results account_home(const std::string& continuation = "");
+Results account_subscriptions(const std::string& continuation = "");
+ChannelResults account_channels();
+struct AccountInfo {
+    std::string name, photo;
+};
+bool account_info(AccountInfo& out, std::string& error);
 
 std::string thumbnail(const std::string& id);     // 320x180
 std::string thumbnail_hq(const std::string& id);  // 480x360 (backdrops)

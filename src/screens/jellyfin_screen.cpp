@@ -127,7 +127,7 @@ public:
                 text::draw(font::title, cx, cy, server_name_.empty() ? "Jellyfin server" : server_name_, t.text);
                 text::draw(font::small, cx, cy + 40, server_url_, t.text3);
                 if (big_option(id(g, "qc"), Rect(cx, cy + 90, cw, 100), ic::KEY, "Use Quick Connect",
-                               "Approve this Wii U from your phone \xE2\x80\x94 no typing", g, true))
+                               "Approve it from your phone, nothing to type", g, true))
                     start_quick_connect();
                 if (big_option(id(g, "pw"), Rect(cx, cy + 206, cw, 100), ic::PERSON, "Sign in with password",
                                "Enter your username and password", g, false))

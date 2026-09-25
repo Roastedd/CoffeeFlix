@@ -14,6 +14,7 @@
 #include "logger/logger.hpp"
 #include "player/player.hpp"
 #include "services/hls.hpp"
+#include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 
 namespace youtube {
@@ -93,7 +94,9 @@ json_t* context(const Client& c) {
     return ctx;
 }
 
-json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string& error) {
+// `token`: an access token of the signed-in account (services/yt_account).
+json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string& error, const std::string& token = "",
+               long* status = nullptr) {
     json_object_set_new(body, "context", context(c));
     std::string payload = json::dump(body);
     json_decref(body);
@@ -105,9 +108,11 @@ json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string&
     };
     std::string vd = visitor();
     if (!vd.empty()) headers.emplace_back("X-Goog-Visitor-Id", vd);
+    if (!token.empty()) headers.emplace_back("Authorization", "Bearer " + token);
     http::Response r = http::post_json(api_base() + endpoint + "?prettyPrint=false", payload, headers, 20);
+    if (status) *status = r.status;
     if (!r.ok()) {
-        error = r.error.empty() ? "YouTube request failed" : r.error;
+        error = !r.error.empty() ? r.error : r.status ? util::fmt("YouTube answered %ld", r.status) : "YouTube request failed";
         return json::Doc();
     }
     double t0 = util::now_seconds();
@@ -359,6 +364,33 @@ json::Doc browse(const std::string& browse_id, const char* params, const std::st
         if (params) json_object_set_new(body, "params", json_string(params));
     }
     return call("browse", WEB, body, err);
+}
+
+// Browsing as the signed-in account. Its token works with the TV/VR clients, not WEB; their pages
+// are the older "compactVideoRenderer" lists.
+json::Doc account_browse(const std::string& browse_id, const std::string& continuation, std::string& err) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+        std::string token = yt_account::access_token(attempt > 0, err);  // again once when turned down
+        if (token.empty()) return json::Doc();
+        json_t* body = json_object();
+        if (!continuation.empty()) json_object_set_new(body, "continuation", json_string(continuation.c_str()));
+        else json_object_set_new(body, "browseId", json_string(browse_id.c_str()));
+        long status = 0;
+        json::Doc doc = call("browse", ANDROID_VR, body, err, token, &status);
+        if (doc || status != 401) return doc;
+    }
+    return json::Doc();
+}
+
+Results account_feed(const char* browse_id, const std::string& continuation) {
+    std::string err;
+    json::Doc doc = account_browse(browse_id, continuation, err);
+    if (!doc) return fail(err);
+    Results r = parse_results(doc.get());
+    // The TV/VR pages continue with "nextContinuationData" rather than a continuation item.
+    if (r.continuation.empty()) r.continuation = json::str(json::find_key(doc.get(), "nextContinuationData", 16), {"continuation"});
+    if (r.items.empty()) r.continuation.clear();
+    return r;
 }
 
 // Channel page tabs (the "params" the web app sends when you click them).
@@ -779,6 +811,41 @@ ChannelResults search_channels(const std::string& query) {
     });
     out.ok = true;
     return out;
+}
+
+Results account_home(const std::string& continuation) { return account_feed("FEwhat_to_watch", continuation); }
+
+Results account_subscriptions(const std::string& continuation) { return account_feed("FEsubscriptions", continuation); }
+
+ChannelResults account_channels() {
+    ChannelResults out;
+    std::string err;
+    json::Doc doc = account_browse("FEchannels", "", err);
+    if (!doc) {
+        out.error = err;
+        return out;
+    }
+    std::set<std::string> seen;
+    json::for_each_key(doc.get(), "compactChannelRenderer", [&](json_t* r) {
+        Channel c;
+        c.id = json::str(r, {"channelId"});
+        c.name = first_text(r, {"displayName", "title"});
+        c.avatar = best_image(json::at(r, {"thumbnail"}));
+        c.subscribers = first_text(r, {"subscriberCountText"});
+        if (!c.id.empty() && !c.name.empty() && seen.insert(c.id).second) out.items.push_back(c);
+    });
+    out.ok = true;
+    return out;
+}
+
+bool account_info(AccountInfo& out, std::string& error) {
+    json::Doc doc = account_browse("FElibrary", "", error);
+    if (!doc) return false;
+    json_t* a = json::find_key(doc.get(), "activeAccountHeaderRenderer", 16);
+    out.name = json::yt_text(json_object_get(a, "accountName"));
+    out.photo = best_image(json::at(a, {"accountPhoto"}));
+    if (out.name.empty()) error = "No account in the answer";
+    return !out.name.empty();
 }
 
 int64_t age_seconds(const std::string& published) {

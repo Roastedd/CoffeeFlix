@@ -1,19 +1,23 @@
 // YouTube channel and playlist pages, subscriptions, the library (Watch later, history, saved
-// playlists) and the per-video "More" menu. All of it is stored locally; there is no account.
+// playlists) and the per-video "More" menu. All of it is stored locally; a signed-in account
+// adds its own subscriptions and recommendations.
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <set>
 
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
 #include "gfx/images.hpp"
+#include "logger/logger.hpp"
 #include "platform/platform.hpp"
 #include "player/player.hpp"
 #include "screens/screens.hpp"
 #include "screens/youtube_common.hpp"
+#include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 #include "ui/ui.hpp"
 
@@ -187,6 +191,40 @@ std::vector<youtube::Channel> subscriptions() {
     }
     return out;
 }
+
+std::vector<youtube::Channel> with_local_subscriptions(std::vector<youtube::Channel> account) {
+    std::set<std::string> seen;
+    for (const youtube::Channel& c : account) seen.insert(c.id);
+    for (youtube::Channel& c : subscriptions())
+        if (seen.insert(c.id).second) account.push_back(std::move(c));
+    return account;
+}
+
+youtube::Results for_you(const std::string& continuation) {
+    if (yt_account::signed_in()) {
+        if (!continuation.empty()) return youtube::account_home(continuation);
+        // Home and the YouTube page both want it at the start: fetched once, kept 10 minutes.
+        static std::mutex m;
+        static youtube::Results cached;
+        static int cached_version = -1;
+        static double cached_at = -1e9;
+        std::lock_guard<std::mutex> lk(m);
+        int v = yt_account::version();
+        if (v == cached_version && util::now_seconds() - cached_at < 10 * 60 && !cached.items.empty()) return cached;
+        youtube::Results r = youtube::account_home();
+        if (!r.items.empty()) {
+            cached = r;
+            cached_version = v;
+            cached_at = util::now_seconds();
+            return r;
+        }
+        log_message(LOG_WARNING, "YouTube", "The account's recommendations didn't load (%s), showing this console's",
+                    r.error.c_str());
+    }
+    return continuation.empty() ? yt_recs::for_you() : youtube::Results();
+}
+
+bool has_for_you() { return yt_account::signed_in() || yt_recs::has_profile(); }
 
 void update_channels(const std::vector<youtube::Channel>& channels) {
     for (const youtube::Channel& c : channels) {
@@ -711,7 +749,7 @@ public:
     app::Section section() const override { return app::SEC_YOUTUBE; }
 
     void on_enter() override {
-        if (store::favs(SUBS).size() != count_) load();
+        if (store::favs(SUBS).size() != count_ || yt_account::version() != account_version_) load();
     }
 
     void frame() override {
@@ -721,11 +759,19 @@ public:
         page_.begin(id(g, "page"));
         float y = page_.y(56);
         text::draw(font::headline, x0, y, "Subscriptions", t.text);
+        const char* where = account_ ? "from your YouTube account and this console" : "stored on this console";
         text::draw(font::body, x0, y + 46,
-                   chans_.empty() ? "Stored on this console" : util::fmt("%d channels \xC2\xB7 stored on this console", (int)chans_.size()),
+                   chans_.empty() ? std::string(account_ ? "From your YouTube account and this console" : "Stored on this console")
+                                  : util::fmt("%d channels \xC2\xB7 %s", (int)chans_.size(), where),
                    t.text2);
         y += 100;
 
+        if (chans_.empty() && chans_loading_) {
+            loading_indicator(x0 + (W - x0 - 60) * 0.5f, y + 120);
+            page_.end(y + 330 + page_.scroll());
+            hint_bar({{"B", "Back"}});
+            return;
+        }
         if (chans_.empty()) {
             empty_state(Rect(x0, y, W - x0 - 60, 280), ic::SUBSCRIPTIONS, "No subscriptions yet",
                         "Press X on a video and pick Subscribe, or import them from Google Takeout or NewPipe in Settings.");
@@ -749,9 +795,12 @@ public:
         s.on_click = [this](int i) { app::push(make_channel(chans_[i].id, chans_[i].name, chans_[i].avatar)); };
         s.on_x = [this](int i) {
             youtube::Channel c = chans_[i];
-            show_menu(c.name, "Channel", {
+            std::vector<MenuItem> items = {
                 {"Open channel", ic::ACCOUNT_CIRCLE, [c] { app::push(make_channel(c.id, c.name, c.avatar)); }},
-                {"Unsubscribe", ic::REMOVE, [this, c] {
+            };
+            // Only what was subscribed to here; the account's subscriptions are changed on YouTube.
+            if (subscribed(c.id))
+                items.push_back({"Unsubscribe", ic::REMOVE, [this, c] {
                      set_subscribed(c.id, c.name, c.avatar, false);
                      chans_.erase(std::remove_if(chans_.begin(), chans_.end(), [&](const youtube::Channel& o) { return o.id == c.id; }),
                                   chans_.end());
@@ -760,8 +809,8 @@ public:
                      feed_.res.items.erase(std::remove_if(feed_.res.items.begin(), feed_.res.items.end(),
                                                           [&](const youtube::Video& v) { return v.channel_id == cid; }),
                                            feed_.res.items.end());
-                 }},
-            });
+                 }});
+            show_menu(c.name, "Channel", std::move(items));
         };
         y += shelf(id(g, "chans"), x0, y, s, &page_) + 12;
 
@@ -778,6 +827,22 @@ private:
     void load() {
         chans_ = subscriptions();
         count_ = chans_.size();
+        account_ = yt_account::signed_in();
+        account_version_ = yt_account::version();
+        chans_scope_.reset();
+        chans_loading_ = false;
+        if (account_) {
+            chans_loading_ = true;
+            chans_scope_.run<youtube::ChannelResults>([] { return youtube::account_channels(); },
+                                                      [this](youtube::ChannelResults r) {
+                chans_loading_ = false;
+                if (!r.ok) toast("Couldn't load your channels: " + r.error, ic::ERROR_OUTLINE, theme().bad);
+                else chans_ = with_local_subscriptions(std::move(r.items));
+            });
+            feed_.fetch = [](const std::string& c) { return youtube::account_subscriptions(c); };
+            feed_.reload();
+            return;
+        }
         std::vector<std::string> ids;
         for (size_t i = 0; i < chans_.size() && i < 60; i++) ids.push_back(chans_[i].id);
         feed_.fetch = [ids](const std::string& c) {
@@ -792,6 +857,9 @@ private:
 
     std::vector<youtube::Channel> chans_;
     size_t count_ = 0;
+    bool account_ = false, chans_loading_ = false;
+    int account_version_ = -1;
+    tasks::Scope chans_scope_;
     Feed feed_;
     Page page_;
 };
