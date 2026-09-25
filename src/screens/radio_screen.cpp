@@ -130,6 +130,7 @@ public:
             cx += w + 12;
         }
         y += 72;
+        if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
         auto favs = radio::favorites();
         if (!favs.empty()) y += station_shelf(id(g, "favs"), x0, y, "Your favorites", favs, false) + 10;

@@ -199,6 +199,7 @@ public:
             cx += w + 12;
         }
         y += 70;
+        if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
         // Continue watching (YouTube only)
         std::vector<store::Resume> resume;

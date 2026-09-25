@@ -124,6 +124,7 @@ public:
                 if (!q.empty()) app::push(make_twitch_search(q));
             });
         y += 96;
+        if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
         if (top_.loaded && top_.value.items.empty() && !top_.value.error.empty()) {
             if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, "Couldn't reach Twitch",
