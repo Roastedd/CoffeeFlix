@@ -176,6 +176,8 @@ AuthResult finish_auth(const std::string& url, const http::Response& r) {
     return res;
 }
 
+// Above 720p the Wii U's hardware decoder manages about 50 pictures a second: faster video is
+// sent at 30 fps (see player::max_fps).
 std::string profile_json(int max_height) {
     int max_width = max_height >= 1080 ? 1920 : max_height >= 720 ? 1280 : 854;
     int bitrate = max_height >= 1080 ? 10000000 : max_height >= 720 ? 5000000 : 2500000;
@@ -192,7 +194,9 @@ std::string profile_json(int max_height) {
   {"Condition":"LessThanEqual","Property":"Width","Value":"%d"},
   {"Condition":"LessThanEqual","Property":"VideoLevel","Value":"42"},
   {"Condition":"LessThanEqual","Property":"VideoBitDepth","Value":"8"},
-  {"Condition":"EqualsAny","Property":"VideoProfile","Value":"high|main|baseline|constrained baseline"}]}],
+  {"Condition":"EqualsAny","Property":"VideoProfile","Value":"high|main|baseline|constrained baseline"}]},
+ {"Type":"Video","Codec":"h264","ApplyConditions":[{"Condition":"GreaterThanEqual","Property":"Width","Value":"1281"}],
+  "Conditions":[{"Condition":"LessThanEqual","Property":"VideoFramerate","Value":"30"}]}],
 "SubtitleProfiles":[
  {"Format":"srt","Method":"External"},{"Format":"subrip","Method":"External"},{"Format":"ass","Method":"External"},
  {"Format":"ssa","Method":"External"},{"Format":"vtt","Method":"External"},{"Format":"webvtt","Method":"External"}],

@@ -80,6 +80,10 @@ void retry();               // reopen the current source from scratch (re-resolv
 void set_quality(int height);  // reopen at the same position with another of source().qualities
 // The viewer chose a video_decoding setting: forget the safer level the player fell back to.
 void reset_decoding_fallback();
+// Highest frame rate to ask a service for at a picture height: 60 fps with the "Allow 60 fps"
+// setting, but on the Wii U only up to 720p (its hardware decoder manages about 50 1080p pictures
+// a second).
+float max_fps(int height);
 bool next();
 bool previous();
 bool has_next();

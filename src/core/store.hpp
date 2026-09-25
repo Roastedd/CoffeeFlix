@@ -12,7 +12,7 @@ namespace store {
 
 void load(const std::string& path);
 void save_now();
-void tick();  // call once per frame; saves a few seconds after the last change
+void tick();  // call once per frame; saves in the background a few seconds after the last change
 
 // --- settings ---------------------------------------------------------------
 bool get_bool(const char* key, bool def);

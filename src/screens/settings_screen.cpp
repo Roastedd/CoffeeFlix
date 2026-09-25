@@ -101,7 +101,7 @@ public:
         choice_row(g, "yt_q", YT_QUALITY, "YouTube quality", ic::SMART_DISPLAY, x0, w, y);
         choice_row(g, "jf_q", JF_QUALITY, "Jellyfin quality", ic::VIDEO_LIBRARY, x0, w, y);
         choice_row(g, "tw_q", TW_QUALITY, "Twitch quality", ic::LIVE_TV, x0, w, y);
-        bool_row(g, "60fps", "allow_60fps", false, "Allow 60 fps streams", "Smoother but harder for the Wii U; may drop frames", x0, w, y);
+        bool_row(g, "60fps", "allow_60fps", false, "Allow 60 fps streams", "Up to 720p; 1080p stays at 30 fps", x0, w, y);
         if (platform::is_wiiu()) choice_row(g, "vdec", VIDEO_DECODING, "Video decoding", ic::TUNE, x0, w, y);
         bool_row(g, "subs", "subs_default_on", true, "Subtitles on by default", "When a video comes with subtitles", x0, w, y);
         bool_row(g, "ytcc", "yt_captions", false, "YouTube captions", "Turn captions on automatically (your language first)", x0, w, y);

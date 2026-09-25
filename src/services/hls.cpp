@@ -86,12 +86,13 @@ Master parse(const std::string& text, const std::string& base_url) {
     return m;
 }
 
-const Variant* pick(const Master& m, int max_height, bool avc_only, float max_fps) {
+const Variant* pick(const Master& m, int max_height, bool avc_only, float (*max_fps)(int height)) {
     const Variant* best = nullptr;
     const Variant* smallest = nullptr;
     auto rank = [&](const Variant& v) {
         // fps within the limit first, then resolution, then bitrate
-        return std::make_tuple(v.fps <= max_fps + 0.5f || v.fps == 0 ? 1 : 0, v.height, v.bandwidth);
+        bool fps_ok = !max_fps || v.fps == 0 || v.fps <= max_fps(v.height) + 0.5f;
+        return std::make_tuple(fps_ok ? 1 : 0, v.height, v.bandwidth);
     };
     for (const Variant& v : m.variants) {
         bool avc = v.codecs.empty() || v.codecs.find("avc1") != std::string::npos;

@@ -29,9 +29,9 @@ struct Master {
 
 Master parse(const std::string& text, const std::string& base_url);
 std::string resolve_url(const std::string& base, const std::string& ref);
-// Best variant not above max_height (H.264 only when avc_only). Variants above
-// max_fps are only chosen if nothing else fits. nullptr if none.
-const Variant* pick(const Master& m, int max_height, bool avc_only = true, float max_fps = 1000);
+// Best variant not above max_height (H.264 only when avc_only). Variants above max_fps (of
+// their height) are only chosen if nothing else fits. nullptr if none.
+const Variant* pick(const Master& m, int max_height, bool avc_only = true, float (*max_fps)(int height) = nullptr);
 const Rendition* audio_for(const Master& m, const Variant& v);
 
 }  // namespace hls
