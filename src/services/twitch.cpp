@@ -134,8 +134,7 @@ bool resolve(const std::string& login, player::Source& src, std::string& error) 
     }
     hls::Master m = hls::parse(r.body, usher);
     int max_h = src.quality > 0 ? src.quality : (int)store::get_int("twitch_quality", 720);
-    float max_fps = store::get_bool("allow_60fps", false) ? 61.0f : 31.0f;
-    const hls::Variant* v = hls::pick(m, max_h, true, max_fps);
+    const hls::Variant* v = hls::pick(m, max_h, true, player::max_fps);
     if (!v) {
         error = "No compatible stream quality";
         return false;

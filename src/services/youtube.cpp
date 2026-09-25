@@ -482,7 +482,7 @@ bool from_hls(const std::string& manifest, int max_height, const Client& c, play
         src.url = manifest;
         return true;
     }
-    const hls::Variant* v = hls::pick(m, max_height);
+    const hls::Variant* v = hls::pick(m, max_height, true, player::max_fps);
     if (!v) {
         error = "No compatible stream (H.264) found";
         return false;
@@ -570,13 +570,12 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
     std::vector<Format> adaptive = formats(json_object_get(sd, "adaptiveFormats"));
     const Format* best_v = nullptr;
     const Format* best_a = nullptr;
-    // 60 fps doubles the decoding and drawing work, which the Wii U can't keep up with at
-    // 720p and above: only with the "Allow 60 fps" setting, or when there is nothing else.
-    int max_fps = store::get_bool("allow_60fps", false) ? 61 : 31;
+    // 60 fps doubles the decoding work: only as far as player::max_fps allows, or when there
+    // is nothing else.
     for (int pass = 0; pass < 2 && !best_v; pass++) {
         for (const Format& f : adaptive) {
             if (!util::starts_with(f.mime, "video/mp4") || f.mime.find("avc1") == std::string::npos || f.height <= 0 ||
-                f.height > max_height || (pass == 0 && f.fps > max_fps))
+                f.height > max_height || (pass == 0 && f.fps > player::max_fps(f.height)))
                 continue;
             bool better = !best_v || f.height > best_v->height ||
                           (f.height == best_v->height && f.fps <= 30 && best_v->fps > 30) ||

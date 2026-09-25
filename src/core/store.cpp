@@ -4,6 +4,7 @@
 #include <mutex>
 
 #include "core/json.hpp"
+#include "core/tasks.hpp"
 #include "core/util.hpp"
 #include "logger/logger.hpp"
 
@@ -16,6 +17,12 @@ json_t* g_root = nullptr;
 std::string g_path;
 bool g_dirty = false;
 double g_dirty_since = 0;
+
+// Writing the file takes ~50 ms on the SD card, so tick() leaves it to a worker. Each save is
+// numbered: a write that got overtaken by a newer one is skipped.
+std::mutex g_file_m;
+uint64_t g_saves = 0;    // under g_m
+uint64_t g_written = 0;  // under g_file_m
 
 json_t* section(const char* name) {
     json_t* s = json_object_get(g_root, name);
@@ -42,6 +49,26 @@ void mark_dirty() {
 
 std::string key_of(const std::string& service, const std::string& id) { return service + "\x1f" + id; }
 
+// Under g_m. Empty when there is nothing to save.
+std::string dump(uint64_t& number) {
+    if (!g_root || g_path.empty()) return "";
+    char* s = json_dumps(g_root, JSON_INDENT(1));
+    g_dirty = false;
+    if (!s) return "";
+    std::string out = s;
+    free(s);
+    number = ++g_saves;
+    return out;
+}
+
+void write_json(const std::string& path, const std::string& data, uint64_t number) {
+    std::lock_guard<std::mutex> lk(g_file_m);
+    if (number <= g_written) return;
+    util::make_dirs(util::parent_dir(path));
+    if (!util::write_file_atomic(path, data)) log_message(LOG_ERROR, "Store", "Failed to write %s", path.c_str());
+    g_written = number;
+}
+
 }  // namespace
 
 void load(const std::string& path) {
@@ -61,24 +88,26 @@ void load(const std::string& path) {
 }
 
 void save_now() {
-    std::lock_guard<std::recursive_mutex> lk(g_m);
-    if (!g_root || g_path.empty()) return;
-    char* s = json_dumps(g_root, JSON_INDENT(1));
-    if (s) {
-        util::make_dirs(util::parent_dir(g_path));
-        if (!util::write_file_atomic(g_path, s)) log_message(LOG_ERROR, "Store", "Failed to write %s", g_path.c_str());
-        free(s);
+    std::string data, path;
+    uint64_t number = 0;
+    {
+        std::lock_guard<std::recursive_mutex> lk(g_m);
+        data = dump(number);
+        path = g_path;
     }
-    g_dirty = false;
+    if (!data.empty()) write_json(path, data, number);
 }
 
 void tick() {
-    bool due;
-    {
-        std::lock_guard<std::recursive_mutex> lk(g_m);
-        due = g_dirty && util::now_seconds() - g_dirty_since > 3.0;
-    }
-    if (due) save_now();
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    if (!g_dirty || util::now_seconds() - g_dirty_since <= 3.0) return;
+    uint64_t number = 0;
+    std::string data = dump(number);
+    if (data.empty()) return;
+    tasks::submit(tasks::API, [path = g_path, data = std::move(data), number]() -> std::function<void()> {
+        write_json(path, data, number);
+        return nullptr;
+    });
 }
 
 // --- settings ---

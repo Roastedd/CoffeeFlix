@@ -226,6 +226,10 @@ struct Session {
     int decoding = 0;                        // Wii U hardware decoding level used (video_decoding setting)
     double progress_at = 0, last_status = 0;
     int progress_mark = -1;
+    std::string startup;                     // how long each opening step took ("Started in")
+    bool started = false;                    // playing (or ready, paused) since opening
+    bool starved = false;                    // buffering because playback ran out
+    double playing_since = 0;                // last time buffering ended
 
     // playback clock when there is no audio
     double wall_base_pts = 0, wall_base_time = 0;
@@ -239,6 +243,7 @@ struct Session {
 
     // Playback statistics, logged every 10 s of playing (playback_stats).
     std::atomic<int> decode_us{0}, decoded{0}, dropped{0};  // by the video thread
+    std::atomic<int> bytes_read{0};                           // by the demuxers
     struct {
         double since = 0, last_update = 0;
         double show_time = 0, show_max = 0, gap_max = 0;
@@ -598,6 +603,7 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
 
         uint32_t gen = s.gen;
         s.packets_read++;
+        s.bytes_read += pkt->size;
         AVStream* st = in.fmt->streams[pkt->stream_index];
         if (pkt->stream_index == in.video) {
             s.vq.push(av_packet_clone(pkt), gen, ts_to_sec(pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts, st->time_base));
@@ -687,9 +693,7 @@ void video_loop(std::shared_ptr<Session> sp) {
                 break;
             }
             if (r < 0) break;
-            if (++s.video_out == 1)
-                log_message(LOG_OK, "Player", "First picture %.1f s after opening (%dx%d)", now() - s.created,
-                            frame->width, frame->height);
+            s.video_out++;
             int64_t ts = frame->best_effort_timestamp != AV_NOPTS_VALUE ? frame->best_effort_timestamp : frame->pts;
             double pts = ts_to_sec(ts, s.vtb);
             if (pts < 0) pts = fps > 0 ? frame_count / fps : 0;
@@ -867,6 +871,11 @@ void audio_loop(std::shared_ptr<Session> sp) {
 void open_session(std::shared_ptr<Session> sp) {
     Session& s = *sp;
     double t = now();
+    auto lap = [&](const std::string& step) {
+        double t2 = now();
+        if (t2 - t >= 0.05) s.startup += util::fmt("%s %.1f s, ", step.c_str(), t2 - t);
+        t = t2;
+    };
     if (s.src.resolve) {
         s.step = 0;
         std::string err;
@@ -882,8 +891,7 @@ void open_session(std::shared_ptr<Session> sp) {
             std::lock_guard<std::mutex> lk(s.meta_m);
             s.src = std::move(resolved);
         }
-        log_message(LOG_OK, "Player", "Stream found in %.1f s", now() - t);
-        t = now();
+        lap("finding the stream");
     }
     bool net0 = false, net1 = false;
     s.step = 1;
@@ -891,15 +899,14 @@ void open_session(std::shared_ptr<Session> sp) {
     if (!s.in[0].fmt) return;
     s.in[0].network = net0;
     s.inputs = 1;
-    if (net0) log_message(LOG_OK, "Player", "Connected in %.1f s", now() - t);
+    lap(net0 ? "connecting" : "opening");
     if (!s.src.audio_url.empty()) {
-        t = now();
         s.step = 2;
         s.in[1].fmt = open_input(s, s.src.audio_url, net1);
         if (!s.in[1].fmt) return;
         s.in[1].network = net1;
         s.inputs = 2;
-        log_message(LOG_OK, "Player", "Audio connected in %.1f s", now() - t);
+        lap("connecting to the audio");
     }
     if (s.abort) return;
     s.step = 3;
@@ -996,6 +1003,7 @@ void open_session(std::shared_ptr<Session> sp) {
         std::lock_guard<std::mutex> lk(s.meta_m);
         s.codec = vinfo.empty() ? ainfo : ainfo.empty() ? vinfo : vinfo + " \xC2\xB7 " + ainfo;
     }
+    lap("setting up decoding");
 
     if (f0->duration > 0) s.duration = f0->duration / (double)AV_TIME_BASE;
     else if (s.src.live) s.duration = 0;
@@ -1019,6 +1027,7 @@ void open_session(std::shared_ptr<Session> sp) {
             s.subs.load(data);
             s.sub_external = 0;
         }
+        lap("loading subtitles");
     }
 
     if (s.src.start > 1 && s.seekable) {
@@ -1028,6 +1037,7 @@ void open_session(std::shared_ptr<Session> sp) {
             if (s.in[i].fmt->start_time != AV_NOPTS_VALUE) ts += s.in[i].fmt->start_time;
             avformat_seek_file(s.in[i].fmt, -1, INT64_MIN, ts, ts, 0);
         }
+        lap("jumping to " + util::format_duration(s.src.start));
     } else {
         s.seek_target = 0;
     }
@@ -1374,6 +1384,11 @@ void retry() {
 
 void reset_decoding_fallback() { g_decoding_floor = 0; }
 
+float max_fps(int height) {
+    if (!store::get_bool("allow_60fps", false)) return 31;
+    return platform::is_wiiu() && height > 720 ? 31 : 61;
+}
+
 void set_quality(int height) {
     if (!g_s || g_s->original.quality == height) return;
     Source src = g_s->original;
@@ -1438,6 +1453,7 @@ void seek(double t) {
     s.state = BUFFERING;
     s.buffering_since = now();
     s.seeking = true;
+    s.starved = false;
 }
 
 void seek_relative(double delta) {
@@ -1619,13 +1635,13 @@ std::string subtitle_text() {
 }
 
 // Every 10 s of playing, logs what happened to the pictures and where the time went: decoding (on
-// the video thread), showing (putting pictures into the texture), and screen updates that took
-// longer than a refresh.
+// the video thread), showing (putting pictures into the texture), screen updates that took longer
+// than a refresh, and how much media came in.
 void playback_stats(Session& s, double t, int st) {
     auto& p = s.stats;
     if (st != PLAYING || s.seeking) {
         p = {};
-        s.decode_us = s.decoded = s.dropped = 0;
+        s.decode_us = s.decoded = s.dropped = s.bytes_read = 0;
         return;
     }
     if (p.since <= 0) p.since = t;
@@ -1638,13 +1654,18 @@ void playback_stats(Session& s, double t, int st) {
     p.last_update = t;
     if (t - p.since < 10) return;
     int decoded = s.decoded.exchange(0), decode_us = s.decode_us.exchange(0), dropped = s.dropped.exchange(0);
-    log_message(LOG_OK, "Player",
-                "Playback: %d pictures shown in %.0f s (%d without a copy), %d late, %d dropped after decoding; "
-                "decoding %.1f ms per packet; showing %.1f ms (longest %.1f); %d of %d screen updates late "
-                "(longest %.0f ms); %zu packets waiting, %.1f s of audio",
-                p.shown, t - p.since, p.bound, p.late, dropped, decoded ? decode_us / 1e3 / decoded : 0.0,
-                p.shown ? p.show_time * 1e3 / p.shown : 0.0, p.show_max * 1e3, p.slow_updates, p.updates,
-                p.gap_max * 1e3, s.vq.count(), audio::stream_buffered_seconds());
+    std::string rest = util::fmt("%d of %d screen updates late (longest %.0f ms); %zu packets waiting, %.1f s of audio, "
+                                 "%.0f KB/s received",
+                                 p.slow_updates, p.updates, p.gap_max * 1e3, s.has_video ? s.vq.count() : s.aq.count(),
+                                 audio::stream_buffered_seconds(), s.bytes_read.exchange(0) / 1024.0 / (t - p.since));
+    if (s.has_video)
+        log_message(LOG_OK, "Player",
+                    "Playback: %d pictures shown in %.0f s (%d without a copy), %d late, %d dropped after decoding; "
+                    "decoding %.1f ms per packet; showing %.1f ms (longest %.1f); %s",
+                    p.shown, t - p.since, p.bound, p.late, dropped, decoded ? decode_us / 1e3 / decoded : 0.0,
+                    p.shown ? p.show_time * 1e3 / p.shown : 0.0, p.show_max * 1e3, rest.c_str());
+    else
+        log_message(LOG_OK, "Player", "Playback: %.0f s of sound; %s", t - p.since, rest.c_str());
     p = {};
     p.since = p.last_update = t;
 }
@@ -1671,7 +1692,15 @@ void update() {
             if (!s.frames.empty()) video_ok = true;
         }
         if (audio_ok && video_ok) {
+            if (!s.started)
+                log_message(LOG_OK, "Player", "Started in %.1f s: %sbuffering %.1f s", t - s.created,
+                            s.startup.c_str(), t - s.buffering_since);
+            else if (s.starved)
+                log_message(LOG_OK, "Player", "Playing again after %.1f s", t - s.buffering_since);
+            s.started = true;
+            s.starved = false;
             s.seeking = false;
+            s.playing_since = t;
             if (s.user_paused) {
                 s.state = PAUSED;
             } else {
@@ -1691,6 +1720,12 @@ void update() {
             video_starved = s.frames.empty() && s.vq.count() == 0;
         }
         if (audio_starved || video_starved) {
+            double window = s.stats.since > 0 ? t - s.stats.since : 0;
+            log_message(LOG_WARNING, "Player", "Ran out of %s after %.0f s%s: %.0f KB/s received in the last %.0f s",
+                        audio_starved ? "audio" : "video", t - s.playing_since,
+                        s.has_video ? util::fmt(" (%zu video packets waiting)", s.vq.count()).c_str() : "",
+                        window > 0 ? s.bytes_read / 1024.0 / window : 0.0, window);
+            s.starved = true;
             s.state = BUFFERING;
             s.buffering_since = t;
             audio::stream_pause(true);
@@ -1745,8 +1780,8 @@ void update() {
             recycle(s, std::move(show));
         }
         s.fcv.notify_all();
-        playback_stats(s, t, st);
     }
+    playback_stats(s, t, st);
 
     // End of stream.
     if (st == PLAYING) {
