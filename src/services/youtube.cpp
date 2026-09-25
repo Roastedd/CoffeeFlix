@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <future>
 #include <mutex>
 #include <set>
@@ -366,20 +367,33 @@ json::Doc browse(const std::string& browse_id, const char* params, const std::st
     return call("browse", WEB, body, err);
 }
 
-// Browsing as the signed-in account. Its token works with the TV/VR clients, not WEB; their pages
-// are the older "compactVideoRenderer" lists.
-json::Doc account_browse(const std::string& browse_id, const std::string& continuation, std::string& err) {
+// A request as the signed-in account. Its token works with the VR client, not WEB; its pages
+// are the older "compactVideoRenderer" lists. `make_body` runs once per attempt (call() takes it).
+json::Doc account_call(const char* endpoint, const std::function<json_t*()>& make_body, std::string& err) {
     for (int attempt = 0; attempt < 2; attempt++) {
         std::string token = yt_account::access_token(attempt > 0, err);  // again once when turned down
         if (token.empty()) return json::Doc();
-        json_t* body = json_object();
-        if (!continuation.empty()) json_object_set_new(body, "continuation", json_string(continuation.c_str()));
-        else json_object_set_new(body, "browseId", json_string(browse_id.c_str()));
         long status = 0;
-        json::Doc doc = call("browse", ANDROID_VR, body, err, token, &status);
+        json::Doc doc = call(endpoint, ANDROID_VR, make_body(), err, token, &status);
         if (doc || status != 401) return doc;
     }
     return json::Doc();
+}
+
+json::Doc account_browse(const std::string& browse_id, const std::string& continuation, std::string& err) {
+    return account_call("browse", [&] {
+        json_t* body = json_object();
+        if (!continuation.empty()) json_object_set_new(body, "continuation", json_string(continuation.c_str()));
+        else json_object_set_new(body, "browseId", json_string(browse_id.c_str()));
+        return body;
+    }, err);
+}
+
+// The next page of a VR list, whichever way it's given.
+std::string next_page(json_t* root) {
+    std::string c = json::str(json::find_key(root, "nextContinuationData", 16), {"continuation"});
+    if (c.empty()) c = json::str(json::find_key(root, "continuationCommand", 16), {"token"});
+    return c;
 }
 
 Results account_feed(const char* browse_id, const std::string& continuation) {
@@ -387,8 +401,8 @@ Results account_feed(const char* browse_id, const std::string& continuation) {
     json::Doc doc = account_browse(browse_id, continuation, err);
     if (!doc) return fail(err);
     Results r = parse_results(doc.get());
-    // The TV/VR pages continue with "nextContinuationData" rather than a continuation item.
-    if (r.continuation.empty()) r.continuation = json::str(json::find_key(doc.get(), "nextContinuationData", 16), {"continuation"});
+    // The VR pages continue with "nextContinuationData" rather than a continuation item.
+    if (r.continuation.empty()) r.continuation = next_page(doc.get());
     if (r.items.empty()) r.continuation.clear();
     return r;
 }
@@ -555,12 +569,14 @@ void add_captions(json_t* tracks, player::Source& src) {
     for (size_t i = 0; i < list.size() && i < 12; i++) src.external_subs.emplace_back(list[i].label, list[i].url);
 }
 
-bool try_client(const Client& c, const std::string& id, int max_height, player::Source& src, std::string& error) {
+// `token`: as the signed-in account (services/yt_account), for what guests don't get to see.
+bool try_client(const Client& c, const std::string& id, int max_height, player::Source& src, std::string& error,
+                const std::string& token = "") {
     json_t* body = json_object();
     json_object_set_new(body, "videoId", json_string(id.c_str()));
     json_object_set_new(body, "contentCheckOk", json_true());
     json_object_set_new(body, "racyCheckOk", json_true());
-    json::Doc doc = call("player", c, body, error);
+    json::Doc doc = call("player", c, body, error, token);
     if (!doc) return false;
     json_t* root = doc.get();
 
@@ -595,6 +611,8 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
         return from_hls(hls_url, max_height, c, src, error);
     }
     if (&c == &ANDROID_VR) {
+        // Signed in, it may offer HLS for videos too, which doesn't stop like its files.
+        if (!token.empty() && !hls_url.empty()) return from_hls(hls_url, max_height, c, src, error);
         error = "This video can't be played right now";
         return false;
     }
@@ -819,23 +837,54 @@ Results account_subscriptions(const std::string& continuation) { return account_
 
 ChannelResults account_channels() {
     ChannelResults out;
-    std::string err;
-    json::Doc doc = account_browse("FEchannels", "", err);
-    if (!doc) {
-        out.error = err;
-        return out;
-    }
+    std::string err, continuation;
     std::set<std::string> seen;
-    json::for_each_key(doc.get(), "compactChannelRenderer", [&](json_t* r) {
-        Channel c;
-        c.id = json::str(r, {"channelId"});
-        c.name = first_text(r, {"displayName", "title"});
-        c.avatar = best_image(json::at(r, {"thumbnail"}));
-        c.subscribers = first_text(r, {"subscriberCountText"});
-        if (!c.id.empty() && !c.name.empty() && seen.insert(c.id).second) out.items.push_back(c);
-    });
+    // A few hundred channels come in pages; the cap only stops a list that never ends.
+    for (int page = 0; page < 50; page++) {
+        json::Doc doc = account_browse("FEchannels", continuation, err);
+        if (!doc) {
+            if (page == 0) {
+                out.error = err;
+                return out;
+            }
+            log_message(LOG_WARNING, "YouTube", "Only part of the account's channels loaded (%s)", err.c_str());
+            break;
+        }
+        size_t before = out.items.size();
+        json::for_each_key(doc.get(), "compactChannelRenderer", [&](json_t* r) {
+            Channel c;
+            c.id = json::str(r, {"channelId"});
+            c.name = first_text(r, {"displayName", "title"});
+            c.avatar = best_image(json::at(r, {"thumbnail"}));
+            c.subscribers = first_text(r, {"subscriberCountText"});
+            if (!c.id.empty() && !c.name.empty() && seen.insert(c.id).second) out.items.push_back(c);
+        });
+        std::string next = next_page(doc.get());
+        if (next.empty() || next == continuation || out.items.size() == before) break;
+        continuation = next;
+    }
     out.ok = true;
     return out;
+}
+
+bool account_subscribe(const std::string& channel_id, bool on, std::string& error) {
+    // The "params" the apps send with the button.
+    json::Doc doc = account_call(on ? "subscription/subscribe" : "subscription/unsubscribe", [&] {
+        json_t* body = json_object();
+        json_t* ids = json_array();
+        json_array_append_new(ids, json_string(channel_id.c_str()));
+        json_object_set_new(body, "channelIds", ids);
+        json_object_set_new(body, "params", json_string(on ? "EgIIAhgA" : "CgIIAhgA"));
+        return body;
+    }, error);
+    if (!doc) return false;
+    // It answers with the new state of the button when it has one.
+    json_t* done = json::find_key(doc.get(), "updateSubscribeButtonAction", 8);
+    if (done && json::boolean(done, {"subscribed"}, on) != on) {
+        error = "YouTube didn't change it";
+        return false;
+    }
+    return true;
 }
 
 bool account_info(AccountInfo& out, std::string& error) {
@@ -971,6 +1020,21 @@ bool resolve(const std::string& id, int max_height, player::Source& src, std::st
         }
         log_message(LOG_WARNING, "YouTube", "%s client failed for %s: %s", c->name, id.c_str(), err.c_str());
         if (first_error.empty()) first_error = err;
+    }
+    // Signed in, again as the account: it may see what guests don't (age-restricted videos,
+    // "confirm you're not a bot").
+    std::string token_error;
+    std::string token = yt_account::signed_in() ? yt_account::access_token(false, token_error) : "";
+    if (!token.empty()) {
+        for (const Client* c : {&VISIONOS, &ANDROID_VR}) {
+            std::string err;
+            if (try_client(*c, id, max_height, src, err, token)) {
+                log_message(LOG_OK, "YouTube", "%s: played signed in via %s", id.c_str(), c->name);
+                if (!src.live) take_segments();
+                return true;
+            }
+            log_message(LOG_WARNING, "YouTube", "%s client failed for %s signed in: %s", c->name, id.c_str(), err.c_str());
+        }
     }
     error = first_error.empty() ? "YouTube playback failed" : first_error;
     return false;

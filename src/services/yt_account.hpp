@@ -1,4 +1,4 @@
-// Optional sign-in to a YouTube account, the way YouTube's TV apps do it: the Wii U shows a code,
+// Optional sign-in to a YouTube account, the way YouTube's TV and VR apps do it: the Wii U shows a code,
 // you enter it at google.com/device on your phone or computer. CoffeeFlix never sees the password;
 // it keeps the token Google gives it in coffeeflix.json until you sign out.
 #pragma once

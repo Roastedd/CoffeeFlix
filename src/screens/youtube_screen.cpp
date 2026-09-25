@@ -357,10 +357,14 @@ private:
         subs_key_ = subs_key();
         chans_scope_.reset();
         if (yt_account::signed_in()) {
-            chans_scope_.run<youtube::ChannelResults>([] { return youtube::account_channels(); },
-                                                      [this](youtube::ChannelResults r) {
-                if (r.ok) chans_ = yt::with_local_subscriptions(std::move(r.items));
-            });
+            // What was stored shows at once; the list is loaded again every few minutes.
+            if (!yt::account_channels_fresh())
+                chans_scope_.run<youtube::ChannelResults>([] { return yt::load_account_channels(); },
+                                                          [this](youtube::ChannelResults r) {
+                    if (!r.ok) return;
+                    chans_ = std::move(r.items);
+                    subs_key_ = subs_key();
+                });
             subs_.fetch = [](const std::string& c) { return youtube::account_subscriptions(c); };
             subs_.reload();
             return;

@@ -16,8 +16,9 @@ namespace yt_account {
 
 namespace {
 
-// The OAuth client of YouTube's TV app, which FourthTube, SmartTube and others use as well: the
-// device flow and the TV/VR InnerTube clients accept its tokens. It is public, not a secret of ours.
+// The OAuth client of YouTube's VR app, which FourthTube and Kodi's YouTube add-on use as well:
+// the ANDROID_VR InnerTube client accepts its tokens (the TV clients want the TV app's own).
+// It is public, not a secret of ours.
 const char* const CLIENT = "client_id=652469312169-4lvs9bnhr9lpns9v451j5oivd81vjvu1.apps.googleusercontent.com"
                            "&client_secret=3fTWrBJI5Uojm1TK7_iJCW5Z";
 const char* const SCOPE = "https://www.googleapis.com/auth/youtube";
@@ -69,6 +70,7 @@ void forget() {
     store::set_str("yt_account_token", "");
     store::set_str("yt_account_name", "");
     store::set_str("yt_account_photo", "");
+    store::fav_clear("yt_account_channel");  // the account's channels (screens/youtube_pages.cpp)
     g_version++;
 }
 

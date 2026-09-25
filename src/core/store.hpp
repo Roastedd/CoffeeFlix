@@ -33,6 +33,7 @@ bool fav_toggle(const char* service, const Fav& f);         // returns new state
 void fav_update(const char* service, const Fav& f);         // replaces an entry in place, if present
 void fav_trim(const char* service, size_t max);             // drops the oldest beyond `max`
 void fav_clear(const char* service);
+void fav_replace(const char* service, const std::vector<Fav>& list);  // the whole list, in order
 
 // --- resume points / continue watching ----------------------------------------
 struct Resume {

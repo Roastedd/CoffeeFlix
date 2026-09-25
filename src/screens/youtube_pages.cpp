@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdio>
 #include <memory>
+#include <map>
 #include <mutex>
 #include <set>
 
@@ -26,7 +27,8 @@ namespace yt {
 
 using namespace ui;
 
-const char* const SUBS = "yt_channel";
+const char* const SUBS = "yt_channel";                  // subscribed to on this console
+const char* const ACCOUNT_SUBS = "yt_account_channel";  // the signed-in account's, as last loaded
 const char* const LATER = "yt_later";
 const char* const WATCHED = "yt_watched";
 const char* const PLAYLISTS = "yt_playlist";
@@ -161,43 +163,119 @@ void play_all(const std::vector<youtube::Video>& list, int index) {
 
 // --- subscriptions ----------------------------------------------------------------------------
 
-bool subscribed(const std::string& channel_id) { return store::fav_has(SUBS, channel_id); }
+namespace {
+
+// Changes on their way to the account: {channel id, subscribed}. A list that loads meanwhile
+// shows them rather than the state YouTube had before.
+std::mutex g_account_m;
+std::map<std::string, bool> g_pending;
+double g_account_loaded = -1e9;
+int g_account_version = -1;
+
+bool on_account(const std::string& channel_id) {
+    return yt_account::signed_in() && store::fav_has(ACCOUNT_SUBS, channel_id);
+}
+
+youtube::Channel channel_of(const store::Fav& f) {
+    youtube::Channel c;
+    c.id = f.id;
+    c.name = f.title;
+    // Older versions stored a video thumbnail here instead of the avatar.
+    if (f.image.find("ytimg.com/vi/") == std::string::npos) c.avatar = f.image;
+    return c;
+}
+
+}  // namespace
+
+bool subscribed(const std::string& channel_id) { return store::fav_has(SUBS, channel_id) || on_account(channel_id); }
 
 void set_subscribed(const std::string& channel_id, const std::string& name, const std::string& avatar, bool on) {
     if (channel_id.empty()) {
         toast("Channel unavailable for this video", ic::INFO);
         return;
     }
-    if (on) {
-        store::Fav f{channel_id, name, "", avatar, ""};
-        store::fav_set(SUBS, f, true);
-    } else {
-        store::fav_set(SUBS, store::Fav{channel_id, "", "", "", ""}, false);
-    }
-    yt_recs::on_subscribe(channel_id, on);
     std::string who = name.empty() ? "channel" : name;
+    store::Fav f{channel_id, name, "", avatar, ""};
+    yt_recs::on_subscribe(channel_id, on);
+    // Signed out, or unsubscribing from a channel only this console follows.
+    if (!yt_account::signed_in() || (!on && !on_account(channel_id))) {
+        store::fav_set(SUBS, f, on);
+        toast(on ? "Subscribed to " + who : "Unsubscribed from " + who, on ? ic::CHECK_CIRCLE : ic::REMOVE);
+        return;
+    }
+    // On the account: shown straight away, put back if YouTube turns it down.
+    bool was_local = store::fav_has(SUBS, channel_id);
+    store::fav_set(ACCOUNT_SUBS, f, on);
+    if (!on) store::fav_set(SUBS, f, false);
+    {
+        std::lock_guard<std::mutex> lk(g_account_m);
+        g_pending[channel_id] = on;
+    }
     toast(on ? "Subscribed to " + who : "Unsubscribed from " + who, on ? ic::CHECK_CIRCLE : ic::REMOVE);
+    int version = yt_account::version();
+    tasks::submit(tasks::API, [f, on, was_local, who, version]() -> std::function<void()> {
+        std::string err;
+        bool ok = youtube::account_subscribe(f.id, on, err);
+        if (!ok) log_message(LOG_WARNING, "YouTube", "%s on the account failed: %s", on ? "Subscribing" : "Unsubscribing",
+                             err.c_str());
+        return [f, on, was_local, who, version, ok, err] {
+            {
+                std::lock_guard<std::mutex> lk(g_account_m);
+                auto it = g_pending.find(f.id);
+                if (it != g_pending.end() && it->second == on) g_pending.erase(it);
+            }
+            if (ok || yt_account::version() != version) return;
+            store::fav_set(ACCOUNT_SUBS, f, !on);
+            if (!on && was_local) store::fav_set(SUBS, f, true);
+            yt_recs::on_subscribe(f.id, !on);
+            toast(std::string(on ? "Couldn't subscribe to " : "Couldn't unsubscribe from ") + who + ": " + err,
+                  ic::ERROR_OUTLINE, theme().bad);
+        };
+    });
 }
 
 std::vector<youtube::Channel> subscriptions() {
     std::vector<youtube::Channel> out;
-    for (const store::Fav& f : store::favs(SUBS)) {
-        youtube::Channel c;
-        c.id = f.id;
-        c.name = f.title;
-        // Older versions stored a video thumbnail here instead of the avatar.
-        if (f.image.find("ytimg.com/vi/") == std::string::npos) c.avatar = f.image;
-        out.push_back(c);
-    }
+    std::set<std::string> seen;
+    if (yt_account::signed_in())
+        for (const store::Fav& f : store::favs(ACCOUNT_SUBS))
+            if (seen.insert(f.id).second) out.push_back(channel_of(f));
+    for (const store::Fav& f : store::favs(SUBS))
+        if (seen.insert(f.id).second) out.push_back(channel_of(f));
     return out;
 }
 
-std::vector<youtube::Channel> with_local_subscriptions(std::vector<youtube::Channel> account) {
-    std::set<std::string> seen;
-    for (const youtube::Channel& c : account) seen.insert(c.id);
-    for (youtube::Channel& c : subscriptions())
-        if (seen.insert(c.id).second) account.push_back(std::move(c));
-    return account;
+bool account_channels_fresh() {
+    std::lock_guard<std::mutex> lk(g_account_m);
+    return g_account_version == yt_account::version() && util::now_seconds() - g_account_loaded < 10 * 60;
+}
+
+youtube::ChannelResults load_account_channels() {
+    int version = yt_account::version();
+    youtube::ChannelResults r = youtube::account_channels();
+    if (!r.ok) return r;
+    std::lock_guard<std::mutex> lk(g_account_m);
+    if (yt_account::version() != version) {  // signed out or in again meanwhile
+        r.ok = false;
+        r.error = "The account changed";
+        return r;
+    }
+    std::vector<store::Fav> list;
+    for (const youtube::Channel& c : r.items) {
+        auto p = g_pending.find(c.id);
+        if (p == g_pending.end() || p->second) list.push_back(store::Fav{c.id, c.name, "", c.avatar, ""});
+    }
+    for (const auto& p : g_pending) {
+        if (!p.second || std::any_of(list.begin(), list.end(), [&](const store::Fav& f) { return f.id == p.first; }))
+            continue;
+        for (const store::Fav& f : store::favs(ACCOUNT_SUBS))
+            if (f.id == p.first) list.insert(list.begin(), f);
+    }
+    store::fav_replace(ACCOUNT_SUBS, list);
+    g_account_loaded = util::now_seconds();
+    g_account_version = version;
+    r.items = subscriptions();
+    return r;
 }
 
 youtube::Results for_you(const std::string& continuation) {
@@ -230,6 +308,7 @@ void update_channels(const std::vector<youtube::Channel>& channels) {
     for (const youtube::Channel& c : channels) {
         if (c.id.empty() || c.name.empty() || !subscribed(c.id)) continue;
         store::fav_update(SUBS, store::Fav{c.id, c.name, "", c.avatar, ""});
+        store::fav_update(ACCOUNT_SUBS, store::Fav{c.id, c.name, "", c.avatar, ""});
     }
 }
 
@@ -749,7 +828,7 @@ public:
     app::Section section() const override { return app::SEC_YOUTUBE; }
 
     void on_enter() override {
-        if (store::favs(SUBS).size() != count_ || yt_account::version() != account_version_) load();
+        if (subscriptions().size() != count_ || yt_account::version() != account_version_) load();
     }
 
     void frame() override {
@@ -798,7 +877,6 @@ public:
             std::vector<MenuItem> items = {
                 {"Open channel", ic::ACCOUNT_CIRCLE, [c] { app::push(make_channel(c.id, c.name, c.avatar)); }},
             };
-            // Only what was subscribed to here; the account's subscriptions are changed on YouTube.
             if (subscribed(c.id))
                 items.push_back({"Unsubscribe", ic::REMOVE, [this, c] {
                      set_subscribed(c.id, c.name, c.avatar, false);
@@ -833,11 +911,15 @@ private:
         chans_loading_ = false;
         if (account_) {
             chans_loading_ = true;
-            chans_scope_.run<youtube::ChannelResults>([] { return youtube::account_channels(); },
+            chans_scope_.run<youtube::ChannelResults>([] { return load_account_channels(); },
                                                       [this](youtube::ChannelResults r) {
                 chans_loading_ = false;
-                if (!r.ok) toast("Couldn't load your channels: " + r.error, ic::ERROR_OUTLINE, theme().bad);
-                else chans_ = with_local_subscriptions(std::move(r.items));
+                if (!r.ok) {
+                    toast("Couldn't load your channels: " + r.error, ic::ERROR_OUTLINE, theme().bad);
+                    return;
+                }
+                chans_ = std::move(r.items);
+                count_ = chans_.size();
             });
             feed_.fetch = [](const std::string& c) { return youtube::account_subscriptions(c); };
             feed_.reload();
