@@ -171,7 +171,7 @@ Response perform(const Request& req) {
         curl_easy_setopt(curl, CURLOPT_SOCKOPTDATA, req.big_buffers ? (void*)1 : nullptr);
     }
 
-    if (g_verify) {
+    if (g_verify || req.require_tls) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
         if (util::file_exists(g_ca_bundle)) curl_easy_setopt(curl, CURLOPT_CAINFO, g_ca_bundle.c_str());
@@ -179,6 +179,7 @@ Response perform(const Request& req) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, req.require_tls ? "https" : "http,https");
 
     if (req.cancel) {
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);

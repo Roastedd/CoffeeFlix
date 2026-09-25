@@ -22,6 +22,7 @@
 #include "ui/ui.hpp"
 #include "app/ambient.hpp"
 #include "app/mini_player.hpp"
+#include "app/updater.hpp"
 #include "player/player.hpp"
 
 namespace app {
@@ -284,6 +285,7 @@ int run(int, char**) {
     ui::init();
     ui::set_accent((int)store::get_int("accent", 0));
     g_rail_group = ui::id("rail");
+    updater::init();
 
     open_section(SEC_HOME);
 
@@ -299,6 +301,7 @@ int run(int, char**) {
         platform::poll(raw);
         input_update(in, raw, dt);
         tasks::pump();
+        updater::tick();
         images::begin_frame();
         player::update();
         {
@@ -324,6 +327,7 @@ int run(int, char**) {
     }
 
     log_message(LOG_OK, "App", "Shutting down");
+    updater::stop();
     mini_player::shutdown();
     g_dead.clear();
     g_stack.clear();
@@ -340,6 +344,7 @@ int run(int, char**) {
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+    updater::finish_on_exit();  // nothing reads bundled files any more
     platform::shutdown();
     return 0;
 }

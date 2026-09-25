@@ -245,6 +245,13 @@ void shutdown() {
 }
 
 bool running() { return !g_quit; }
+void exit_to_menu() { g_quit = true; }
+
+std::string app_bundle() {
+    const char* b = getenv("COFFEEFLIX_BUNDLE");
+    return b && util::file_exists(b) ? b : "";
+}
+bool release_app_bundle() { return true; }
 
 void poll(RawInput& raw) {
     raw = RawInput();

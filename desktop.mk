@@ -35,9 +35,15 @@ FFMPEG_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(FFMPEG_PKGS))
 FFMPEG_LIBS   := $(shell $(PKG_CONFIG) --libs $(FFMPEG_PKGS))
 endif
 
+# The version the app reports, as in the Makefile.
+APP_VERSION ?= $(shell git describe --tags --always 2>/dev/null | sed 's/^v//')
+$(shell mkdir -p $(BUILD) && printf '#define APP_VERSION "%s"\n' '$(or $(APP_VERSION),dev)' > $(BUILD)/app_version.h.new \
+	&& (cmp -s $(BUILD)/app_version.h.new $(BUILD)/app_version.h || cp $(BUILD)/app_version.h.new $(BUILD)/app_version.h); \
+	rm -f $(BUILD)/app_version.h.new)
+
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=gnu++20 -Wall -Wno-sign-compare -Wno-unused-function -MMD -MP \
-            -Isrc -I$(PREFIX)/include $(FFMPEG_CFLAGS) $(shell $(PKG_CONFIG) --cflags $(PKGS))
+            -Isrc -I$(BUILD) -I$(PREFIX)/include $(FFMPEG_CFLAGS) $(shell $(PKG_CONFIG) --cflags $(PKGS))
 LDLIBS   := -L$(PREFIX)/lib -lsmb2 $(FFMPEG_LIBS) \
             $(shell $(PKG_CONFIG) --libs $(PKGS)) -lz -lpthread -lm
 

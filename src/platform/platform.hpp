@@ -19,6 +19,15 @@ void shutdown();
 
 // False once the system asked the app to quit (HOME menu -> close, window closed).
 bool running();
+// Asks to close the app, back to the Wii U Menu; running() turns false once the system agrees.
+void exit_to_menu();
+
+// The app's own package on the SD card when it can be replaced in place (Wii U: the .wuhb Aroma
+// started it from), else empty. Desktop tests name one with COFFEEFLIX_BUNDLE.
+std::string app_bundle();
+// Makes the loader let go of that package so it can be renamed. /vol/content goes with it:
+// only while exiting, once nothing reads bundled files any more.
+bool release_app_bundle();
 // Pumps OS events and reads all controllers.
 void poll(RawInput& raw);
 

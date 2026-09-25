@@ -1,6 +1,7 @@
 // Settings: appearance, playback quality, region, network, accounts, about.
 #include <cstring>
 
+#include "app/updater.hpp"
 #include "audio/mixer.hpp"
 #include "core/http.hpp"
 #include "core/store.hpp"
@@ -215,6 +216,51 @@ public:
             track(iid, top, 64);
         }
 
+        header("UPDATES");
+        {
+            Id iid = id(g, "update");
+            float top = row_h(64);
+            std::string label = "Check for updates", value;
+            const std::string& nv = updater::release().version;
+            switch (updater::supported() ? updater::state() : updater::IDLE) {
+                case updater::CHECKING: value = "Checking\xE2\x80\xA6"; break;
+                case updater::UP_TO_DATE: value = "Up to date"; break;
+                case updater::AVAILABLE: label = "Update to CoffeeFlix " + nv, value = "Available"; break;
+                case updater::DOWNLOADING:
+                    label = "Downloading CoffeeFlix " + nv, value = util::fmt("%d%%", (int)(updater::progress() * 100));
+                    break;
+                case updater::READY: label = "CoffeeFlix " + nv + " is ready", value = "Installs when you close"; break;
+                case updater::FAILED: value = "Didn't work"; break;
+                default: value = updater::supported() ? "" : "Not available here"; break;
+            }
+            if (value_row(iid, Rect(x0, top, w, 64), label.c_str(), value.c_str(), ic::SYSTEM_UPDATE, g))
+                app::push(make_update());
+            track(iid, top, 64);
+        }
+        if (updater::supported()) {
+            Id iid = id(g, "autoupdate");
+            float top = row_h(82);
+            bool v = updater::automatic();
+            if (toggle_row(iid, Rect(x0, top, w, 82), "Install updates automatically",
+                           "New versions download in the background and install when you close CoffeeFlix", &v, g))
+                updater::set_automatic(v);
+            track(iid, top, 82);
+        }
+        if (updater::has_previous()) {
+            Id iid = id(g, "previous");
+            float top = row_h(64);
+            std::string pv = updater::previous_version();
+            std::string name = pv.empty() ? std::string("the previous version") : "CoffeeFlix " + pv;
+            if (value_row(iid, Rect(x0, top, w, 64), "Switch to the previous version",
+                          pv.empty() ? "Kept from before the last update" : name.c_str(), ic::RESTORE, g)) {
+                show_menu("Switch to " + name + "?",
+                          "Then start it again from the Wii U Menu.",
+                          {{"Switch and close CoffeeFlix", ic::RESTORE, [] { updater::switch_to_previous(); }},
+                           {"Cancel", ic::CLOSE, [] {}}});
+            }
+            track(iid, top, 64);
+        }
+
         header("ABOUT");
         {
             float top = row_h(150);
@@ -222,7 +268,7 @@ public:
             gfx::fill_rrect(r, 16, t.surface);
             gfx::fill_rrect_hgrad(Rect(r.x + 24, r.y + 26, 56, 56), 16, t.accent, t.accent2);
             text::icon(ic::LOCAL_CAFE, 32, r.x + 52, r.y + 54, gfx::rgb(0x1A1016));
-            text::draw(font::title, r.x + 100, r.y + 24, "CoffeeFlix 2.0", t.text);
+            text::draw(font::title, r.x + 100, r.y + 24, std::string("CoffeeFlix ") + updater::version(), t.text);
             text::draw(font::small, r.x + 100, r.y + 60, util::fmt("%s \xC2\xB7 built %s", platform::name(), __DATE__), t.text3);
             text::draw_wrapped(font::small, Rect(r.x + 24, r.y + 96, r.w - 48, 50),
                                "Free for noncommercial use (PolyForm Noncommercial). Not affiliated with Nintendo, "
