@@ -37,6 +37,7 @@ public:
                        top, F_DEFAULT))
             open_keyboard();
         y += 90;
+        if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
         if (query_.empty()) {
             auto recent = store::recent_searches("global");

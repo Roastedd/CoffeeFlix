@@ -117,6 +117,7 @@ public:
             toast(on ? "Subscribed to " + show_.title : "Unsubscribed", on ? ic::CHECK_CIRCLE : ic::REMOVE);
         }
         y += 256;
+        if (focus_in_group(ag)) page_.focus_range(0, y + page_.scroll());
 
         text::draw(font::title, x0, y, "Episodes", t.text);
         y += 52;
@@ -214,6 +215,7 @@ public:
                 if (!q.empty()) app::push(make_podcast_search(q));
             });
         y += 96;
+        if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
         // Continue listening
         std::vector<store::Resume> resume;

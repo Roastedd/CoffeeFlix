@@ -352,6 +352,7 @@ public:
             cx += w + 12;
         }
         y += 72;
+        if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
         y += item_shelf(id(g, "resume"), x0, y, "Continue watching", resume_, CARD_WIDE, 320) ;
         y += item_shelf(id(g, "nextup"), x0, y, "Next up", next_up_, CARD_WIDE, 320);
@@ -447,6 +448,7 @@ public:
             cx += w + 12;
         }
         y += 72;
+        if (focus_in_group(sg)) page_.focus_range(0, y + page_.scroll());
 
         if (!loading_ && items_.empty()) {
             if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::VIDEO_LIBRARY,
@@ -607,6 +609,7 @@ public:
             }
         }
         y += 96;
+        if (focus_in_group(ag)) page_.focus_range(0, y + page_.scroll());
 
         if (it_.type == "Series") y = series_section(g, x0, y);
         else if (it_.type == "MusicAlbum") y = tracks_section(g, x0, y);
@@ -687,6 +690,7 @@ private:
             cx += w + 12;
         }
         y += 66;
+        if (focus_in_group(sg)) page_.focus_range(y - 66 + page_.scroll() - 20, y + page_.scroll());
         ShelfSpec s;
         s.count = (int)episodes_.list.items.size();
         s.loading = episodes_.loading;
