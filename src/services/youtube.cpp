@@ -46,9 +46,10 @@ const Client WEB{"WEB", 1, "2.20250922.01.00",
                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
                  "", "", "Windows", "10.0", 0};
 // Playback clients. VISIONOS needs neither a PO token nor the JS player (yt-dlp's default
-// without a JS runtime as of 2026.08, and Flow's primary client). ANDROID_VR's file URLs now
-// stop after about a minute without a PO token, so it's only used for live HLS; IOS returns
-// SABR-only or 403ing URLs and is gone.
+// without a JS runtime as of 2026.08, and Flow's primary client). ANDROID_VR's file URLs
+// stopped after about a minute for guests, so for them it's only used for live HLS; signed in,
+// its files downloaded whole (2026.09) and play what guests can't, like age-restricted videos.
+// IOS returns SABR-only or 403ing URLs and is gone.
 const Client VISIONOS{"VISIONOS", 101, "1.02",
                       "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
                       "Apple", "RealityDevice17,1", "visionOS", "26.5.23O471", 0};
@@ -610,9 +611,7 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
         }
         return from_hls(hls_url, max_height, c, src, error);
     }
-    if (&c == &ANDROID_VR) {
-        // Signed in, it may offer HLS for videos too, which doesn't stop like its files.
-        if (!token.empty() && !hls_url.empty()) return from_hls(hls_url, max_height, c, src, error);
+    if (&c == &ANDROID_VR && token.empty()) {
         error = "This video can't be played right now";
         return false;
     }
@@ -1022,19 +1021,17 @@ bool resolve(const std::string& id, int max_height, player::Source& src, std::st
         if (first_error.empty()) first_error = err;
     }
     // Signed in, again as the account: it may see what guests don't (age-restricted videos,
-    // "confirm you're not a bot").
+    // "confirm you're not a bot"). Only ANDROID_VR takes the token; VISIONOS answers 400.
     std::string token_error;
     std::string token = yt_account::signed_in() ? yt_account::access_token(false, token_error) : "";
     if (!token.empty()) {
-        for (const Client* c : {&VISIONOS, &ANDROID_VR}) {
-            std::string err;
-            if (try_client(*c, id, max_height, src, err, token)) {
-                log_message(LOG_OK, "YouTube", "%s: played signed in via %s", id.c_str(), c->name);
-                if (!src.live) take_segments();
-                return true;
-            }
-            log_message(LOG_WARNING, "YouTube", "%s client failed for %s signed in: %s", c->name, id.c_str(), err.c_str());
+        std::string err;
+        if (try_client(ANDROID_VR, id, max_height, src, err, token)) {
+            log_message(LOG_OK, "YouTube", "%s: played signed in", id.c_str());
+            if (!src.live) take_segments();
+            return true;
         }
+        log_message(LOG_WARNING, "YouTube", "ANDROID_VR client failed for %s signed in: %s", id.c_str(), err.c_str());
     }
     error = first_error.empty() ? "YouTube playback failed" : first_error;
     return false;
