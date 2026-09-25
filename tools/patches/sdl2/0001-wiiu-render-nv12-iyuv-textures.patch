@@ -1,3 +1,35 @@
+diff --git a/include/SDL_system.h b/include/SDL_system.h
+index 6e42ad7..f82fb31 100644
+--- a/include/SDL_system.h
++++ b/include/SDL_system.h
+@@ -701,6 +701,27 @@ extern DECLSPEC void SDLCALL SDL_WiiUSetSWKBDShowWordSuggestions(SDL_bool show);
+  */
+ extern DECLSPEC void SDLCALL SDL_WiiUSetSWKBDInitialText(const char * text);
+ 
++/**
++ * Make an NV12 texture of the Wii U renderer draw from the app's memory
++ * instead of its own, until the next call, an update of the texture or its
++ * destruction.
++ *
++ * The planes must be laid out like the texture's own: rows `pitch` bytes apart
++ * (the pitch GX2 gives a linear aligned surface of the texture's width), each
++ * plane aligned to 256 bytes, in MEM2, and flushed out of the CPU cache. The
++ * memory has to stay valid until the GPU is done with it: until the frame
++ * after the first one drawn with other memory has been presented.
++ *
++ * \param texture an NV12 texture
++ * \param Yplane the luma plane, or NULL to go back to the texture's own memory
++ * \param UVplane the interleaved chroma plane
++ * \param pitch bytes from one row of either plane to the next
++ * \returns 0 on success or a negative error code on failure (the texture is
++ *          back on its own memory then); call SDL_GetError() for more
++ *          information.
++ */
++extern DECLSPEC int SDLCALL SDL_WiiUSetNVTextureMemory(SDL_Texture * texture, void *Yplane, void *UVplane, int pitch);
++
+ /**
+  * Sets the swkbd's hint text.
+  *
 diff --git a/src/render/wiiu/SDL_render_wiiu.c b/src/render/wiiu/SDL_render_wiiu.c
 index ba7272c..89c5ad8 100644
 --- a/src/render/wiiu/SDL_render_wiiu.c
@@ -35,10 +67,10 @@ index ba7272c..89c5ad8 100644
          .max_texture_width = 8192,
          .max_texture_height = 8192,
 diff --git a/src/render/wiiu/SDL_render_wiiu.h b/src/render/wiiu/SDL_render_wiiu.h
-index 5ded006..0d3f149 100644
+index 5ded006..4d7d46e 100644
 --- a/src/render/wiiu/SDL_render_wiiu.h
 +++ b/src/render/wiiu/SDL_render_wiiu.h
-@@ -97,6 +97,10 @@ struct WIIU_TextureData
+@@ -97,6 +97,12 @@ struct WIIU_TextureData
      GX2Texture texture;
      GX2ColorBuffer cbuf;
      OSTime timestamp;
@@ -46,10 +78,12 @@ index 5ded006..0d3f149 100644
 +    int numPlanes;
 +    GX2Texture planes[2];
 +    float yuvMatrix[4][4];
++    /* The texture's own Y and UV memory while it draws from the app's (SDL_WiiUSetNVTextureMemory) */
++    void *ownImage[2];
  };
  
  /* Ask texture driver to allocate texture's memory from MEM1 */
-@@ -114,6 +118,17 @@ int WIIU_SDL_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
+@@ -114,6 +120,17 @@ int WIIU_SDL_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
  int WIIU_SDL_LockTexture(SDL_Renderer * renderer, SDL_Texture * texture,
                       const SDL_Rect * rect, void **pixels, int *pitch);
  void WIIU_SDL_UnlockTexture(SDL_Renderer * renderer, SDL_Texture * texture);
@@ -120,10 +154,18 @@ index a5fe61e..cbaf703 100644
      }
  
 diff --git a/src/render/wiiu/SDL_rtexture_wiiu.c b/src/render/wiiu/SDL_rtexture_wiiu.c
-index b592bd1..528deaa 100644
+index b592bd1..325d4db 100644
 --- a/src/render/wiiu/SDL_rtexture_wiiu.c
 +++ b/src/render/wiiu/SDL_rtexture_wiiu.c
-@@ -41,6 +41,104 @@
+@@ -26,6 +26,7 @@
+ 
+ #include "../SDL_sysrender.h"
+ #include "SDL_render_wiiu.h"
++#include "SDL_system.h"
+ 
+ #include <gx2/context.h>
+ #include <gx2/texture.h>
+@@ -41,6 +42,121 @@
  #include <malloc.h>
  #include <stdarg.h>
  
@@ -168,6 +210,23 @@ index b592bd1..528deaa 100644
 +                             GX2R_RESOURCE_BIND_TEXTURE |
 +                             GX2R_RESOURCE_USAGE_CPU_WRITE | GX2R_RESOURCE_USAGE_CPU_READ |
 +                             GX2R_RESOURCE_USAGE_GPU_READ | GX2R_RESOURCE_USAGE_FORCE_MEM2);
++}
++
++/* Points a texture drawing from the app's memory back at its own */
++static void WIIU_UseOwnMemory(SDL_Renderer * renderer, SDL_Texture * texture, WIIU_TextureData *tdata)
++{
++    WIIU_RenderData *data = (WIIU_RenderData *) renderer->driverdata;
++
++    if (!tdata->ownImage[0]) {
++        return;
++    }
++    tdata->texture.surface.image = tdata->ownImage[0];
++    tdata->planes[0].surface.image = tdata->ownImage[1];
++    tdata->ownImage[0] = tdata->ownImage[1] = NULL;
++    /* The GPU is told where a texture is when it's bound */
++    if (data->drawState.texture == texture) {
++        data->drawState.texture = NULL;
++    }
 +}
 +
 +static void WIIU_DestroyPlanes(WIIU_TextureData *tdata)
@@ -228,7 +287,7 @@ index b592bd1..528deaa 100644
  int WIIU_SDL_CreateTexture(SDL_Renderer * renderer, SDL_Texture * texture)
  {
      BOOL res;
-@@ -58,6 +156,12 @@ int WIIU_SDL_CreateTexture(SDL_Renderer * renderer, SDL_Texture * texture)
+@@ -58,6 +174,12 @@ int WIIU_SDL_CreateTexture(SDL_Renderer * renderer, SDL_Texture * texture)
          GX2InitSampler(&tdata->sampler, GX2_TEX_CLAMP_MODE_CLAMP, GX2_TEX_XY_FILTER_MODE_LINEAR);
      }
  
@@ -241,7 +300,7 @@ index b592bd1..528deaa 100644
      gx2_fmt = WIIU_SDL_GetPixFmt(texture->format);
      if (gx2_fmt.fmt == -1) {
          return SDL_SetError("Unsupported texture format");
-@@ -132,6 +236,10 @@ int WIIU_SDL_LockTexture(SDL_Renderer * renderer, SDL_Texture * texture,
+@@ -132,6 +254,10 @@ int WIIU_SDL_LockTexture(SDL_Renderer * renderer, SDL_Texture * texture,
      Uint32 BytesPerPixel = SDL_BYTESPERPIXEL(texture->format);
      void* pixel_buffer;
  
@@ -252,7 +311,7 @@ index b592bd1..528deaa 100644
      if (videodata->hasForeground && WIIU_TextureInUse(data, tdata)) {
          /* Wait for the texture rendering to finish */
          WIIU_TextureWaitDone(data, tdata);
-@@ -168,30 +276,33 @@ void WIIU_SDL_SetTextureScaleMode(SDL_Renderer * renderer, SDL_Texture * texture
+@@ -168,30 +294,33 @@ void WIIU_SDL_SetTextureScaleMode(SDL_Renderer * renderer, SDL_Texture * texture
      }
  }
  
@@ -298,7 +357,7 @@ index b592bd1..528deaa 100644
              DCFlushRange(src, total_size);
              /* Run a single DMA transfer and wait until transfer is done */
              while (!DMAEWaitDone(DMAECopyMem(dst, src, total_size >> 2, DMAE_SWAP_NONE)));
-@@ -201,7 +312,7 @@ int WIIU_SDL_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
+@@ -201,7 +330,7 @@ int WIIU_SDL_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
          }
      } else {
          /* Flush source first */
@@ -307,7 +366,7 @@ index b592bd1..528deaa 100644
          for (row = 0; row < rect->h; ++row) {
              /* Do not flush per line here */
              OSBlockMove(dst, src, length, false);
-@@ -209,13 +320,96 @@ int WIIU_SDL_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
+@@ -209,12 +338,148 @@ int WIIU_SDL_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
              dst += dst_pitch;
          }
          /* Now that we're done, we can flush the entire destination at once */
@@ -324,7 +383,7 @@ index b592bd1..528deaa 100644
 +
 +    if (WIIU_TextureInUse(data, tdata)) {
 +        WIIU_TextureWaitDone(data, tdata);
-     }
++    }
 +}
 +
 +int WIIU_SDL_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
@@ -370,6 +429,7 @@ index b592bd1..528deaa 100644
 +    WIIU_TextureData *tdata = (WIIU_TextureData *) texture->driverdata;
 +    SDL_Rect crect = { rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2 };
 +
++    WIIU_UseOwnMemory(renderer, texture, tdata);
 +    if (!videodata->hasForeground) {
 +        return 0;
 +    }
@@ -390,8 +450,8 @@ index b592bd1..528deaa 100644
 +    WIIU_VideoData *videodata = (WIIU_VideoData *) SDL_GetVideoDevice()->driverdata;
 +    WIIU_TextureData *tdata = (WIIU_TextureData *) texture->driverdata;
 +    SDL_Rect crect = { rect->x / 2, rect->y / 2, (rect->w + 1) / 2, (rect->h + 1) / 2 };
- 
--    WIIU_SDL_UnlockTexture(renderer, texture);
++
++    WIIU_UseOwnMemory(renderer, texture, tdata);
 +    if (!videodata->hasForeground) {
 +        return 0;
 +    }
@@ -399,19 +459,71 @@ index b592bd1..528deaa 100644
 +    WIIU_WaitTextureIdle(renderer, tdata);
 +    WIIU_UploadPlane(&tdata->texture.surface, 1, rect, Yplane, Ypitch);
 +    WIIU_UploadPlane(&tdata->planes[0].surface, 2, &crect, UVplane, UVpitch);
- 
-     return 0;
- }
++
++    return 0;
++}
 +#endif
++
++int SDL_WiiUSetNVTextureMemory(SDL_Texture * texture, void *Yplane, void *UVplane, int pitch)
++{
++#if SDL_HAVE_YUV
++    WIIU_VideoData *videodata = (WIIU_VideoData *) SDL_GetVideoDevice()->driverdata;
++    WIIU_RenderData *data;
++    WIIU_TextureData *tdata;
++    GX2Surface *Y, *UV;
++
++    if (!texture || !texture->renderer || texture->renderer->CreateTexture != WIIU_SDL_CreateTexture ||
++        texture->native || texture->format != SDL_PIXELFORMAT_NV12 || !texture->driverdata) {
++        return SDL_InvalidParamError("texture");
+     }
++    data = (WIIU_RenderData *) texture->renderer->driverdata;
++    tdata = (WIIU_TextureData *) texture->driverdata;
++    Y = &tdata->texture.surface;
++    UV = &tdata->planes[0].surface;
++
++    /* Draws queued so far read the memory the texture has now */
++    SDL_RenderFlush(texture->renderer);
+ 
+-    WIIU_SDL_UnlockTexture(renderer, texture);
++    if (!Yplane) {
++        WIIU_UseOwnMemory(texture->renderer, texture, tdata);
++        return 0;
++    }
++    if (!UVplane || pitch != (int) Y->pitch || pitch != (int) UV->pitch * 2 ||
++        ((uintptr_t) Yplane & (Y->alignment - 1)) || ((uintptr_t) UVplane & (UV->alignment - 1))) {
++        WIIU_UseOwnMemory(texture->renderer, texture, tdata);
++        return SDL_SetError("The planes aren't laid out like the texture's (pitch %d, texture pitch %u)",
++                            pitch, (unsigned) Y->pitch);
++    }
+ 
++    if (!tdata->ownImage[0]) {
++        tdata->ownImage[0] = Y->image;
++        tdata->ownImage[1] = UV->image;
++    }
++    Y->image = Yplane;
++    UV->image = UVplane;
++    /* The GPU may still have the memory's old contents cached */
++    if (videodata->hasForeground) {
++        GX2Invalidate(GX2_INVALIDATE_MODE_TEXTURE, Yplane, Y->imageSize);
++        GX2Invalidate(GX2_INVALIDATE_MODE_TEXTURE, UVplane, UV->imageSize);
++    }
++    if (data->drawState.texture == texture) {
++        data->drawState.texture = NULL;
++    }
+     return 0;
++#else
++    return SDL_Unsupported();
++#endif
+ }
  
  void WIIU_SDL_DestroyTexture(SDL_Renderer * renderer, SDL_Texture * texture)
- {
-@@ -249,6 +443,14 @@ void WIIU_SDL_DestroyTexture(SDL_Renderer * renderer, SDL_Texture * texture)
+@@ -249,6 +514,15 @@ void WIIU_SDL_DestroyTexture(SDL_Renderer * renderer, SDL_Texture * texture)
          data->drawState.target = NULL;
      }
  
 +#if SDL_HAVE_YUV
 +    if (tdata->numPlanes) {
++        WIIU_UseOwnMemory(renderer, texture, tdata);
 +        WIIU_DestroyPlanes(tdata);
 +        SDL_free(tdata);
 +        return;

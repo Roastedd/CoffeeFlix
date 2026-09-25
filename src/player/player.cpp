@@ -236,6 +236,14 @@ struct Session {
     std::vector<char> skipped;  // per src.skip_segments: already jumped over
     std::string skip_notice;
     bool user_paused = false;
+
+    // Playback statistics, logged every 10 s of playing (playback_stats).
+    std::atomic<int> decode_us{0}, decoded{0}, dropped{0};  // by the video thread
+    struct {
+        double since = 0, last_update = 0;
+        double show_time = 0, show_max = 0, gap_max = 0;
+        int shown = 0, bound = 0, late = 0, updates = 0, slow_updates = 0;
+    } stats;
 };
 
 std::shared_ptr<Session> g_s;
@@ -244,8 +252,9 @@ std::atomic<int> g_closers{0};
 // The Wii U has one hardware H.264 decoder: a new session waits until the previous one has
 // closed it (sessions close in the background).
 std::atomic<int> g_hw_busy{0};
-// Safest decoding level the watchdog has needed this run: never gone back on, even if the
-// setting can't be saved, so it can't retry the same level over and over.
+// Safest decoding level the watchdog has needed this run, never gone back on so it can't retry
+// the same level over and over. Not saved: one stream the hardware decoder can't take says
+// little about the next.
 int g_decoding_floor = 0;
 std::string g_empty;
 Source g_empty_src;
@@ -256,6 +265,9 @@ Uint32 g_tex_format = 0;
 SDL_YUV_CONVERSION_MODE g_tex_mode = SDL_YUV_CONVERSION_BT601;
 uint32_t g_shown_gen = 0;
 double g_shown_pts = -1;
+// Frames the video texture draws from or drew from last (the GPU can still be reading those until
+// the screen has been updated twice since), newest first.
+AVFrame* g_bound[3] = {};
 
 std::vector<Source> g_queue;
 int g_queue_index = -1;
@@ -388,7 +400,9 @@ AVCodecContext* open_decoder(AVStream* st, bool allow_hw, bool* used_hw) {
         ctx->thread_count = platform::is_wiiu() ? 3 : 0;
         ctx->thread_type = FF_THREAD_SLICE | FF_THREAD_FRAME;
     }
+    if (used_hw && *used_hw) platform::attach_video_frames(ctx);  // decoded where the GPU draws them
     if (avcodec_open2(ctx, codec, nullptr) < 0) {
+        platform::detach_video_frames(ctx);
         avcodec_free_context(&ctx);
         if (used_hw && *used_hw) {
             // Hardware refused it (unsupported profile/level): software fallback.
@@ -654,14 +668,19 @@ void video_loop(std::shared_ptr<Session> sp) {
                 dec_gen = qp.gen;
             }
             if (qp.pkt->flags & AV_PKT_FLAG_KEY) keyframe_seen = true;
+            double start = now();
             int r = avcodec_send_packet(s.vdec, qp.pkt);
+            s.decode_us += (int)((now() - start) * 1e6);
+            s.decoded++;
             av_packet_free(&qp.pkt);
             if (keyframe_seen) s.video_in++;
             if (r < 0 && r != AVERROR(EAGAIN)) continue;
         }
 
         for (;;) {
+            double start = now();
             int r = avcodec_receive_frame(s.vdec, frame);
+            s.decode_us += (int)((now() - start) * 1e6);
             if (r == AVERROR_EOF) {
                 s.video_eof = true;
                 avcodec_flush_buffers(s.vdec);
@@ -711,6 +730,7 @@ void video_loop(std::shared_ptr<Session> sp) {
                 }
                 if (lag > 0.1 && dropped_in_row < 3) {
                     dropped_in_row++;
+                    s.dropped++;
                     av_frame_unref(frame);
                     continue;
                 }
@@ -737,6 +757,7 @@ void video_loop(std::shared_ptr<Session> sp) {
                 vf->format = SDL_PIXELFORMAT_RGBA32;
                 vf->yuv_mode = SDL_YUV_CONVERSION_BT601;
                 vf->rgba.resize((size_t)vf->w * vf->h * 4);
+                platform::video_frame_cpu_read(frame);
                 ok = conv.convert(frame, vf->rgba.data(), vf->w * 4);
             }
             av_frame_unref(frame);
@@ -927,7 +948,8 @@ void open_session(std::shared_ptr<Session> sp) {
     std::string vinfo, ainfo;
     if (v >= 0) {
         AVStream* st = f0->streams[v];
-        // The video_decoding setting (the player lowers it when the hardware gives no pictures).
+        // The video_decoding setting, or the safer level the player fell back to this run when the
+        // hardware gave no pictures.
         s.decoding = platform::is_wiiu()
                          ? std::clamp(std::max((int)store::get_int("video_decoding", 0), g_decoding_floor), 0, 2)
                          : 2;
@@ -1033,7 +1055,10 @@ void teardown(std::shared_ptr<Session> sp) {
     if (s.athread.joinable()) s.athread.join();
     s.vq.flush();
     s.aq.flush();
-    if (s.vdec) avcodec_free_context(&s.vdec);
+    if (s.vdec) {
+        platform::detach_video_frames(s.vdec);
+        avcodec_free_context(&s.vdec);
+    }
     if (s.hw) {
         s.hw = false;
         g_hw_busy = 0;
@@ -1090,13 +1115,29 @@ void report_progress(Session& s, bool force) {
     if (s.src.on_progress) s.src.on_progress(pos, s.state == PAUSED);
 }
 
-void upload_frame(VFrame& f) {
+// The GPU is done with the frames the video texture drew from: it has been destroyed, or has
+// just been uploaded to (which waits for the GPU).
+void release_bound() {
+    for (AVFrame* f : g_bound)
+        if (f) av_frame_unref(f);
+}
+
+void destroy_texture() {
+    if (g_tex) SDL_DestroyTexture(g_tex);
+    g_tex = nullptr;
+    release_bound();
+}
+
+// Puts the picture into the video texture: points the texture at it where the GPU can read the
+// decoder's frame as it is (the frame is kept, f.yuv left empty), else uploads it. True for the
+// former.
+bool upload_frame(VFrame& f) {
     SDL_Renderer* r = gfx::renderer();
     if (!g_tex || g_tex_w != f.w || g_tex_h != f.h || g_tex_format != f.format || g_tex_mode != f.yuv_mode) {
-        if (g_tex) SDL_DestroyTexture(g_tex);
+        destroy_texture();
         SDL_SetYUVConversionMode(f.yuv_mode);  // renderers read it when they make the texture or draw it
         g_tex = SDL_CreateTexture(r, f.format, SDL_TEXTUREACCESS_STREAMING, f.w, f.h);
-        if (!g_tex) return;
+        if (!g_tex) return false;
         SDL_SetTextureBlendMode(g_tex, SDL_BLENDMODE_NONE);
         SDL_SetTextureScaleMode(g_tex, SDL_ScaleModeLinear);
         g_tex_w = f.w;
@@ -1104,7 +1145,18 @@ void upload_frame(VFrame& f) {
         g_tex_format = f.format;
         g_tex_mode = f.yuv_mode;
     }
+    g_shown_pts = f.pts;
+    g_shown_gen = f.gen;
     const AVFrame* y = f.yuv;
+    if (f.format == SDL_PIXELFORMAT_NV12 && platform::show_video_frame(g_tex, y)) {
+        AVFrame* keep = g_bound[2] ? g_bound[2] : av_frame_alloc();
+        av_frame_unref(keep);
+        g_bound[2] = g_bound[1];
+        g_bound[1] = g_bound[0];
+        g_bound[0] = keep;
+        av_frame_move_ref(keep, f.yuv);
+        return true;
+    }
     if (f.format == SDL_PIXELFORMAT_NV12)
         SDL_UpdateNVTexture(g_tex, nullptr, y->data[0], y->linesize[0], y->data[1], y->linesize[1]);
     else if (f.format == SDL_PIXELFORMAT_IYUV)
@@ -1112,8 +1164,8 @@ void upload_frame(VFrame& f) {
                              y->linesize[2]);
     else
         SDL_UpdateTexture(g_tex, nullptr, f.rgba.data(), f.w * 4);
-    g_shown_pts = f.pts;
-    g_shown_gen = f.gen;
+    release_bound();
+    return false;
 }
 
 void recycle(Session& s, std::unique_ptr<VFrame> f) {
@@ -1131,7 +1183,6 @@ bool decoder_watchdog(Session& s, double t) {
     if (vin < 45 && !(since_open > 15 && s.vq.count() > 0)) return false;
     int next = std::min(s.decoding + 1, 2);
     g_decoding_floor = next;
-    store::set_int("video_decoding", next);
     log_message(LOG_WARNING, "Player", "No pictures from the hardware decoder (%d packets in %.0f s): trying %s", vin,
                 since_open, next == 1 ? "it without unreferenced pictures" : "software decoding");
     retry();
@@ -1240,8 +1291,8 @@ void init() {
 void shutdown() {
     close();
     for (int i = 0; i < 300 && g_closers > 0; i++) SDL_Delay(10);
-    if (g_tex) SDL_DestroyTexture(g_tex);
-    g_tex = nullptr;
+    destroy_texture();
+    for (AVFrame*& f : g_bound) av_frame_free(&f);
     avformat_network_deinit();
 }
 
@@ -1290,6 +1341,9 @@ bool previous() {
 void close() {
     auto s = std::move(g_s);
     g_s.reset();
+    // Nothing draws the video texture from here on: without it, the decoder's frames it drew from
+    // can go.
+    if (g_bound[0] && g_bound[0]->buf[0]) destroy_texture();
     if (!s) return;
     if (s->state == PLAYING || s->state == PAUSED || s->state == BUFFERING) {
         report_progress(*s, true);
@@ -1564,6 +1618,37 @@ std::string subtitle_text() {
     return g_s->subs.at(position());
 }
 
+// Every 10 s of playing, logs what happened to the pictures and where the time went: decoding (on
+// the video thread), showing (putting pictures into the texture), and screen updates that took
+// longer than a refresh.
+void playback_stats(Session& s, double t, int st) {
+    auto& p = s.stats;
+    if (st != PLAYING || s.seeking) {
+        p = {};
+        s.decode_us = s.decoded = s.dropped = 0;
+        return;
+    }
+    if (p.since <= 0) p.since = t;
+    if (p.last_update > 0) {
+        double gap = t - p.last_update;
+        p.updates++;
+        if (gap > 0.025) p.slow_updates++;
+        p.gap_max = std::max(p.gap_max, gap);
+    }
+    p.last_update = t;
+    if (t - p.since < 10) return;
+    int decoded = s.decoded.exchange(0), decode_us = s.decode_us.exchange(0), dropped = s.dropped.exchange(0);
+    log_message(LOG_OK, "Player",
+                "Playback: %d pictures shown in %.0f s (%d without a copy), %d late, %d dropped after decoding; "
+                "decoding %.1f ms per packet; showing %.1f ms (longest %.1f); %d of %d screen updates late "
+                "(longest %.0f ms); %zu packets waiting, %.1f s of audio",
+                p.shown, t - p.since, p.bound, p.late, dropped, decoded ? decode_us / 1e3 / decoded : 0.0,
+                p.shown ? p.show_time * 1e3 / p.shown : 0.0, p.show_max * 1e3, p.slow_updates, p.updates,
+                p.gap_max * 1e3, s.vq.count(), audio::stream_buffered_seconds());
+    p = {};
+    p.since = p.last_update = t;
+}
+
 void update() {
     if (!g_s) return;
     std::shared_ptr<Session> sp = g_s;
@@ -1635,6 +1720,7 @@ void update() {
                 while (s.frames.size() >= 2 && s.frames[1]->pts <= clock) {
                     recycle(s, std::move(s.frames.front()));
                     s.frames.pop_front();
+                    s.stats.late++;
                 }
                 if (!s.frames.empty() && (s.frames.front()->pts <= clock + 0.004 || first)) {
                     show = std::move(s.frames.front());
@@ -1648,11 +1734,18 @@ void update() {
         }
         if (show) {
             if (!s.has_audio && g_shown_gen != s.gen && st == PLAYING) start_wall(s, show->pts);
-            upload_frame(*show);
+            double start = now();
+            bool bound = upload_frame(*show);
+            double took = now() - start;
+            s.stats.shown++;
+            s.stats.bound += bound;
+            s.stats.show_time += took;
+            s.stats.show_max = std::max(s.stats.show_max, took);
             std::lock_guard<std::mutex> lk(s.fm);
             recycle(s, std::move(show));
         }
         s.fcv.notify_all();
+        playback_stats(s, t, st);
     }
 
     // End of stream.
