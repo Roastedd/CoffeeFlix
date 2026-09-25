@@ -38,10 +38,15 @@ void play(const youtube::Video& v);
 void play_all(const std::vector<youtube::Video>& list, int index);
 
 // --- subscriptions ---------------------------------------------------------------------
+// Signed in, these are the account's channels (as last loaded) plus any subscribed to only on
+// this console; subscribing changes the account.
 bool subscribed(const std::string& channel_id);
 // Subscribes or unsubscribes, with a toast. `avatar` may be empty.
 void set_subscribed(const std::string& channel_id, const std::string& name, const std::string& avatar, bool on);
 std::vector<youtube::Channel> subscriptions();
+// Loads the account's channels again (any thread); returns subscriptions() when it worked.
+youtube::ChannelResults load_account_channels();
+bool account_channels_fresh();  // loaded in the last few minutes
 // Refreshes stored names and avatars from channel headers.
 void update_channels(const std::vector<youtube::Channel>& channels);
 
@@ -49,9 +54,6 @@ void update_channels(const std::vector<youtube::Channel>& channels);
 // folder; returns a message for a toast.
 std::string import_subscriptions();
 std::string export_subscriptions();
-
-// The account's channels (signed in) followed by those subscribed to only on this console.
-std::vector<youtube::Channel> with_local_subscriptions(std::vector<youtube::Channel> account);
 
 // --- account (optional) ---------------------------------------------------------------------
 std::unique_ptr<app::Screen> make_sign_in();

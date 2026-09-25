@@ -220,6 +220,22 @@ void fav_clear(const char* service) {
     mark_dirty();
 }
 
+void fav_replace(const char* service, const std::vector<Fav>& list) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_t* a = array_in(section("favorites"), service);
+    json_array_clear(a);
+    for (const Fav& f : list) {
+        json_t* o = json_object();
+        json_object_set_new(o, "id", json_string(f.id.c_str()));
+        json_object_set_new(o, "title", json_string(f.title.c_str()));
+        json_object_set_new(o, "subtitle", json_string(f.subtitle.c_str()));
+        json_object_set_new(o, "image", json_string(f.image.c_str()));
+        json_object_set_new(o, "extra", json_string(f.extra.c_str()));
+        json_array_append_new(a, o);
+    }
+    mark_dirty();
+}
+
 // --- resume ---
 
 void resume_save(const Resume& r) {

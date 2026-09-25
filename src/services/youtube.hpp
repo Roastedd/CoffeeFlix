@@ -1,4 +1,4 @@
-// YouTube via the InnerTube API. Browsing uses the WEB client, or a TV/VR client for the optional
+// YouTube via the InnerTube API. Browsing uses the WEB client, or the VR client for the optional
 // signed-in account; playback uses clients whose stream URLs don't need the JS player.
 #pragma once
 
@@ -82,7 +82,9 @@ Results related(const std::string& video_id);
 // YouTube's own recommendations and the account's subscriptions feed.
 Results account_home(const std::string& continuation = "");
 Results account_subscriptions(const std::string& continuation = "");
-ChannelResults account_channels();
+ChannelResults account_channels();  // every page of them
+// Subscribes the account to a channel, or unsubscribes it.
+bool account_subscribe(const std::string& channel_id, bool on, std::string& error);
 struct AccountInfo {
     std::string name, photo;
 };
