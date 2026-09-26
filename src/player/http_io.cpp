@@ -15,6 +15,7 @@ extern "C" {
 #include <thread>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "logger/logger.hpp"
 
@@ -142,10 +143,10 @@ void sleep_unless_cancelled(const Chunk& c, int ms) {
 }
 
 std::string status_error(long status) {
-    return status == 401 || status == 403 ? util::fmt("Access denied (HTTP %ld)", status)
-           : status == 404                ? std::string("Not found (HTTP 404)")
-           : status == 200                ? std::string("The server doesn't support partial downloads")
-                                          : util::fmt("HTTP error %ld", status);
+    return status == 401 || status == 403 ? util::fmt(tr("Access denied (HTTP %ld)"), status)
+           : status == 404                ? std::string(tr("Not found (HTTP 404)"))
+           : status == 200                ? std::string(tr("The server doesn't support partial downloads"))
+                                          : util::fmt(tr("HTTP error %ld"), status);
 }
 
 // Fills one chunk, streaming it in so the reader can use the first bytes at once. A dropped
@@ -353,7 +354,7 @@ AVIOContext* http_io_open(const std::string& url, const std::vector<std::pair<st
     if (!pb) {
         av_free(buf);
         close_stream(s);
-        error = "Out of memory";
+        error = tr("Out of memory");
         return nullptr;
     }
     return pb;  // owns s until http_io_free()

@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "gfx/images.hpp"
 #include "logger/logger.hpp"
@@ -545,16 +546,16 @@ struct Book::Impl {
     // Reads the reading order and each chapter's content.
     std::string load(std::vector<Block>& blocks) {
         std::string container;
-        if (!read_entry(zip, "META-INF/container.xml", container)) return "This isn't an EPUB book.";
+        if (!read_entry(zip, "META-INF/container.xml", container)) return tr("This isn't an EPUB book.");
         tinyxml2::XMLDocument cdoc;
         cdoc.Parse(container.data(), container.size());
         const tinyxml2::XMLElement* rootfile = find_element(cdoc.RootElement(), "rootfile");
         const char* opf_path = rootfile ? attr(rootfile, "full-path") : nullptr;
         std::string opf;
-        if (!opf_path || !read_entry(zip, opf_path, opf)) return "The book's contents list is missing.";
+        if (!opf_path || !read_entry(zip, opf_path, opf)) return tr("The book's contents list is missing.");
 
         tinyxml2::XMLDocument odoc;
-        if (odoc.Parse(opf.data(), opf.size()) != tinyxml2::XML_SUCCESS) return "The book's contents list is damaged.";
+        if (odoc.Parse(opf.data(), opf.size()) != tinyxml2::XML_SUCCESS) return tr("The book's contents list is damaged.");
         std::string opf_dir = dir_of(opf_path);
         const tinyxml2::XMLElement* root = odoc.RootElement();
         if (const tinyxml2::XMLElement* t = find_element(root, "title"))
@@ -591,7 +592,7 @@ struct Book::Impl {
                 if (it != manifest.end() && it->second.type.find("html") != std::string::npos)
                     spine.push_back(it->second.href);
             }
-        if (spine.empty()) return "This book has no chapters.";
+        if (spine.empty()) return tr("This book has no chapters.");
 
         for (size_t i = 0; i < spine.size(); i++) {
             std::string html;
@@ -629,7 +630,7 @@ Book::~Book() = default;
 std::string Book::open(const std::string& path) {
     int err = 0;
     d_->zip = zip_open(path.c_str(), ZIP_RDONLY, &err);
-    if (!d_->zip) return "The file may be damaged or isn't an EPUB book.";
+    if (!d_->zip) return tr("The file may be damaged or isn't an EPUB book.");
     std::vector<Block> blocks;
     std::string error = d_->load(blocks);
     if (!error.empty()) return error;
@@ -637,7 +638,7 @@ std::string Book::open(const std::string& path) {
     d_->pages = Layout(d_->fonts, d_->zip).run(blocks);
     log_message(LOG_OK, "EPUB", "%s: %zu pages (%.0f ms)", util::file_name(path).c_str(), d_->pages.size(),
                 (util::now_seconds() - t0) * 1000);
-    return d_->pages.empty() ? "This book has no readable pages." : "";
+    return d_->pages.empty() ? tr("This book has no readable pages.") : "";
 }
 
 int Book::page_count() const { return (int)d_->pages.size(); }

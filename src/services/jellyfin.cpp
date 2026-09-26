@@ -3,6 +3,7 @@
 #include <mutex>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
@@ -131,7 +132,7 @@ List parse_list(const http::Response& r) {
     for (size_t i = 0; i < json::size(arr); i++) l.items.push_back(parse_item(json_array_get(arr, i)));
     l.total = json_is_array(root) ? (int)l.items.size() : (int)json::num(root, {"TotalRecordCount"}, (int64_t)l.items.size());
     l.ok = doc.get() != nullptr;
-    if (!l.ok) l.error = "Unexpected response from the server";
+    if (!l.ok) l.error = tr("Unexpected response from the server");
     return l;
 }
 
@@ -146,14 +147,14 @@ std::string img(const std::string& item, const char* type, const std::string& ta
 AuthResult finish_auth(const std::string& url, const http::Response& r) {
     AuthResult res;
     if (!r.ok()) {
-        res.error = r.status == 401 ? "Wrong username or password" : r.error;
+        res.error = r.status == 401 ? tr("Wrong username or password") : r.error;
         return res;
     }
     json::Doc doc = json::Doc::parse(r.body);
     std::string token = json::str(doc.get(), {"AccessToken"});
     std::string uid = json::str(doc.get(), {"User", "Id"});
     if (token.empty() || uid.empty()) {
-        res.error = "Unexpected response from the server";
+        res.error = tr("Unexpected response from the server");
         return res;
     }
     ServerInfo info = server_info(url);
@@ -219,13 +220,13 @@ bool resolve_video(const Item& it, double start, player::Source& src, std::strin
                                  it.id.c_str(), a.user_id.c_str(), (long long)(start * 1e7));
     http::Response r = request(a.server, a.token, "POST", path, profile_json(max_h));
     if (!r.ok()) {
-        error = "Server refused playback: " + r.error;
+        error = util::fmt(tr("Server refused playback: %s"), r.error.c_str());
         return false;
     }
     json::Doc doc = json::Doc::parse(r.body);
     json_t* ms = json::at(doc.get(), {"MediaSources", 0});
     if (!ms) {
-        error = json::str(doc.get(), {"ErrorCode"}, "No playable media found");
+        error = json::str(doc.get(), {"ErrorCode"}, tr("No playable media found"));
         return false;
     }
     std::string psid = json::str(doc.get(), {"PlaySessionId"});
@@ -242,7 +243,7 @@ bool resolve_video(const Item& it, double start, player::Source& src, std::strin
         src.url = a.server + transcode;
         method = "Transcode";
     } else {
-        error = "The server can't stream this file";
+        error = tr("The server can't stream this file");
         return false;
     }
     log_message(LOG_OK, "Jellyfin", "%s via %s", it.name.c_str(), method.c_str());
@@ -254,7 +255,7 @@ bool resolve_video(const Item& it, double start, player::Source& src, std::strin
         json_t* st = json_array_get(streams, i);
         if (json::str(st, {"Type"}) != "Subtitle" || !json::boolean(st, {"IsTextSubtitleStream"})) continue;
         int idx = (int)json::num(st, {"Index"});
-        std::string label = json::str(st, {"DisplayTitle"}, json::str(st, {"Language"}, "Subtitles"));
+        std::string label = json::str(st, {"DisplayTitle"}, json::str(st, {"Language"}, tr("Subtitles")));
         std::string url = util::fmt("%s/Videos/%s/%s/Subtitles/%d/0/Stream.srt?api_key=%s", a.server.c_str(),
                                     it.id.c_str(), msid.c_str(), idx, a.token.c_str());
         auto entry = std::make_pair(label, url);
@@ -333,7 +334,7 @@ ServerInfo server_info(const std::string& url) {
     info.name = json::str(doc.get(), {"ServerName"});
     info.version = json::str(doc.get(), {"Version"});
     info.ok = !json::str(doc.get(), {"Id"}).empty();
-    if (!info.ok) info.error = "That doesn't look like a Jellyfin server";
+    if (!info.ok) info.error = tr("That doesn't look like a Jellyfin server");
     return info;
 }
 
@@ -351,14 +352,14 @@ QuickConnect quick_connect_start(const std::string& url) {
     http::Response r = request(url, "", "POST", "/QuickConnect/Initiate");
     if (r.status == 404 || r.status == 405) r = request(url, "", "GET", "/QuickConnect/Initiate");
     if (!r.ok()) {
-        q.error = r.status == 401 || r.status == 403 ? "Quick Connect is turned off on this server" : r.error;
+        q.error = r.status == 401 || r.status == 403 ? tr("Quick Connect is turned off on this server") : r.error;
         return q;
     }
     json::Doc doc = json::Doc::parse(r.body);
     q.code = json::str(doc.get(), {"Code"});
     q.secret = json::str(doc.get(), {"Secret"});
     q.ok = !q.code.empty() && !q.secret.empty();
-    if (!q.ok) q.error = "Quick Connect isn't available";
+    if (!q.ok) q.error = tr("Quick Connect isn't available");
     return q;
 }
 
@@ -446,7 +447,7 @@ bool item(const std::string& id, Item& out, std::string& error) {
     }
     json::Doc doc = json::Doc::parse(r.body);
     if (!doc) {
-        error = "Unexpected response from the server";
+        error = tr("Unexpected response from the server");
         return false;
     }
     out = parse_item(doc.get());
@@ -503,7 +504,7 @@ player::Source make_source(const Item& it, bool from_start) {
     player::Source s;
     s.title = it.type == "Episode" ? it.name : it.name;
     if (it.type == "Episode")
-        s.subtitle = util::fmt("%s \xC2\xB7 S%d E%d", it.series_name.c_str(), it.parent_index, it.index);
+        s.subtitle = util::fmt(tr("%s \xC2\xB7 S%d E%d"), it.series_name.c_str(), it.parent_index, it.index);
     else if (it.is_audio())
         s.subtitle = it.album_artist;
     else

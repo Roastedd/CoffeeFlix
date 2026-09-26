@@ -14,6 +14,7 @@
 #include <set>
 #include <vector>
 
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -76,7 +77,7 @@ public:
     std::string open(const std::string& path) override {
         int err = 0;
         zip_ = zip_open(path.c_str(), ZIP_RDONLY, &err);
-        if (!zip_) return "The file may be damaged or isn't a comic book archive.";
+        if (!zip_) return tr("The file may be damaged or isn't a comic book archive.");
         std::vector<std::pair<std::string, zip_uint64_t>> images;
         zip_int64_t n = zip_get_num_entries(zip_, 0);
         for (zip_int64_t i = 0; i < n; i++) {
@@ -88,7 +89,7 @@ public:
         }
         std::sort(images.begin(), images.end(), [](const auto& a, const auto& b) { return util::natural_less(a.first, b.first); });
         for (auto& img : images) entries_.push_back(img.second);
-        return entries_.empty() ? "There are no pages in this comic book." : "";
+        return entries_.empty() ? tr("There are no pages in this comic book.") : "";
     }
 
     int page_count() const override { return (int)entries_.size(); }
@@ -138,8 +139,8 @@ Opened open_book(const std::string& path) {
     std::string ext = util::file_extension(path);
     std::unique_ptr<Book> book = make_book(ext);
     if (!book) {
-        o.title = "Can't open this file";
-        o.desc = "The reader opens comic books (CBZ) and EPUB books.";
+        o.title = tr("Can't open this file");
+        o.desc = tr("The reader opens comic books (CBZ) and EPUB books.");
         return o;
     }
     o.desc = book->open(path);
@@ -147,7 +148,7 @@ Opened open_book(const std::string& path) {
         o.title = book->title();
         o.book = std::move(book);
     } else {
-        o.title = "Can't open this book";
+        o.title = tr("Can't open this book");
     }
     return o;
 }
@@ -197,7 +198,7 @@ public:
         if (!book_) {
             if (error_title_.empty()) loading_indicator(W * 0.5f, H * 0.5f, title_.c_str());
             else empty_state(Rect(W * 0.5f - 340, H * 0.5f - 170, 680, 340), ic::ERROR_OUTLINE, error_title_.c_str(), error_desc_.c_str());
-            hint_bar({{"B", "Back"}});
+            hint_bar({{"B", tr("Back")}});
             return;
         }
         handle_input();
@@ -221,7 +222,7 @@ private:
         turned_at_ = shown_at_ = ui::time();
         pan_y_ = 1e6f;  // top of the page
         snap_ = true;
-        if (page_ > 0) toast(util::fmt("Resuming on page %d", page_ + 1), ic::HISTORY);
+        if (page_ > 0) toast(util::fmt(tr("Resuming on page %d"), page_ + 1), ic::HISTORY);
     }
 
     void handle_input() {
@@ -250,7 +251,7 @@ private:
             zoom_ = 1;
             pan_x_ = 0;
             pan_y_ = 1e6f;
-            toast(fit_ == FIT_WIDTH ? "Fit width" : "Fit page", ic::FULLSCREEN);
+            toast(fit_ == FIT_WIDTH ? tr("Fit width") : tr("Fit page"), ic::FULLSCREEN);
         }
 
         // Pan when zoomed; scroll a page taller than the screen (fit width) at any zoom.
@@ -271,7 +272,7 @@ private:
     void turn(int d) {
         int next = std::clamp(page_ + d, 0, count_ - 1);
         if (next == page_) {
-            toast(d > 0 ? "Last page" : "First page", ic::BOOK);
+            toast(d > 0 ? tr("Last page") : tr("First page"), ic::BOOK);
             return;
         }
         out_page_ = page_;
@@ -369,7 +370,7 @@ private:
         const PageTexture* cur = texture(page_);
         if (!cur) {
             if (failed_.count(page_))
-                empty_state(Rect(W * 0.5f - 300, H * 0.5f - 150, 600, 300), ic::ERROR_OUTLINE, "Can't show this page", "");
+                empty_state(Rect(W * 0.5f - 300, H * 0.5f - 150, 600, 300), ic::ERROR_OUTLINE, tr("Can't show this page"), "");
             else if (ui::time() - turned_at_ > 0.2)
                 spinner(W * 0.5f, H * 0.5f, 28, theme().accent, 4);
             return;
@@ -412,9 +413,9 @@ private:
         text::draw(font::small_bold, 60, H - 76, util::fmt("%d / %d", page_ + 1, count_), t.text2);
         progress_bar(Rect(60, H - 34, W - 120, 4), (float)(page_ + 1) / count_);
         if (zoom_ > 1.01f)
-            hint_bar({{"L/R", "Page"}, {"A", "Zoom in"}, {"ZL", "Zoom out"}, {"B", "Reset zoom"}}, H - 66);
+            hint_bar({{"L/R", tr("Page")}, {"A", tr("Zoom in")}, {"ZL", tr("Zoom out")}, {"B", tr("Reset zoom")}}, H - 66);
         else
-            hint_bar({{"L/R", "Page"}, {"A", "Zoom"}, {"Y", fit_ == FIT_PAGE ? "Fit width" : "Fit page"}, {"B", "Back"}}, H - 66);
+            hint_bar({{"L/R", tr("Page")}, {"A", tr("Zoom")}, {"Y", fit_ == FIT_PAGE ? tr("Fit width") : tr("Fit page")}, {"B", tr("Back")}}, H - 66);
         gfx::pop_alpha();
     }
 

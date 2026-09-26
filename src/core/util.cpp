@@ -11,6 +11,8 @@
 #include <cerrno>
 #include <cstdlib>
 
+#include "core/i18n.hpp"
+
 namespace util {
 
 std::string url_encode(std::string_view s) {
@@ -266,8 +268,8 @@ std::string format_ticks_duration(int64_t ticks) {
     long minutes = (long)(ticks / 600000000LL);
     if (minutes <= 0) return "";
     char buf[32];
-    if (minutes >= 60) snprintf(buf, sizeof(buf), "%ldh %ldm", minutes / 60, minutes % 60);
-    else snprintf(buf, sizeof(buf), "%ldm", minutes);
+    if (minutes >= 60) snprintf(buf, sizeof(buf), tr("%ldh %ldm"), minutes / 60, minutes % 60);
+    else snprintf(buf, sizeof(buf), tr("%ldm"), minutes);
     return buf;
 }
 

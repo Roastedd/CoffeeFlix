@@ -7,6 +7,7 @@
 
 #include "audio/mixer.hpp"
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/input.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
@@ -45,15 +46,15 @@ ui::Id g_rail_group = 0;
 
 struct RailEntry { Section s; int icon; const char* label; };
 const RailEntry RAIL[] = {
-    {SEC_HOME, ic::HOME, "Home"},
-    {SEC_SEARCH, ic::SEARCH, "Search"},
+    {SEC_HOME, ic::HOME, N_("Home")},
+    {SEC_SEARCH, ic::SEARCH, N_("Search")},
     {SEC_YOUTUBE, ic::SMART_DISPLAY, "YouTube"},
     {SEC_JELLYFIN, ic::VIDEO_LIBRARY, "Jellyfin"},
     {SEC_TWITCH, ic::LIVE_TV, "Twitch"},
-    {SEC_RADIO, ic::RADIO, "Radio"},
-    {SEC_PODCASTS, ic::PODCASTS, "Podcasts"},
-    {SEC_MEDIA, ic::FOLDER, "My Media"},
-    {SEC_SETTINGS, ic::SETTINGS, "Settings"},
+    {SEC_RADIO, ic::RADIO, N_("Radio")},
+    {SEC_PODCASTS, ic::PODCASTS, N_("Podcasts")},
+    {SEC_MEDIA, ic::FOLDER, N_("My Media")},
+    {SEC_SETTINGS, ic::SETTINGS, N_("Settings")},
 };
 
 ui::Id rail_id(Section s) { return ui::id(g_rail_group, (int64_t)s); }
@@ -113,7 +114,7 @@ void draw_rail() {
             gfx::push_alpha(anim::smoothstep((open - 0.25f) / 0.75f));
             Color lc = gfx::lerp(active ? t.text : t.text2, gfx::rgb(0x15121A), f);
             text::draw(active ? font::body_bold : font::body, 76 + bump_x(rail_id(e.s)),
-                       br.cy() - text::line_height(font::body) * 0.5f, e.label, lc);
+                       br.cy() - text::line_height(font::body) * 0.5f, tr(e.label), lc);
             gfx::pop_alpha();
         }
         y += 58;
@@ -275,6 +276,7 @@ int run(int, char**) {
     gfx::init(renderer);
     if (!text::init(content)) log_message(LOG_ERROR, "App", "Fonts missing in %s", content.c_str());
     store::load(platform::data_dir() + "/coffeeflix.json");
+    i18n::init(content);
     http::init(content + "/cacert.pem", platform::tune_socket);
     http::set_verify_tls(store::get_bool("verify_tls", true));
     tasks::init();

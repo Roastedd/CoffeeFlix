@@ -3,6 +3,7 @@
 #include <mutex>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
@@ -112,10 +113,11 @@ List search(const std::string& q, int limit) {
 
 const std::vector<Genre>& genres() {
     static const std::vector<Genre> g = {
-        {"Pop", "pop", ic::MUSIC},          {"Rock", "rock", ic::ALBUM},     {"Jazz", "jazz", ic::MUSIC},
-        {"Classical", "classical", ic::QUEUE_MUSIC}, {"Electronic", "electronic", ic::GRAPHIC_EQ},
-        {"Hip hop", "hip hop", ic::MIC},     {"Lo-fi", "lofi", ic::LOCAL_CAFE}, {"News", "news", ic::NEWSPAPER},
-        {"Talk", "talk", ic::PEOPLE},        {"Chill", "chillout", ic::AUTO_AWESOME},
+        {N_("Pop"), "pop", ic::MUSIC},           {N_("Rock"), "rock", ic::ALBUM},
+        {N_("Jazz"), "jazz", ic::MUSIC},         {N_("Classical"), "classical", ic::QUEUE_MUSIC},
+        {N_("Electronic"), "electronic", ic::GRAPHIC_EQ}, {N_("Hip hop"), "hip hop", ic::MIC},
+        {N_("Lo-fi"), "lofi", ic::LOCAL_CAFE},   {N_("News"), "news", ic::NEWSPAPER},
+        {N_("Talk"), "talk", ic::PEOPLE},        {N_("Chill"), "chillout", ic::AUTO_AWESOME},
     };
     return g;
 }

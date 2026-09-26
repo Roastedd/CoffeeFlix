@@ -3,6 +3,7 @@
 #include <tinyxml2.h>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
@@ -88,7 +89,7 @@ Shows top(const std::string& country) {
         ids += json::str(json_array_get(results, i), {"id"});
     }
     if (ids.empty()) {
-        out.error = "No podcasts found";
+        out.error = tr("No podcasts found");
         return out;
     }
     // The chart doesn't include feed URLs: look them up in one batch.
@@ -121,13 +122,13 @@ Feed load(const std::string& feed_url) {
     }
     tinyxml2::XMLDocument doc;
     if (doc.Parse(r.body.data(), r.body.size()) != tinyxml2::XML_SUCCESS) {
-        f.error = "This feed couldn't be read";
+        f.error = tr("This feed couldn't be read");
         return f;
     }
     const tinyxml2::XMLElement* ch = doc.FirstChildElement("rss");
     ch = ch ? ch->FirstChildElement("channel") : nullptr;
     if (!ch) {
-        f.error = "Not a podcast feed";
+        f.error = tr("Not a podcast feed");
         return f;
     }
     f.show.feed_url = feed_url;

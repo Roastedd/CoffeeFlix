@@ -1,4 +1,5 @@
 // Podcasts: subscriptions, charts, search and show pages.
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -56,8 +57,8 @@ public:
         text::draw_fit(font::headline, x0, y, W - x0 - 60, title_, theme().text);
         y += 80;
         if (loader_.loaded && loader_.shows.items.empty()) {
-            if (loader_.shows.error.empty()) empty_state(Rect(x0, y, W - x0 - 60, 280), ic::PODCASTS, "No podcasts found", "");
-            else if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, "Couldn't search podcasts",
+            if (loader_.shows.error.empty()) empty_state(Rect(x0, y, W - x0 - 60, 280), ic::PODCASTS, tr("No podcasts found"), "");
+            else if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, tr("Couldn't search podcasts"),
                                         loader_.shows.error.c_str()))
                 loader_.load(loader_.fn);
             y += 320;
@@ -110,22 +111,22 @@ public:
         if (!feed_.description.empty()) ty += text::draw_wrapped(font::small, Rect(tx, ty, tw, 70), feed_.description, t.text3, 3) + 12;
         Id ag = id(g, "actions");
         bool sub = podcasts::is_subscribed(show_.feed_url);
-        float bw = measure_button(sub ? "Subscribed" : "Subscribe", sub ? ic::CHECK : ic::ADD);
-        if (button(id(ag, "sub"), Rect(tx, std::max(ty, y + 160), bw, 52), sub ? "Subscribed" : "Subscribe", sub ? ic::CHECK : ic::ADD,
+        float bw = measure_button(sub ? tr("Subscribed") : tr("Subscribe"), sub ? ic::CHECK : ic::ADD);
+        if (button(id(ag, "sub"), Rect(tx, std::max(ty, y + 160), bw, 52), sub ? tr("Subscribed") : tr("Subscribe"), sub ? ic::CHECK : ic::ADD,
                    sub ? BTN_NORMAL : BTN_PRIMARY, ag, F_DEFAULT)) {
             bool on = podcasts::toggle_subscription(show_);
-            toast(on ? "Subscribed to " + show_.title : "Unsubscribed", on ? ic::CHECK_CIRCLE : ic::REMOVE);
+            toast(on ? util::fmt(tr("Subscribed to %s"), show_.title.c_str()) : tr("Unsubscribed"), on ? ic::CHECK_CIRCLE : ic::REMOVE);
         }
         y += 256;
         if (focus_in_group(ag)) page_.focus_range(0, y + page_.scroll());
 
-        text::draw(font::title, x0, y, "Episodes", t.text);
+        text::draw(font::title, x0, y, tr("Episodes"), t.text);
         y += 52;
         if (loading_) {
             loading_indicator(x0 + 40, y + 20, nullptr);
             y += 80;
         } else if (!feed_.ok) {
-            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 260), ic::ERROR_OUTLINE, "Couldn't load episodes",
+            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 260), ic::ERROR_OUTLINE, tr("Couldn't load episodes"),
                                    feed_.error.c_str()))
                 load();
             y += 320;
@@ -149,7 +150,7 @@ public:
             }
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Play"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Play")}, {"B", tr("Back")}});
     }
 
 private:
@@ -164,7 +165,7 @@ private:
         std::string meta = e.published;
         if (e.duration > 0) meta += (meta.empty() ? "" : " \xC2\xB7 ") + util::format_duration(e.duration);
         double pos = store::resume_position("podcast", e.guid);
-        if (pos > 0) meta += " \xC2\xB7 " + util::format_duration(std::max(0.0, e.duration - pos)) + " left";
+        if (pos > 0) meta += " \xC2\xB7 " + util::fmt(tr("%s left"), util::format_duration(std::max(0.0, e.duration - pos)).c_str());
         text::draw_fit(font::small, br.x + 66, br.y + 40, br.w - 90, meta, fg2);
         if (pos > 0 && e.duration > 0) {
             Rect pb(br.x + 66, br.y + 64, 160, 3);
@@ -208,10 +209,10 @@ public:
         Id g = id("podcasts");
         page_.begin(id(g, "page"));
         float y = page_.y(52);
-        text::draw(font::display, x0, y, "Podcasts", t.text);
+        text::draw(font::display, x0, y, tr("Podcasts"), t.text);
         Id top = id(g, "top");
-        if (search_bar(id(top, "search"), Rect(x0 + 290, y + 4, W - x0 - 350, 56), "", "Search podcasts", top, F_DEFAULT))
-            prompt_text("Search podcasts", "", "Show or topic", [](std::string q) {
+        if (search_bar(id(top, "search"), Rect(x0 + 290, y + 4, W - x0 - 350, 56), "", tr("Search podcasts"), top, F_DEFAULT))
+            prompt_text(tr("Search podcasts"), "", tr("Show or topic"), [](std::string q) {
                 if (!q.empty()) app::push(make_podcast_search(q));
             });
         y += 96;
@@ -223,7 +224,7 @@ public:
             if (r.service == "podcast") resume.push_back(r);
         if (!resume.empty()) {
             ShelfSpec s;
-            s.title = "Continue listening";
+            s.title = tr("Continue listening");
             s.count = (int)resume.size();
             s.shape = CARD_SQUARE;
             s.item_w = 170;
@@ -248,7 +249,7 @@ public:
         auto subs = podcasts::subscriptions();
         if (!subs.empty()) {
             ShelfSpec s;
-            s.title = "Your subscriptions";
+            s.title = tr("Your subscriptions");
             s.count = (int)subs.size();
             s.shape = CARD_SQUARE;
             s.item_w = 170;
@@ -258,13 +259,13 @@ public:
         }
 
         if (top_.loaded && top_.shows.items.empty() && !top_.shows.error.empty()) {
-            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 260), ic::WIFI_OFF, "Couldn't load top podcasts",
+            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 260), ic::WIFI_OFF, tr("Couldn't load top podcasts"),
                                    top_.shows.error.c_str()))
                 top_.load(top_.fn);
             y += 320;
         } else {
             ShelfSpec s;
-            s.title = "Top podcasts";
+            s.title = tr("Top podcasts");
             s.count = (int)top_.shows.items.size();
             s.loading = !top_.loaded;
             s.shape = CARD_SQUARE;
@@ -274,7 +275,7 @@ public:
             y += shelf(id(g, "top"), x0, y, s, &page_) + 10;
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Open"}});
+        hint_bar({{"A", tr("Open")}});
     }
 
 private:

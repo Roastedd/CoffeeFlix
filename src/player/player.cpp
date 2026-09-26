@@ -22,6 +22,7 @@ extern "C" {
 
 #include "audio/mixer.hpp"
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -219,7 +220,7 @@ struct Session {
 
     // Loading diagnostics and watchdog.
     double created = now();
-    std::atomic<int> step{0};                // what the opener is doing (STEP_NAMES)
+    std::atomic<int> step{0};                // what the opener is doing (STEP_TIMEOUTS)
     double opened_at = 0;                    // streams open, decoders ready
     std::atomic<int> packets_read{0};        // by the demuxers
     std::atomic<int> video_in{0}, video_out{0};  // packets given to the video decoder (from a keyframe on), pictures back
@@ -286,8 +287,11 @@ void set_error(Session& s, const std::string& e) {
     log_message(LOG_ERROR, "Player", "%s", e.c_str());
 }
 
-const char* const STEP_NAMES[] = {"finding the stream", "connecting to the video", "connecting to the audio",
-                                   "setting up decoding"};
+// Why opening gave up, by step.
+const char* const STEP_TIMEOUTS[] = {N_("Timed out while finding the stream"),
+                                     N_("Timed out while connecting to the video"),
+                                     N_("Timed out while connecting to the audio"),
+                                     N_("Timed out while setting up decoding")};
 
 int interrupt_cb(void* opaque) { return ((std::atomic<bool>*)opaque)->load() ? 1 : 0; }
 
@@ -367,7 +371,7 @@ AVFormatContext* open_input(Session& s, const std::string& url, bool& network) {
     av_dict_free(&opts);
     if (r < 0) {
         free_custom_io(custom_pb);
-        if (!s.abort) set_error(s, "Couldn't open stream (" + av_err(r) + ")");
+        if (!s.abort) set_error(s, util::fmt(tr("Couldn't open stream (%s)"), av_err(r).c_str()));
         return nullptr;
     }
     r = avformat_find_stream_info(fmt, nullptr);
@@ -458,12 +462,13 @@ std::string stream_label(AVStream* st, int n) {
     std::string lang, title;
     if (AVDictionaryEntry* e = av_dict_get(st->metadata, "language", nullptr, 0)) lang = e->value;
     if (AVDictionaryEntry* e = av_dict_get(st->metadata, "title", nullptr, 0)) title = e->value;
-    std::string label = !title.empty() ? title : !lang.empty() ? util::lower(lang) : util::fmt("Track %d", n);
+    std::string label = !title.empty() ? title : !lang.empty() ? util::lower(lang) : util::fmt(tr("Track %d"), n);
     if (!title.empty() && !lang.empty() && title.find(lang) == std::string::npos) label += " (" + lang + ")";
     const char* cname = avcodec_get_name(st->codecpar->codec_id);
     if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
         int ch = stream_channels(st->codecpar);
-        label += util::fmt(" \xC2\xB7 %s %s", util::lower(cname).c_str(), ch >= 6 ? "5.1" : ch == 2 ? "stereo" : ch == 1 ? "mono" : "");
+        label += util::fmt(" \xC2\xB7 %s %s", util::lower(cname).c_str(),
+                           ch >= 6 ? "5.1" : ch == 2 ? tr("stereo") : ch == 1 ? tr("mono") : "");
     }
     return label;
 }
@@ -883,7 +888,7 @@ void open_session(std::shared_ptr<Session> sp) {
         bool ok = resolved.resolve(resolved, err);
         if (s.abort) return;
         if (!ok) {
-            set_error(s, err.empty() ? "Couldn't load this stream" : err);
+            set_error(s, err.empty() ? tr("Couldn't load this stream") : err);
             return;
         }
         resolved.resolve = nullptr;
@@ -948,7 +953,7 @@ void open_session(std::shared_ptr<Session> sp) {
 
     Input& ain = s.in[s.audio_input];
     if (v < 0 && ain.audio < 0) {
-        set_error(s, "No playable audio or video found");
+        set_error(s, tr("No playable audio or video found"));
         return;
     }
 
@@ -969,7 +974,7 @@ void open_session(std::shared_ptr<Session> sp) {
                         s.hw && s.decoding == 1 ? " (without unreferenced pictures)" : "");
         if (!s.vdec) {
             if (ain.audio < 0) {
-                set_error(s, util::fmt("Unsupported video codec (%s)", avcodec_get_name(st->codecpar->codec_id)));
+                set_error(s, util::fmt(tr("Unsupported video codec (%s)"), avcodec_get_name(st->codecpar->codec_id)));
                 return;
             }
             s.in[0].video = -1;  // play the audio at least
@@ -996,7 +1001,7 @@ void open_session(std::shared_ptr<Session> sp) {
         }
     }
     if (!s.has_video && !s.has_audio) {
-        set_error(s, "Unsupported codecs");
+        set_error(s, tr("Unsupported codecs"));
         return;
     }
     {
@@ -1218,7 +1223,7 @@ bool buffering_watchdog(Session& s, double t) {
     }
     if (s.progress_at > 0 && t - s.progress_at > 30) {
         s.abort = true;
-        set_error(s, "Stopped loading: nothing arrived for 30 seconds");
+        set_error(s, tr("Stopped loading: nothing arrived for 30 seconds"));
         return true;
     }
     return false;
@@ -1688,7 +1693,7 @@ void update() {
     double t = now();
     if (st == OPENING && t - s.created > 60 && !s.abort) {
         s.abort = true;  // FFmpeg's interrupt callback ends whatever the opener is waiting for
-        set_error(s, util::fmt("Timed out while %s", STEP_NAMES[std::clamp((int)s.step, 0, 3)]));
+        set_error(s, tr(STEP_TIMEOUTS[std::clamp((int)s.step, 0, 3)]));
         return;
     }
     if (st == OPENING || st == FAILED || st == IDLE) return;

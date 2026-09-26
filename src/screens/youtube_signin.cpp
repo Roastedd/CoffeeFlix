@@ -2,6 +2,7 @@
 // scan the QR code, or go to the address and type the code.
 #include <cmath>
 
+#include "core/i18n.hpp"
 #include "core/qr.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -26,9 +27,9 @@ public:
         const Theme& t = theme();
         float x0 = content_x();
         Id g = id("ytsignin");
-        text::draw(font::display, x0, 60, done_ ? "You're signed in" : "Sign in to YouTube", t.text);
+        text::draw(font::display, x0, 60, done_ ? tr("You're signed in") : tr("Sign in to YouTube"), t.text);
         text::draw(font::body, x0 + 2, 122,
-                   done_ ? "Signed in with Google." : "Bring your subscriptions and recommendations to CoffeeFlix.",
+                   done_ ? tr("Signed in with Google.") : tr("Bring your subscriptions and recommendations to CoffeeFlix."),
                    t.text2);
 
         Rect panel(x0, 176, W - x0 - 60, 400);
@@ -42,46 +43,47 @@ public:
         }
         if (code_.user_code.empty()) {
             if (error_.empty()) {
-                loading_indicator(panel.cx(), panel.cy() - 10, "Getting a code\xE2\x80\xA6");
-            } else if (empty_state_action(id(g, "retry"), panel, ic::WIFI_OFF, "Couldn't start signing in", error_.c_str())) {
+                loading_indicator(panel.cx(), panel.cy() - 10, tr("Getting a code\xE2\x80\xA6"));
+            } else if (empty_state_action(id(g, "retry"), panel, ic::WIFI_OFF, tr("Couldn't start signing in"),
+                                          error_.c_str())) {
                 request();
             }
-            hint_bar({{"B", "Back"}});
+            hint_bar({{"B", tr("Back")}});
             return;
         }
 
         // Left: the QR code. Right: the same in three steps.
         float qr_side = draw_qr(panel.x + 52, panel.y + 48, 236);
-        text::draw(font::small_bold, panel.x + 52 + qr_side * 0.5f, panel.y + 48 + qr_side + 18, "Scan with your phone",
-                   t.text2, text::CENTER);
+        text::draw(font::small_bold, panel.x + 52 + qr_side * 0.5f, panel.y + 48 + qr_side + 18,
+                   tr("Scan with your phone"), t.text2, text::CENTER);
 
         float div_x = panel.x + 356;
         gfx::fill_rect(Rect(div_x, panel.y + 48, 1, panel.h - 96), Color(255, 255, 255, 22));
         gfx::fill_circle(div_x, panel.cy(), 20, gfx::rgb(0x1C1A20));
         gfx::stroke_circle(div_x, panel.cy(), 20, 1, Color(255, 255, 255, 30));
-        text::draw(font::small_bold, div_x, panel.cy() - 11, "or", t.text3, text::CENTER);
+        text::draw(font::small_bold, div_x, panel.cy() - 11, tr("or"), t.text3, text::CENTER);
 
         float rx = div_x + 56, ry = panel.y + 44;
         step(rx, ry, 1);
-        text::draw(font::body, rx + 50, ry, "On a phone or computer, go to", t.text2);
+        text::draw(font::body, rx + 50, ry, tr("On a phone or computer, go to"), t.text2);
         text::draw(font::title, rx + 50, ry + 28, site(), t.text);
 
         ry += 102;
         step(rx, ry, 2);
-        text::draw(font::body, rx + 50, ry, "Enter this code", t.text2);
+        text::draw(font::body, rx + 50, ry, tr("Enter this code"), t.text2);
         draw_code(rx + 50, ry + 34);
 
         ry += 142;
         step(rx, ry, 3);
-        text::draw(font::body, rx + 50, ry, "Choose your Google account, then Allow", t.text2);
+        text::draw(font::body, rx + 50, ry, tr("Choose your Google account, then Allow"), t.text2);
 
         // Status along the bottom of the panel.
         float sy = panel.b() - 52;
         if (error_.empty()) {
             spinner(rx + 60, sy + 10, 9, t.accent, 3);
-            text::draw(font::small_bold, rx + 80, sy, "Waiting for you to allow it\xE2\x80\xA6", t.text2);
+            text::draw(font::small_bold, rx + 80, sy, tr("Waiting for you to allow it\xE2\x80\xA6"), t.text2);
             int left = std::max(0, (int)(expires_ - ui::time()));
-            text::draw(font::small, panel.r() - 44, sy, util::fmt("Code works for %d:%02d", left / 60, left % 60),
+            text::draw(font::small, panel.r() - 44, sy, util::fmt(tr("Code works for %d:%02d"), left / 60, left % 60),
                        t.text3, text::RIGHT);
         } else {
             text::icon(ic::ERROR_OUTLINE, 22, rx + 60, sy + 10, t.bad);
@@ -91,13 +93,13 @@ public:
         // Below the panel: what Google will show, and the buttons.
         float by = panel.b() + 22;
         Id bg = id(g, "buttons");
-        float cw = measure_button("Cancel", ic::CLOSE), nw = measure_button("New code", ic::REFRESH);
-        if (button(id(bg, "cancel"), Rect(panel.r() - cw, by, cw, 46), "Cancel", ic::CLOSE, BTN_NORMAL, bg,
+        float cw = measure_button(tr("Cancel"), ic::CLOSE), nw = measure_button(tr("New code"), ic::REFRESH);
+        if (button(id(bg, "cancel"), Rect(panel.r() - cw, by, cw, 46), tr("Cancel"), ic::CLOSE, BTN_NORMAL, bg,
                    error_.empty() ? F_DEFAULT : 0)) {
             app::pop();
             return;
         }
-        if (button(id(bg, "new"), Rect(panel.r() - cw - 14 - nw, by, nw, 46), "New code", ic::REFRESH,
+        if (button(id(bg, "new"), Rect(panel.r() - cw - 14 - nw, by, nw, 46), tr("New code"), ic::REFRESH,
                    error_.empty() ? BTN_GHOST : BTN_PRIMARY, bg, error_.empty() ? 0 : F_DEFAULT)) {
             request();
             return;
@@ -105,10 +107,10 @@ public:
         // The code belongs to the OAuth client of YouTube's VR app (see yt_account.cpp), so that's
         // the app Google's page names.
         text::draw_wrapped(font::small, Rect(x0 + 4, by + 2, panel.w - cw - nw - 60, 46),
-                           "Google's page will name YouTube's VR app: that's how CoffeeFlix signs in. Your password "
-                           "stays with Google, and you can sign out in Settings.",
+                           tr("Google's page will name YouTube's VR app: that's how CoffeeFlix signs in. Your password "
+                              "stays with Google, and you can sign out in Settings."),
                            t.text3, 2);
-        hint_bar({{"A", "Select"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Select")}, {"B", tr("Back")}});
         if (error_.empty()) poll();
     }
 
@@ -196,17 +198,17 @@ private:
 
         text::draw(font::headline, cx, top + r * 2 + 24, yt_account::name(), t.text, text::CENTER);
         text::draw_wrapped(font::body, Rect(cx - 330, top + r * 2 + 76, 660, 60),
-                           "Your subscriptions and YouTube's recommendations now show in CoffeeFlix, and subscribing "
-                           "here updates your account.",
+                           tr("Your subscriptions and YouTube's recommendations now show in CoffeeFlix, and subscribing "
+                              "here updates your account."),
                            t.text2, 2, text::CENTER);
         Id bg = id(g, "done");
-        float bw = std::max(200.0f, measure_button("Continue", ic::ARROW_FORWARD));
-        if (button(id(bg, "continue"), Rect(cx - bw * 0.5f, panel.b() - 82, bw, 50), "Continue", ic::ARROW_FORWARD,
+        float bw = std::max(200.0f, measure_button(tr("Continue"), ic::ARROW_FORWARD));
+        if (button(id(bg, "continue"), Rect(cx - bw * 0.5f, panel.b() - 82, bw, 50), tr("Continue"), ic::ARROW_FORWARD,
                    BTN_PRIMARY, bg, F_DEFAULT)) {
             app::pop();
             return;
         }
-        hint_bar({{"A", "Continue"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Continue")}, {"B", tr("Back")}});
     }
 
     void request() {
@@ -230,7 +232,7 @@ private:
     void poll() {
         if (polling_ || ui::time() < next_poll_) return;
         if (ui::time() > expires_) {
-            toast("The code ran out of time, here's a new one", ic::REFRESH);
+            toast(tr("The code ran out of time, here's a new one"), ic::REFRESH);
             request();
             return;
         }
@@ -278,10 +280,10 @@ void account_menu() {
         app::push(make_sign_in());
         return;
     }
-    show_menu(yt_account::name(), "Signed in to YouTube", {
-        {"Sign out", ic::LOGOUT, [] {
+    show_menu(yt_account::name(), tr("Signed in to YouTube"), {
+        {tr("Sign out"), ic::LOGOUT, [] {
              yt_account::sign_out();
-             toast("Signed out of YouTube", ic::LOGOUT);
+             toast(tr("Signed out of YouTube"), ic::LOGOUT);
          }},
     });
 }

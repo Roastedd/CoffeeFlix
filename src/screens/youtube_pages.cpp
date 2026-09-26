@@ -9,6 +9,7 @@
 #include <mutex>
 #include <set>
 
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
@@ -85,7 +86,7 @@ CardInfo video_card(const youtube::Video& v) {
     if (!v.views.empty()) sub += (sub.empty() ? "" : " \xC2\xB7 ") + v.views;
     if (!v.published.empty()) sub += (sub.empty() ? "" : " \xC2\xB7 ") + v.published;
     c.subtitle = sub;
-    c.badge = v.live ? "" : v.duration;
+    c.badge = v.live ? "" : youtube::duration_label(v);
     c.live = v.live;
     c.icon = ic::SMART_DISPLAY;
     double pos = store::resume_position("youtube", v.id);
@@ -191,16 +192,17 @@ bool subscribed(const std::string& channel_id) { return store::fav_has(SUBS, cha
 
 void set_subscribed(const std::string& channel_id, const std::string& name, const std::string& avatar, bool on) {
     if (channel_id.empty()) {
-        toast("Channel unavailable for this video", ic::INFO);
+        toast(tr("Channel unavailable for this video"), ic::INFO);
         return;
     }
-    std::string who = name.empty() ? "channel" : name;
+    std::string who = name.empty() ? tr("channel") : name;
     store::Fav f{channel_id, name, "", avatar, ""};
     yt_recs::on_subscribe(channel_id, on);
     // Signed out, or unsubscribing from a channel only this console follows.
     if (!yt_account::signed_in() || (!on && !on_account(channel_id))) {
         store::fav_set(SUBS, f, on);
-        toast(on ? "Subscribed to " + who : "Unsubscribed from " + who, on ? ic::CHECK_CIRCLE : ic::REMOVE);
+        toast(on ? util::fmt(tr("Subscribed to %s"), who.c_str()) : util::fmt(tr("Unsubscribed from %s"), who.c_str()),
+              on ? ic::CHECK_CIRCLE : ic::REMOVE);
         return;
     }
     // On the account: shown straight away, put back if YouTube turns it down.
@@ -211,7 +213,8 @@ void set_subscribed(const std::string& channel_id, const std::string& name, cons
         std::lock_guard<std::mutex> lk(g_account_m);
         g_pending[channel_id] = on;
     }
-    toast(on ? "Subscribed to " + who : "Unsubscribed from " + who, on ? ic::CHECK_CIRCLE : ic::REMOVE);
+    toast(on ? util::fmt(tr("Subscribed to %s"), who.c_str()) : util::fmt(tr("Unsubscribed from %s"), who.c_str()),
+          on ? ic::CHECK_CIRCLE : ic::REMOVE);
     int version = yt_account::version();
     tasks::submit(tasks::API, [f, on, was_local, who, version]() -> std::function<void()> {
         std::string err;
@@ -228,7 +231,8 @@ void set_subscribed(const std::string& channel_id, const std::string& name, cons
             store::fav_set(ACCOUNT_SUBS, f, !on);
             if (!on && was_local) store::fav_set(SUBS, f, true);
             yt_recs::on_subscribe(f.id, !on);
-            toast(std::string(on ? "Couldn't subscribe to " : "Couldn't unsubscribe from ") + who + ": " + err,
+            toast(on ? util::fmt(tr("Couldn't subscribe to %s: %s"), who.c_str(), err.c_str())
+                     : util::fmt(tr("Couldn't unsubscribe from %s: %s"), who.c_str(), err.c_str()),
                   ic::ERROR_OUTLINE, theme().bad);
         };
     });
@@ -257,7 +261,7 @@ youtube::ChannelResults load_account_channels() {
     std::lock_guard<std::mutex> lk(g_account_m);
     if (yt_account::version() != version) {  // signed out or in again meanwhile
         r.ok = false;
-        r.error = "The account changed";
+        r.error = tr("The account changed");
         return r;
     }
     std::vector<store::Fav> list;
@@ -387,7 +391,7 @@ std::string import_subscriptions() {
         break;
     }
     if (used.empty())
-        return "Put subscriptions.csv (Google Takeout) or a NewPipe export in " + shown_path(dir);
+        return util::fmt(tr("Put subscriptions.csv (Google Takeout) or a NewPipe export in %s"), shown_path(dir).c_str());
     int added = 0;
     // Oldest first, so the list ends up in the file's order.
     for (auto it = found.rbegin(); it != found.rend(); ++it) {
@@ -396,9 +400,9 @@ std::string import_subscriptions() {
         yt_recs::on_subscribe(it->first, true);
         added++;
     }
-    if (found.empty()) return "No channels found in " + used;
-    if (added == 0) return "Already subscribed to everything in " + used;
-    return util::fmt("Imported %d channel%s from %s", added, added == 1 ? "" : "s", used.c_str());
+    if (found.empty()) return util::fmt(tr("No channels found in %s"), used.c_str());
+    if (added == 0) return util::fmt(tr("Already subscribed to everything in %s"), used.c_str());
+    return util::fmt(added == 1 ? tr("Imported %d channel from %s") : tr("Imported %d channels from %s"), added, used.c_str());
 }
 
 std::string export_subscriptions() {
@@ -420,8 +424,8 @@ std::string export_subscriptions() {
     std::string path = util::join_path(platform::data_dir(), "youtube_subscriptions.json");
     bool ok = text && util::write_file_atomic(path, text);
     free(text);
-    if (!ok) return "Couldn't write " + shown_path(path);
-    return util::fmt("Saved %d channel%s to %s", (int)n, n == 1 ? "" : "s", shown_path(path).c_str());
+    if (!ok) return util::fmt(tr("Couldn't write %s"), shown_path(path).c_str());
+    return util::fmt(n == 1 ? tr("Saved %d channel to %s") : tr("Saved %d channels to %s"), (int)n, shown_path(path).c_str());
 }
 
 // --- library ------------------------------------------------------------------------------------
@@ -430,7 +434,7 @@ bool in_watch_later(const std::string& video_id) { return store::fav_has(LATER, 
 
 void set_watch_later(const youtube::Video& v, bool on) {
     store::fav_set(LATER, to_fav(v), on);
-    toast(on ? "Saved to Watch later" : "Removed from Watch later", on ? ic::WATCH_LATER : ic::REMOVE);
+    toast(on ? tr("Saved to Watch later") : tr("Removed from Watch later"), on ? ic::WATCH_LATER : ic::REMOVE);
 }
 
 std::vector<youtube::Video> watch_later() { return videos_in(LATER); }
@@ -446,7 +450,7 @@ bool playlist_saved(const std::string& playlist_id) { return store::fav_has(PLAY
 
 void set_playlist_saved(const youtube::Playlist& p, bool on) {
     store::fav_set(PLAYLISTS, store::Fav{p.id, p.title, p.channel, p.thumbnail, p.count}, on);
-    toast(on ? "Saved to your library" : "Removed from your library", on ? ic::PLAYLIST_ADD_CHECK : ic::REMOVE);
+    toast(on ? tr("Saved to your library") : tr("Removed from your library"), on ? ic::PLAYLIST_ADD_CHECK : ic::REMOVE);
 }
 
 std::vector<youtube::Playlist> saved_playlists() {
@@ -468,28 +472,29 @@ std::vector<youtube::Playlist> saved_playlists() {
 void video_menu(const youtube::Video& v, MenuOptions o) {
     std::vector<MenuItem> items;
     if (o.show_channel && !v.channel_id.empty())
-        items.push_back({"Go to channel", ic::ACCOUNT_CIRCLE, [v] { app::push(make_channel(v.channel_id, v.channel)); }});
+        items.push_back({tr("Go to channel"), ic::ACCOUNT_CIRCLE,
+                         [v] { app::push(make_channel(v.channel_id, v.channel)); }});
     if (!v.channel_id.empty()) {
         bool sub = subscribed(v.channel_id);
-        items.push_back({sub ? "Unsubscribe" : "Subscribe", sub ? ic::REMOVE : ic::PERSON_ADD,
+        items.push_back({sub ? tr("Unsubscribe") : tr("Subscribe"), sub ? ic::REMOVE : ic::PERSON_ADD,
                          [v, sub] { set_subscribed(v.channel_id, v.channel, "", !sub); }});
     }
     bool later = in_watch_later(v.id);
-    items.push_back({later ? "Remove from Watch later" : "Save to Watch later", ic::WATCH_LATER,
+    items.push_back({later ? tr("Remove from Watch later") : tr("Save to Watch later"), ic::WATCH_LATER,
                      [v, later] { set_watch_later(v, !later); }});
     if (!v.live)
-        items.push_back({"Play from the start", ic::REPLAY_10, [v] {
+        items.push_back({tr("Play from the start"), ic::REPLAY_10, [v] {
                              store::resume_remove("youtube", v.id);
                              play(v);
                          }});
-    items.push_back({"Not interested", ic::THUMB_DOWN, [v, removed = o.removed] {
+    items.push_back({tr("Not interested"), ic::THUMB_DOWN, [v, removed = o.removed] {
                          yt_recs::not_interested(v);
                          if (removed) removed();
-                         toast("Got it, you'll see less like this", ic::CHECK_CIRCLE);
+                         toast(tr("Got it, you'll see less like this"), ic::CHECK_CIRCLE);
                      }});
     for (MenuItem& e : o.extra) items.push_back(std::move(e));
     std::string sub = v.channel;
-    if (!v.duration.empty() && !v.live) sub += (sub.empty() ? "" : " \xC2\xB7 ") + v.duration;
+    if (!v.duration.empty() && !v.live) sub += (sub.empty() ? "" : " \xC2\xB7 ") + youtube::duration_label(v);
     show_menu(v.title, sub, std::move(items));
 }
 
@@ -552,7 +557,7 @@ float feed_state(Id id, Feed& f, float x, float y, const char* empty_title, cons
     Rect r(x, y, W - x - 60, 260);
     if (f.res.error.empty()) {
         empty_state(r, ic::SMART_DISPLAY, empty_title, empty_desc);
-    } else if (empty_state_action(id, r, ic::WIFI_OFF, "Couldn't reach YouTube", f.res.error.c_str())) {
+    } else if (empty_state_action(id, r, ic::WIFI_OFF, tr("Couldn't reach YouTube"), f.res.error.c_str())) {
         f.reload();
     }
     return 310;
@@ -608,10 +613,10 @@ public:
         float tx = av.r() + 28;
         Id ag = id(g, "actions");
         bool sub = subscribed(ch_.id);
-        const char* label = sub ? "Subscribed" : "Subscribe";
+        const char* label = sub ? tr("Subscribed") : tr("Subscribe");
         float bw = measure_button(label, sub ? ic::CHECK : ic::PERSON_ADD);
         float tw = cw - (tx - x0) - bw - 30;
-        text::draw_fit(font::headline, tx, y + 4, tw, ch_.name.empty() ? "Channel" : ch_.name, t.text);
+        text::draw_fit(font::headline, tx, y + 4, tw, ch_.name.empty() ? tr("Channel") : ch_.name, t.text);
         text::draw_fit(font::body, tx, y + 50, tw, joined({ch_.handle, ch_.subscribers, ch_.videos}), t.text2);
         std::string desc = ch_.description.substr(0, ch_.description.find('\n'));
         if (!desc.empty()) text::draw_fit(font::small, tx, y + 80, tw, desc, t.text3);
@@ -620,13 +625,14 @@ public:
             set_subscribed(ch_.id, ch_.name, ch_.avatar, !sub);
         y += 132;
 
-        static const char* const TABS[] = {"Videos", "Shorts", "Live", "Playlists"};
+        static const char* const TABS[] = {N_("Videos"), N_("Shorts"), N_("Live"), N_("Playlists")};
         static const int ICONS[] = {ic::SMART_DISPLAY, ic::BOLT, ic::SENSORS, ic::PLAYLIST_PLAY};
         Id tg = id(g, "tabs");
         float cx = x0;
         for (int i = 0; i < 4; i++) {
-            float w = text::measure(font::small_bold, TABS[i]) + 64;
-            if (chip(id(tg, (int64_t)i), Rect(cx, y, w, 44), TABS[i], tab_ == i, tg, ICONS[i]) && tab_ != i) {
+            const char* tab = tr(TABS[i]);
+            float w = text::measure(font::small_bold, tab) + 64;
+            if (chip(id(tg, (int64_t)i), Rect(cx, y, w, 44), tab, tab_ == i, tg, ICONS[i]) && tab_ != i) {
                 tab_ = i;
                 if (i < 3) feeds_[i].load();
                 else load_playlists(false);
@@ -639,8 +645,8 @@ public:
 
         if (tab_ < 3) {
             Feed& f = feeds_[tab_];
-            static const char* const EMPTY[] = {"No videos yet", "No Shorts", "No live streams"};
-            float h = feed_state(id(g, "retry"), f, x0, y, EMPTY[tab_], "Nothing on this tab.");
+            static const char* const EMPTY[] = {N_("No videos yet"), N_("No Shorts"), N_("No live streams")};
+            float h = feed_state(id(g, "retry"), f, x0, y, tr(EMPTY[tab_]), tr("Nothing on this tab."));
             if (h > 0) {
                 y += h;
             } else {
@@ -651,7 +657,7 @@ public:
             y += playlists_grid(g, x0, y);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Select"}, {"X", "More"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Select")}, {"X", tr("More")}, {"B", tr("Back")}});
     }
 
 private:
@@ -677,8 +683,9 @@ private:
     float playlists_grid(Id g, float x0, float y) {
         if (!pl_loading_ && pl_.items.empty()) {
             Rect r(x0, y, W - x0 - 60, 260);
-            if (pl_.error.empty()) empty_state(r, ic::PLAYLIST_PLAY, "No playlists", "This channel hasn't made any public playlists.");
-            else if (empty_state_action(id(g, "plretry"), r, ic::WIFI_OFF, "Couldn't reach YouTube", pl_.error.c_str()))
+            if (pl_.error.empty())
+                empty_state(r, ic::PLAYLIST_PLAY, tr("No playlists"), tr("This channel hasn't made any public playlists."));
+            else if (empty_state_action(id(g, "plretry"), r, ic::WIFI_OFF, tr("Couldn't reach YouTube"), pl_.error.c_str()))
                 load_playlists(false);
             return 310;
         }
@@ -695,7 +702,7 @@ private:
             youtube::Playlist p = pl_.items[i];
             if (p.channel.empty()) p.channel = ch_.name;
             bool saved = playlist_saved(p.id);
-            show_menu(p.title, p.count, {{saved ? "Remove from library" : "Save to library", ic::PLAYLIST_ADD,
+            show_menu(p.title, p.count, {{saved ? tr("Remove from library") : tr("Save to library"), ic::PLAYLIST_ADD,
                                           [p, saved] { set_playlist_saved(p, !saved); }}});
         };
         gs.on_reach_end = [this] { load_playlists(true); };
@@ -773,27 +780,29 @@ public:
         }
         if (!thumb.empty()) set_backdrop(thumb);
         float tx = art.r() + 32, tw = x0 + cw - tx;
-        text::draw_wrapped(font::headline, Rect(tx, y, tw, 90), info_.title.empty() ? "Playlist" : info_.title, t.text, 2);
-        float ty = y + text::measure_wrapped(font::headline, tw, info_.title.empty() ? "Playlist" : info_.title, 2) + 8;
+        std::string title = info_.title.empty() ? tr("Playlist") : info_.title;
+        text::draw_wrapped(font::headline, Rect(tx, y, tw, 90), title, t.text, 2);
+        float ty = y + text::measure_wrapped(font::headline, tw, title, 2) + 8;
         text::draw_fit(font::body, tx, ty, tw, joined({info_.channel, info_.count}), t.text2);
         Id ag = id(g, "actions");
         float by = y + 128, bx = tx;
-        float pw = measure_button("Play all", ic::PLAY);
-        if (button(id(ag, "play"), Rect(bx, by, pw, 52), "Play all", ic::PLAY, BTN_PRIMARY, ag, F_DEFAULT))
+        float pw = measure_button(tr("Play all"), ic::PLAY);
+        if (button(id(ag, "play"), Rect(bx, by, pw, 52), tr("Play all"), ic::PLAY, BTN_PRIMARY, ag, F_DEFAULT))
             play_all(feed_.res.items, 0);
         bx += pw + 14;
-        float sw = measure_button("Shuffle", ic::SHUFFLE);
-        if (button(id(ag, "shuffle"), Rect(bx, by, sw, 52), "Shuffle", ic::SHUFFLE, BTN_NORMAL, ag)) shuffle();
+        float sw = measure_button(tr("Shuffle"), ic::SHUFFLE);
+        if (button(id(ag, "shuffle"), Rect(bx, by, sw, 52), tr("Shuffle"), ic::SHUFFLE, BTN_NORMAL, ag)) shuffle();
         bx += sw + 14;
         bool saved = playlist_saved(info_.id);
-        const char* sl = saved ? "Saved" : "Save";
+        const char* sl = saved ? tr("Saved") : tr("Save");
         if (button(id(ag, "save"), Rect(bx, by, measure_button(sl, ic::PLAYLIST_ADD), 52), sl,
                    saved ? ic::PLAYLIST_ADD_CHECK : ic::PLAYLIST_ADD, BTN_NORMAL, ag))
             set_playlist_saved(info_, !saved);
         y += 216;
         if (focus_in_group(ag)) page_.focus_range(0, y + page_.scroll());
 
-        float h = feed_state(id(g, "retry"), feed_, x0, y, "This playlist is empty", "Its videos may be private or removed.");
+        float h = feed_state(id(g, "retry"), feed_, x0, y, tr("This playlist is empty"),
+                             tr("Its videos may be private or removed."));
         if (h > 0) {
             y += h;
         } else {
@@ -802,7 +811,7 @@ public:
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Play"}, {"X", "More"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Play")}, {"X", tr("More")}, {"B", tr("Back")}});
     }
 
 private:
@@ -837,30 +846,31 @@ public:
         Id g = id("ytsubs");
         page_.begin(id(g, "page"));
         float y = page_.y(56);
-        text::draw(font::headline, x0, y, "Subscriptions", t.text);
-        const char* where = account_ ? "from your YouTube account and this console" : "stored on this console";
-        text::draw(font::body, x0, y + 46,
-                   chans_.empty() ? std::string(account_ ? "From your YouTube account and this console" : "Stored on this console")
-                                  : util::fmt("%d channels \xC2\xB7 %s", (int)chans_.size(), where),
-                   t.text2);
+        text::draw(font::headline, x0, y, tr("Subscriptions"), t.text);
+        int n = (int)chans_.size();
+        std::string sub;
+        if (chans_.empty()) sub = account_ ? tr("From your YouTube account and this console") : tr("Stored on this console");
+        else if (account_) sub = util::fmt(tr("%d channels \xC2\xB7 from your YouTube account and this console"), n);
+        else sub = util::fmt(tr("%d channels \xC2\xB7 stored on this console"), n);
+        text::draw(font::body, x0, y + 46, sub, t.text2);
         y += 100;
 
         if (chans_.empty() && chans_loading_) {
             loading_indicator(x0 + (W - x0 - 60) * 0.5f, y + 120);
             page_.end(y + 330 + page_.scroll());
-            hint_bar({{"B", "Back"}});
+            hint_bar({{"B", tr("Back")}});
             return;
         }
         if (chans_.empty()) {
-            empty_state(Rect(x0, y, W - x0 - 60, 280), ic::SUBSCRIPTIONS, "No subscriptions yet",
-                        "Press X on a video and pick Subscribe, or import them from Google Takeout or NewPipe in Settings.");
+            empty_state(Rect(x0, y, W - x0 - 60, 280), ic::SUBSCRIPTIONS, tr("No subscriptions yet"),
+                        tr("Press X on a video and pick Subscribe, or import them from Google Takeout or NewPipe in Settings."));
             page_.end(y + 330 + page_.scroll());
-            hint_bar({{"B", "Back"}});
+            hint_bar({{"B", tr("Back")}});
             return;
         }
 
         ShelfSpec s;
-        s.title = "Channels";
+        s.title = tr("Channels");
         s.count = (int)chans_.size();
         s.shape = CARD_CIRCLE;
         s.item_w = 130;
@@ -875,10 +885,10 @@ public:
         s.on_x = [this](int i) {
             youtube::Channel c = chans_[i];
             std::vector<MenuItem> items = {
-                {"Open channel", ic::ACCOUNT_CIRCLE, [c] { app::push(make_channel(c.id, c.name, c.avatar)); }},
+                {tr("Open channel"), ic::ACCOUNT_CIRCLE, [c] { app::push(make_channel(c.id, c.name, c.avatar)); }},
             };
             if (subscribed(c.id))
-                items.push_back({"Unsubscribe", ic::REMOVE, [this, c] {
+                items.push_back({tr("Unsubscribe"), ic::REMOVE, [this, c] {
                      set_subscribed(c.id, c.name, c.avatar, false);
                      chans_.erase(std::remove_if(chans_.begin(), chans_.end(), [&](const youtube::Channel& o) { return o.id == c.id; }),
                                   chans_.end());
@@ -888,17 +898,18 @@ public:
                                                           [&](const youtube::Video& v) { return v.channel_id == cid; }),
                                            feed_.res.items.end());
                  }});
-            show_menu(c.name, "Channel", std::move(items));
+            show_menu(c.name, tr("Channel"), std::move(items));
         };
         y += shelf(id(g, "chans"), x0, y, s, &page_) + 12;
 
-        text::draw(font::title, x0, y, "Latest videos", t.text);
+        text::draw(font::title, x0, y, tr("Latest videos"), t.text);
         y += 52;
-        float h = feed_state(id(g, "retry"), feed_, x0, y, "No videos yet", "Your channels haven't uploaded anything.");
+        float h = feed_state(id(g, "retry"), feed_, x0, y, tr("No videos yet"),
+                             tr("Your channels haven't uploaded anything."));
         if (h > 0) y += h;
         else y += grid(id(g, "grid"), x0, y, video_grid(feed_, false), &page_);
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Select"}, {"X", "More"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Select")}, {"X", tr("More")}, {"B", tr("Back")}});
     }
 
 private:
@@ -915,7 +926,7 @@ private:
                                                       [this](youtube::ChannelResults r) {
                 chans_loading_ = false;
                 if (!r.ok) {
-                    toast("Couldn't load your channels: " + r.error, ic::ERROR_OUTLINE, theme().bad);
+                    toast(util::fmt(tr("Couldn't load your channels: %s"), r.error.c_str()), ic::ERROR_OUTLINE, theme().bad);
                     return;
                 }
                 chans_ = std::move(r.items);
@@ -964,21 +975,21 @@ public:
         menu_open_ = menu;
         page_.begin(id(g, "page"));
         float y = page_.y(56);
-        text::draw(font::headline, x0, y, "Library", t.text);
-        text::draw(font::body, x0, y + 46, "Stored on this console", t.text2);
+        text::draw(font::headline, x0, y, tr("Library"), t.text);
+        text::draw(font::body, x0, y + 46, tr("Stored on this console"), t.text2);
         y += 100;
 
         if (later_.empty() && history_.empty() && playlists_.empty()) {
-            empty_state(Rect(x0, y, W - x0 - 60, 280), ic::VIDEO_LIBRARY, "Nothing here yet",
-                        "Videos you watch show up here. Press X on a video to save it to Watch later.");
+            empty_state(Rect(x0, y, W - x0 - 60, 280), ic::VIDEO_LIBRARY, tr("Nothing here yet"),
+                        tr("Videos you watch show up here. Press X on a video to save it to Watch later."));
             page_.end(y + 330 + page_.scroll());
-            hint_bar({{"B", "Back"}});
+            hint_bar({{"B", tr("Back")}});
             return;
         }
-        if (!later_.empty()) y += videos(id(g, "later"), x0, y, "Watch later", later_, true) + 12;
+        if (!later_.empty()) y += videos(id(g, "later"), x0, y, tr("Watch later"), later_, true) + 12;
         if (!playlists_.empty()) {
             ShelfSpec s;
-            s.title = "Saved playlists";
+            s.title = tr("Saved playlists");
             s.count = (int)playlists_.size();
             s.item_w = 300;
             s.item = [this](int i) { return playlist_card(playlists_[i]); };
@@ -986,24 +997,25 @@ public:
             s.on_focus = [this](int i) { set_backdrop(playlists_[i].thumbnail); };
             s.on_x = [this](int i) {
                 youtube::Playlist p = playlists_[i];
-                show_menu(p.title, p.channel, {{"Remove from library", ic::REMOVE, [p] { set_playlist_saved(p, false); }}});
+                show_menu(p.title, p.channel,
+                          {{tr("Remove from library"), ic::REMOVE, [p] { set_playlist_saved(p, false); }}});
             };
             y += shelf(id(g, "playlists"), x0, y, s, &page_) + 12;
         }
         if (!history_.empty()) {
-            y += videos(id(g, "history"), x0, y, "History", history_, false) + 12;
+            y += videos(id(g, "history"), x0, y, tr("History"), history_, false) + 12;
             Id ag = id(g, "actions");
-            float bw = measure_button("Clear history", ic::DELETE);
-            if (button(id(ag, "clear"), Rect(x0, y, bw, 48), "Clear history", ic::DELETE, BTN_GHOST, ag)) {
+            float bw = measure_button(tr("Clear history"), ic::DELETE);
+            if (button(id(ag, "clear"), Rect(x0, y, bw, 48), tr("Clear history"), ic::DELETE, BTN_GHOST, ag)) {
                 clear_history();
-                toast("History cleared", ic::DELETE);
+                toast(tr("History cleared"), ic::DELETE);
                 dirty_ = true;
             }
             if (focus_in_group(ag)) page_.focus_range(y + page_.scroll() - 60, y + page_.scroll() + 70);
             y += 70;
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Play"}, {"X", "More"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Play")}, {"X", tr("More")}, {"B", tr("Back")}});
     }
 
 private:
@@ -1022,7 +1034,7 @@ private:
         s.on_x = [&list, later](int i) {
             youtube::Video v = list[i];
             MenuOptions o;
-            if (!later) o.extra.push_back({"Remove from history", ic::HISTORY, [v] { remove_from_history(v.id); }});
+            if (!later) o.extra.push_back({tr("Remove from history"), ic::HISTORY, [v] { remove_from_history(v.id); }});
             video_menu(v, o);
         };
         return shelf(sid, x, y, s, &page_);

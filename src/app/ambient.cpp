@@ -6,6 +6,7 @@
 #include <string>
 
 #include "audio/mixer.hpp"
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
@@ -105,18 +106,26 @@ void draw_intro() {
         text::draw(big, x, y, "Coffee", t.text.alpha(na));
         text::draw(big, x + w1, y, "Flix", t.accent.alpha(na));
         float ta = anim::smoothstep((T - 0.5f) / 0.45f) * (1 - anim::clamp01((T - OUT) / 0.22f));
-        text::draw(font::label, W * 0.5f, y + 84, "Movies \xC2\xB7 Videos \xC2\xB7 Live \xC2\xB7 Radio \xC2\xB7 Podcasts",
+        text::draw(font::label, W * 0.5f, y + 84, tr("Movies \xC2\xB7 Videos \xC2\xB7 Live \xC2\xB7 Radio \xC2\xB7 Podcasts"),
                    t.text2.alpha(ta), text::CENTER);
     }
 }
+
+const char* const WEEKDAYS[] = {N_("Sunday"), N_("Monday"), N_("Tuesday"), N_("Wednesday"),
+                                N_("Thursday"), N_("Friday"), N_("Saturday")};
+const char* const MONTHS[] = {N_("January"), N_("February"), N_("March"),     N_("April"),
+                              N_("May"),     N_("June"),     N_("July"),      N_("August"),
+                              N_("September"), N_("October"), N_("November"), N_("December")};
 
 std::string date_line() {
     time_t now = time(nullptr);
     struct tm lt;
     localtime_r(&now, &lt);
-    char buf[64];
-    strftime(buf, sizeof(buf), "%A, %B %d", &lt);
-    return buf;
+    // Each language puts the parts in its own order.
+    std::string s = tr("{weekday}, {month} {day}");
+    s = util::replace_all(s, "{weekday}", tr(WEEKDAYS[lt.tm_wday]));
+    s = util::replace_all(s, "{month}", tr(MONTHS[lt.tm_mon]));
+    return util::replace_all(s, "{day}", std::to_string(lt.tm_mday));
 }
 
 // Slow Lissajous drift so nothing sits still long enough to burn in.

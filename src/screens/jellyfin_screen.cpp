@@ -1,6 +1,7 @@
 // Jellyfin: sign-in flow, home shelves, libraries and item details.
 #include <cmath>
 
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -41,7 +42,7 @@ struct Loader {
 
 std::string episode_label(const jf::Item& it) {
     if (it.type != "Episode") return it.year;
-    return util::fmt("S%d E%d \xC2\xB7 %s", it.parent_index, it.index, it.series_name.c_str());
+    return util::fmt(tr("S%d E%d \xC2\xB7 %s"), it.parent_index, it.index, it.series_name.c_str());
 }
 
 CardInfo poster_card(const jf::Item& it) {
@@ -49,7 +50,7 @@ CardInfo poster_card(const jf::Item& it) {
     c.image = jf::poster(it, 300);
     c.image_w = 300;
     c.title = it.name;
-    c.subtitle = it.type == "Series" && it.unplayed > 0 ? util::fmt("%d unwatched", it.unplayed) : it.year;
+    c.subtitle = it.type == "Series" && it.unplayed > 0 ? util::fmt(tr("%d unwatched"), it.unplayed) : it.year;
     c.icon = it.type == "MusicAlbum" ? ic::ALBUM : ic::MOVIE;
     c.favorite = it.favorite;
     if (it.position > 0 && it.runtime > 0) c.progress = (float)(it.position / it.runtime);
@@ -61,10 +62,10 @@ CardInfo thumb_card(const jf::Item& it) {
     c.image = jf::thumb(it, 480);
     c.image_w = 400;
     c.title = it.type == "Episode" ? it.series_name : it.name;
-    c.subtitle = it.type == "Episode" ? util::fmt("S%d E%d \xC2\xB7 %s", it.parent_index, it.index, it.name.c_str()) : it.year;
+    c.subtitle = it.type == "Episode" ? util::fmt(tr("S%d E%d \xC2\xB7 %s"), it.parent_index, it.index, it.name.c_str()) : it.year;
     c.icon = ic::MOVIE;
     if (it.position > 0 && it.runtime > 0) c.progress = (float)(it.position / it.runtime);
-    if (it.runtime > 0) c.badge = it.position > 0 ? util::format_duration(it.runtime - it.position) + " left"
+    if (it.runtime > 0) c.badge = it.position > 0 ? util::fmt(tr("%s left"), util::format_duration(it.runtime - it.position).c_str())
                                                   : util::format_ticks_duration((int64_t)(it.runtime * 1e7));
     return c;
 }
@@ -95,7 +96,7 @@ public:
         Id g = id("jf_connect");
         float y = 60;
         text::draw(font::display, x0, y, "Jellyfin", t.text);
-        text::draw(font::body, x0 + 2, y + 62, "Stream your own movies, shows and music from your Jellyfin server.", t.text2);
+        text::draw(font::body, x0 + 2, y + 62, tr("Stream your own movies, shows and music from your Jellyfin server."), t.text2);
         y += 130;
 
         Rect card(x0, y, 720, 420);
@@ -111,35 +112,36 @@ public:
 
         switch (step_) {
             case SERVER: {
-                text::draw(font::title, cx, cy, "Connect to your server", t.text);
+                text::draw(font::title, cx, cy, tr("Connect to your server"), t.text);
                 text::draw_wrapped(font::body, Rect(cx, cy + 44, cw, 60),
-                                   "Enter the address you use to open Jellyfin in a browser, e.g. 192.168.1.20 or jellyfin.example.com.",
+                                   tr("Enter the address you use to open Jellyfin in a browser, e.g. 192.168.1.20 or jellyfin.example.com."),
                                    t.text2, 2);
-                if (value_row(id(g, "addr"), Rect(cx, cy + 120, cw, 64), "Server", url_.empty() ? "Enter address" : url_.c_str(),
+                if (value_row(id(g, "addr"), Rect(cx, cy + 120, cw, 64), tr("Server"), url_.empty() ? tr("Enter address") : url_.c_str(),
                               ic::DNS, g))
-                    prompt_text("Jellyfin server address", url_, "192.168.1.20:8096", [this](std::string v) { url_ = v; }, false, true);
-                if (button(id(g, "continue"), Rect(cx, cy + 220, 220, 54), "Continue", ic::ARROW_FORWARD, BTN_PRIMARY, g,
+                    prompt_text(tr("Jellyfin server address"), url_, "192.168.1.20:8096", [this](std::string v) { url_ = v; }, false, true);
+                if (button(id(g, "continue"), Rect(cx, cy + 220, std::max(220.0f, measure_button(tr("Continue"), ic::ARROW_FORWARD)), 54), tr("Continue"), ic::ARROW_FORWARD, BTN_PRIMARY, g,
                            url_.empty() ? 0 : F_DEFAULT) && !url_.empty())
                     check_server();
                 break;
             }
             case METHOD: {
-                text::draw(font::title, cx, cy, server_name_.empty() ? "Jellyfin server" : server_name_, t.text);
+                text::draw(font::title, cx, cy, server_name_.empty() ? tr("Jellyfin server") : server_name_, t.text);
                 text::draw(font::small, cx, cy + 40, server_url_, t.text3);
-                if (big_option(id(g, "qc"), Rect(cx, cy + 90, cw, 100), ic::KEY, "Use Quick Connect",
-                               "Approve it from your phone, nothing to type", g, true))
+                if (big_option(id(g, "qc"), Rect(cx, cy + 90, cw, 100), ic::KEY, tr("Use Quick Connect"),
+                               tr("Approve it from your phone, nothing to type"), g, true))
                     start_quick_connect();
-                if (big_option(id(g, "pw"), Rect(cx, cy + 206, cw, 100), ic::PERSON, "Sign in with password",
-                               "Enter your username and password", g, false))
+                if (big_option(id(g, "pw"), Rect(cx, cy + 206, cw, 100), ic::PERSON, tr("Sign in with password"),
+                               tr("Enter your username and password"), g, false))
                     step_ = PASSWORD;
-                if (button(id(g, "change"), Rect(cx, cy + 322, 220, 46), "Change server", ic::ARROW_BACK, BTN_GHOST, g))
+                if (button(id(g, "change"), Rect(cx, cy + 322, std::max(220.0f, measure_button(tr("Change server"), ic::ARROW_BACK)), 46),
+                           tr("Change server"), ic::ARROW_BACK, BTN_GHOST, g))
                     step_ = SERVER;
                 break;
             }
             case QUICK: {
-                text::draw(font::title, cx, cy, "Enter this code", t.text);
+                text::draw(font::title, cx, cy, tr("Enter this code"), t.text);
                 text::draw_wrapped(font::body, Rect(cx, cy + 44, cw, 60),
-                                   "On your phone or computer, open Jellyfin \xE2\x86\x92 your profile \xE2\x86\x92 Quick Connect, and enter:",
+                                   tr("On your phone or computer, open Jellyfin \xE2\x86\x92 your profile \xE2\x86\x92 Quick Connect, and enter:"),
                                    t.text2, 2);
                 float tile = 70, gap = 14;
                 float total = code_.size() * (tile + gap) - gap;
@@ -151,9 +153,12 @@ public:
                     gfx::fill_rrect_vgrad(r, 16, t.accent, t.accent2);
                     text::draw(text::font(text::BOLD, 50), r.cx(), r.y + 14, std::string(1, code_[i]), gfx::rgb(0x1A1016), text::CENTER);
                 }
-                spinner(card.cx() - 90, cy + 275, 10, t.accent, 3);
-                text::draw(font::small_bold, card.cx() - 70, cy + 264, "Waiting for approval\xE2\x80\xA6", t.text2);
-                if (button(id(g, "cancel"), Rect(card.cx() - 90, cy + 310, 180, 46), "Cancel", ic::CLOSE, BTN_NORMAL, g, F_DEFAULT)) {
+                const char* waiting = tr("Waiting for approval\xE2\x80\xA6");
+                float sx = card.cx() - (30 + text::measure(font::small_bold, waiting)) * 0.5f;
+                spinner(sx + 10, cy + 275, 10, t.accent, 3);
+                text::draw(font::small_bold, sx + 30, cy + 264, waiting, t.text2);
+                float bw = std::max(180.0f, measure_button(tr("Cancel"), ic::CLOSE));
+                if (button(id(g, "cancel"), Rect(card.cx() - bw * 0.5f, cy + 310, bw, 46), tr("Cancel"), ic::CLOSE, BTN_NORMAL, g, F_DEFAULT)) {
                     poll_.reset();
                     step_ = METHOD;
                 }
@@ -161,17 +166,20 @@ public:
                 break;
             }
             case PASSWORD: {
-                text::draw(font::title, cx, cy, "Sign in", t.text);
-                if (value_row(id(g, "user"), Rect(cx, cy + 60, cw, 64), "Username", user_.empty() ? "Enter" : user_.c_str(),
+                text::draw(font::title, cx, cy, tr("Sign in"), t.text);
+                if (value_row(id(g, "user"), Rect(cx, cy + 60, cw, 64), tr("Username"), user_.empty() ? tr("Enter") : user_.c_str(),
                               ic::PERSON, g))
-                    prompt_text("Username", user_, "Username", [this](std::string v) { user_ = v; });
-                std::string masked = pass_.empty() ? "Enter" : std::string(pass_.size(), '*');
-                if (value_row(id(g, "pass"), Rect(cx, cy + 136, cw, 64), "Password", masked.c_str(), ic::LOCK, g))
-                    prompt_text("Password", "", "Password", [this](std::string v) { pass_ = v; }, true);
-                if (button(id(g, "signin"), Rect(cx, cy + 230, 200, 54), "Sign in", ic::ARROW_FORWARD, BTN_PRIMARY, g,
+                    prompt_text(tr("Username"), user_, tr("Username"), [this](std::string v) { user_ = v; });
+                std::string masked = pass_.empty() ? tr("Enter") : std::string(pass_.size(), '*');
+                if (value_row(id(g, "pass"), Rect(cx, cy + 136, cw, 64), tr("Password"), masked.c_str(), ic::LOCK, g))
+                    prompt_text(tr("Password"), "", tr("Password"), [this](std::string v) { pass_ = v; }, true);
+                float sw = std::max(200.0f, measure_button(tr("Sign in"), ic::ARROW_FORWARD));
+                if (button(id(g, "signin"), Rect(cx, cy + 230, sw, 54), tr("Sign in"), ic::ARROW_FORWARD, BTN_PRIMARY, g,
                            user_.empty() ? 0 : F_DEFAULT) && !user_.empty())
                     sign_in(on_signed_in);
-                if (button(id(g, "back"), Rect(cx + 216, cy + 230, 160, 54), "Back", ic::ARROW_BACK, BTN_GHOST, g)) step_ = METHOD;
+                if (button(id(g, "back"), Rect(cx + sw + 16, cy + 230, std::max(160.0f, measure_button(tr("Back"), ic::ARROW_BACK)), 54), tr("Back"),
+                           ic::ARROW_BACK, BTN_GHOST, g))
+                    step_ = METHOD;
                 break;
             }
         }
@@ -209,12 +217,12 @@ private:
     void check_server() {
         server_url_ = jf::normalize_url(url_);
         busy_ = true;
-        busy_label_ = "Connecting\xE2\x80\xA6";
+        busy_label_ = tr("Connecting\xE2\x80\xA6");
         std::string u = server_url_;
         scope_.run<jf::ServerInfo>([u] { return jf::server_info(u); }, [this](jf::ServerInfo info) {
             busy_ = false;
             if (!info.ok) {
-                toast("Couldn't connect: " + info.error, ic::ERROR_OUTLINE, theme().bad);
+                toast(util::fmt(tr("Couldn't connect: %s"), info.error.c_str()), ic::ERROR_OUTLINE, theme().bad);
                 return;
             }
             server_name_ = info.name;
@@ -225,7 +233,7 @@ private:
 
     void start_quick_connect() {
         busy_ = true;
-        busy_label_ = "Starting Quick Connect\xE2\x80\xA6";
+        busy_label_ = tr("Starting Quick Connect\xE2\x80\xA6");
         std::string u = server_url_;
         scope_.run<jf::QuickConnect>([u] { return jf::quick_connect_start(u); }, [this](jf::QuickConnect q) {
             busy_ = false;
@@ -249,11 +257,11 @@ private:
             polling_ = false;
             next_poll_ = ui::time() + 2.5;
             if (st < 0) {
-                toast("The code expired, starting over", ic::REFRESH);
+                toast(tr("The code expired, starting over"), ic::REFRESH);
                 step_ = METHOD;
             } else if (st > 0) {
                 busy_ = true;
-                busy_label_ = "Signing in\xE2\x80\xA6";
+                busy_label_ = tr("Signing in\xE2\x80\xA6");
                 scope_.run<jf::AuthResult>([u, sec] { return jf::quick_connect_finish(u, sec); },
                                            [this, on_signed_in](jf::AuthResult r) { done(r, on_signed_in); });
             }
@@ -262,7 +270,7 @@ private:
 
     void sign_in(const std::function<void()>& on_signed_in) {
         busy_ = true;
-        busy_label_ = "Signing in\xE2\x80\xA6";
+        busy_label_ = tr("Signing in\xE2\x80\xA6");
         std::string u = server_url_, user = user_, pass = pass_;
         scope_.run<jf::AuthResult>([u, user, pass] { return jf::sign_in(u, user, pass); },
                                    [this, on_signed_in](jf::AuthResult r) { done(r, on_signed_in); });
@@ -275,7 +283,7 @@ private:
             return;
         }
         pass_.clear();
-        toast("Signed in as " + jf::account().user_name, ic::CHECK_CIRCLE, theme().good);
+        toast(util::fmt(tr("Signed in as %s"), jf::account().user_name.c_str()), ic::CHECK_CIRCLE, theme().good);
         on_signed_in();
     }
 
@@ -327,15 +335,15 @@ public:
         std::string who = a.user_name + " \xC2\xB7 " + (a.server_name.empty() ? a.server : a.server_name);
         text::draw_fit(font::small, x0 + 4, y + 60, 400, who, t.text3);
         Id top = id(g, "top");
-        if (search_bar(id(top, "search"), Rect(x0 + 330, y + 4, W - x0 - 390, 56), "", "Search your library", top))
-            prompt_text("Search Jellyfin", "", "Movie, show or album", [](std::string q) {
+        if (search_bar(id(top, "search"), Rect(x0 + 330, y + 4, W - x0 - 390, 56), "", tr("Search your library"), top))
+            prompt_text(tr("Search Jellyfin"), "", tr("Movie, show or album"), [](std::string q) {
                 if (!q.empty()) app::push(make_jellyfin_search(q));
             });
         y += 96;
 
         // Libraries
         if (views_.loaded && views_.list.items.empty() && !views_.list.error.empty()) {
-            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, "Can't reach your server",
+            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, tr("Can't reach your server"),
                                    views_.list.error.c_str()))
                 load();
             page_.end(y + 330 + page_.scroll());
@@ -354,19 +362,19 @@ public:
         y += 72;
         if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
-        y += item_shelf(id(g, "resume"), x0, y, "Continue watching", resume_, CARD_WIDE, 320) ;
-        y += item_shelf(id(g, "nextup"), x0, y, "Next up", next_up_, CARD_WIDE, 320);
+        y += item_shelf(id(g, "resume"), x0, y, tr("Continue watching"), resume_, CARD_WIDE, 320) ;
+        y += item_shelf(id(g, "nextup"), x0, y, tr("Next up"), next_up_, CARD_WIDE, 320);
         for (size_t i = 0; i < latest_.size(); i++) {
             auto& [name, loader, music] = latest_[i];
             if (y < H + 400 && !loader->loaded && !loader->loading) {
                 std::string pid = latest_ids_[i];
                 loader->load([pid] { return jf::latest(pid); });
             }
-            y += item_shelf(id(g, (int64_t)(50 + i)), x0, y, ("Latest " + name).c_str(), *loader,
+            y += item_shelf(id(g, (int64_t)(50 + i)), x0, y, util::fmt(tr("Latest %s"), name.c_str()).c_str(), *loader,
                             music ? CARD_SQUARE : CARD_POSTER, music ? 190 : 170);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Open"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Open")}, {"B", tr("Back")}});
     }
 
 private:
@@ -432,10 +440,10 @@ public:
         page_.begin(id(g, "page"));
         float y = page_.y(52);
         text::draw_fit(font::display, x0, y, W - x0 - 60, view_.name, t.text);
-        if (total_ > 0) text::draw(font::small, x0 + 4, y + 60, util::fmt("%d items", total_), t.text3);
+        if (total_ > 0) text::draw(font::small, x0 + 4, y + 60, util::fmt(tr("%d items"), total_), t.text3);
         y += 96;
         Id sg = id(g, "sort");
-        const char* sorts[] = {"A\xE2\x80\x93Z", "Recently added", "Release date", "Rating"};
+        const char* sorts[] = {tr("A\xE2\x80\x93Z"), tr("Recently added"), tr("Release date"), tr("Rating")};
         const char* keys[] = {"SortName", "DateCreated", "PremiereDate", "CommunityRating"};
         float cx = x0;
         for (int i = 0; i < 4; i++) {
@@ -452,7 +460,7 @@ public:
 
         if (!loading_ && items_.empty()) {
             if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::VIDEO_LIBRARY,
-                                   error_.empty() ? "Nothing here yet" : "Couldn't load this library", error_.c_str()))
+                                   error_.empty() ? tr("Nothing here yet") : tr("Couldn't load this library"), error_.c_str()))
                 fetch(true);
             y += 330;
         } else {
@@ -472,7 +480,7 @@ public:
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Open"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Open")}, {"B", tr("Back")}});
     }
 
 private:
@@ -576,13 +584,13 @@ public:
         Id ag = id(g, "actions");
         float bx = x0;
         bool resumable = it_.position > 30;
-        std::string play_label = resumable ? "Resume " + util::format_duration(it_.position) : "Play";
+        std::string play_label = resumable ? util::fmt(tr("Resume %s"), util::format_duration(it_.position).c_str()) : tr("Play");
         const char* play_text = play_label.c_str();
         bool can_play = it_.type == "Movie" || it_.type == "Episode" || it_.type == "Video" || it_.type == "MusicAlbum" ||
                         (it_.type == "Series" && next_.loaded && !next_.list.items.empty());
         if (it_.type == "Series" && next_.loaded && !next_.list.items.empty()) {
             const jf::Item& n = next_.list.items[0];
-            play_label = util::fmt("Play S%d E%d", n.parent_index, n.index);
+            play_label = util::fmt(tr("Play S%d E%d"), n.parent_index, n.index);
             play_text = play_label.c_str();
         }
         if (can_play) {
@@ -590,22 +598,22 @@ public:
             if (button(id(ag, "play"), Rect(bx, y, w, 56), play_text, ic::PLAY, BTN_PRIMARY, ag, F_DEFAULT)) play(false);
             bx += w + 16;
             if (resumable) {
-                float rw = measure_button("From start", ic::REFRESH);
-                if (button(id(ag, "restart"), Rect(bx, y, rw, 56), "From start", ic::REFRESH, BTN_NORMAL, ag)) play(true);
+                float rw = measure_button(tr("From start"), ic::REFRESH);
+                if (button(id(ag, "restart"), Rect(bx, y, rw, 56), tr("From start"), ic::REFRESH, BTN_NORMAL, ag)) play(true);
                 bx += rw + 16;
             }
         }
         if (icon_button(id(ag, "fav"), bx + 28, y + 28, 28, it_.favorite ? ic::FAVORITE : ic::FAVORITE_BORDER, ag, 0, it_.favorite)) {
             it_.favorite = !it_.favorite;
             jf::set_favorite(it_.id, it_.favorite);
-            toast(it_.favorite ? "Added to favorites" : "Removed from favorites", ic::FAVORITE);
+            toast(it_.favorite ? tr("Added to favorites") : tr("Removed from favorites"), ic::FAVORITE);
         }
         bx += 72;
         if (it_.type == "Movie" || it_.type == "Episode" || it_.type == "Series") {
             if (icon_button(id(ag, "played"), bx + 28, y + 28, 28, ic::CHECK_CIRCLE, ag, 0, it_.played)) {
                 it_.played = !it_.played;
                 jf::set_played(it_.id, it_.played);
-                toast(it_.played ? "Marked as watched" : "Marked as unwatched", ic::CHECK_CIRCLE);
+                toast(it_.played ? tr("Marked as watched") : tr("Marked as unwatched"), ic::CHECK_CIRCLE);
             }
         }
         y += 96;
@@ -613,11 +621,11 @@ public:
 
         if (it_.type == "Series") y = series_section(g, x0, y);
         else if (it_.type == "MusicAlbum") y = tracks_section(g, x0, y);
-        else if (!children_.list.items.empty()) y += items_shelf(g, "children", x0, y, "Items", children_, CARD_POSTER);
-        else if (similar_.loaded && !similar_.list.items.empty()) y += items_shelf(g, "similar", x0, y, "More like this", similar_, CARD_POSTER);
+        else if (!children_.list.items.empty()) y += items_shelf(g, "children", x0, y, tr("Items"), children_, CARD_POSTER);
+        else if (similar_.loaded && !similar_.list.items.empty()) y += items_shelf(g, "similar", x0, y, tr("More like this"), similar_, CARD_POSTER);
 
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Select"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Select")}, {"B", tr("Back")}});
     }
 
 private:
@@ -700,7 +708,7 @@ private:
             CardInfo c = thumb_card(e);
             c.title = util::fmt("%d. %s", e.index, e.name.c_str());
             c.subtitle = e.runtime > 0 ? util::format_ticks_duration((int64_t)(e.runtime * 1e7)) : "";
-            if (e.played) c.subtitle += c.subtitle.empty() ? "Watched" : " \xC2\xB7 Watched";
+            if (e.played) c.subtitle = c.subtitle.empty() ? std::string(tr("Watched")) : util::fmt("%s \xC2\xB7 %s", c.subtitle.c_str(), tr("Watched"));
             c.badge.clear();
             return c;
         };
@@ -722,7 +730,7 @@ private:
 
     float tracks_section(Id g, float x, float y) {
         const Theme& t = theme();
-        text::draw(font::title, x, y, "Tracks", t.text);
+        text::draw(font::title, x, y, tr("Tracks"), t.text);
         y += 50;
         if (!children_.loaded) {
             loading_indicator(x + 40, y + 20);
@@ -772,7 +780,7 @@ public:
         text::draw_fit(font::headline, x0, y, W - x0 - 60, "\xE2\x80\x9C" + q_ + "\xE2\x80\x9D", theme().text);
         y += 80;
         if (res_.loaded && res_.list.items.empty()) {
-            empty_state(Rect(x0, y, W - x0 - 60, 280), ic::SEARCH, "No matches", res_.list.error.c_str());
+            empty_state(Rect(x0, y, W - x0 - 60, 280), ic::SEARCH, tr("No matches"), res_.list.error.c_str());
             y += 300;
         } else {
             GridSpec gs;

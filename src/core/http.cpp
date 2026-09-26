@@ -9,6 +9,7 @@
 #include <mutex>
 #include <vector>
 
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "logger/logger.hpp"
 
@@ -95,16 +96,16 @@ void release_handle(CURL* h) {
 
 std::string friendly_error(CURLcode rc) {
     switch (rc) {
-        case CURLE_COULDNT_RESOLVE_HOST: return "No internet connection (can't find the server)";
-        case CURLE_COULDNT_CONNECT: return "Can't connect to the server";
-        case CURLE_OPERATION_TIMEDOUT: return "The connection timed out";
+        case CURLE_COULDNT_RESOLVE_HOST: return tr("No internet connection (can't find the server)");
+        case CURLE_COULDNT_CONNECT: return tr("Can't connect to the server");
+        case CURLE_OPERATION_TIMEDOUT: return tr("The connection timed out");
         case CURLE_RECV_ERROR:
         case CURLE_SEND_ERROR:
-        case CURLE_GOT_NOTHING: return "The connection was interrupted";
+        case CURLE_GOT_NOTHING: return tr("The connection was interrupted");
         case CURLE_PEER_FAILED_VERIFICATION:
         case CURLE_SSL_CACERT_BADFILE:
         case CURLE_SSL_CONNECT_ERROR:
-            return "Secure connection failed (check the console's date and time)";
+            return tr("Secure connection failed (check the console's date and time)");
         default: return curl_easy_strerror(rc);
     }
 }
@@ -224,18 +225,18 @@ Response perform(const Request& req) {
 
     if (rc != CURLE_OK) {
         bool cancelled = sink.stopped || (req.cancel && req.cancel->load());
-        if (sink.overflow) resp.error = "Response too large";
+        if (sink.overflow) resp.error = tr("Response too large");
         else if (cancelled) resp.error = "Cancelled";
         else resp.error = friendly_error(rc);
         if (!cancelled)  // asked for: not worth a line
             log_message(LOG_WARNING, "HTTP", "%s %s -> %s", req.method.c_str(), req.url.substr(0, 96).c_str(),
                         resp.error.c_str());
     } else if (resp.status >= 400) {
-        resp.error = resp.status == 401 || resp.status == 403 ? util::fmt("Access denied (HTTP %ld)", resp.status)
-                     : resp.status == 404                     ? "Not found (HTTP 404)"
-                     : resp.status == 429                     ? "Too many requests, try again later"
-                     : resp.status >= 500                     ? util::fmt("Server error (HTTP %ld)", resp.status)
-                                                              : util::fmt("HTTP error %ld", resp.status);
+        resp.error = resp.status == 401 || resp.status == 403 ? util::fmt(tr("Access denied (HTTP %ld)"), resp.status)
+                     : resp.status == 404                     ? tr("Not found (HTTP 404)")
+                     : resp.status == 429                     ? tr("Too many requests, try again later")
+                     : resp.status >= 500                     ? util::fmt(tr("Server error (HTTP %ld)"), resp.status)
+                                                              : util::fmt(tr("HTTP error %ld"), resp.status);
         // 404 is routine (a station without an icon, a video without SponsorBlock segments).
         if (resp.status != 404)
             log_message(LOG_WARNING, "HTTP", "%s %s -> %ld", req.method.c_str(), req.url.substr(0, 96).c_str(),
