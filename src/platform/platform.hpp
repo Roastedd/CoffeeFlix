@@ -1,7 +1,9 @@
 // Everything that differs between the Wii U and the desktop preview build.
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <vector>
 #include <SDL2/SDL.h>
 
 #include "core/input.hpp"
@@ -61,6 +63,10 @@ void detach_video_frames(AVCodecContext* ctx);
 bool show_video_frame(SDL_Texture* tex, const AVFrame* f);
 // Before the CPU reads such a frame: it may still have what the memory held before cached.
 void video_frame_cpu_read(const AVFrame* f);
+
+// True when sig, an ECDSA signature in DER, signs the SHA-256 digest with the PEM public key
+// (Wii U: mbedtls, desktop: OpenSSL).
+bool verify_signature(const std::string& public_key_pem, const uint8_t digest[32], const std::vector<uint8_t>& sig);
 
 // Rumble the GamePad briefly (no-op elsewhere).
 void rumble(float seconds);

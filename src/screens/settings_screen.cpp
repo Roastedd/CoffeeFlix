@@ -222,14 +222,20 @@ public:
             float top = row_h(64);
             std::string label = "Check for updates", value;
             const std::string& nv = updater::release().version;
+            std::string what = (updater::developer() ? "developer build " : "CoffeeFlix ") + nv;
             switch (updater::supported() ? updater::state() : updater::IDLE) {
                 case updater::CHECKING: value = "Checking\xE2\x80\xA6"; break;
                 case updater::UP_TO_DATE: value = "Up to date"; break;
-                case updater::AVAILABLE: label = "Update to CoffeeFlix " + nv, value = "Available"; break;
-                case updater::DOWNLOADING:
-                    label = "Downloading CoffeeFlix " + nv, value = util::fmt("%d%%", (int)(updater::progress() * 100));
+                case updater::AVAILABLE:
+                    label = (updater::developer() ? "Install " : "Update to ") + what, value = "Available";
                     break;
-                case updater::READY: label = "CoffeeFlix " + nv + " is ready", value = "Installs when you close"; break;
+                case updater::DOWNLOADING:
+                    label = "Downloading " + what, value = util::fmt("%d%%", (int)(updater::progress() * 100));
+                    break;
+                case updater::READY:
+                    label = updater::developer() ? "The developer build is ready" : what + " is ready";
+                    value = "Installs when you close";
+                    break;
                 case updater::FAILED: value = "Didn't work"; break;
                 default: value = updater::supported() ? "" : "Not available here"; break;
             }
@@ -244,6 +250,16 @@ public:
             if (toggle_row(iid, Rect(x0, top, w, 82), "Install updates automatically",
                            "New versions download in the background and install when you close CoffeeFlix", &v, g))
                 updater::set_automatic(v);
+            track(iid, top, 82);
+        }
+        if (updater::supported() && updater::dev_unlocked()) {
+            Id iid = id(g, "devupdates");
+            float top = row_h(82);
+            bool v = updater::developer();
+            if (toggle_row(iid, Rect(x0, top, w, 82), "Developer updates",
+                           "Test builds from tools/dev-update.sh on your computer, instead of releases", &v, g) &&
+                !updater::set_developer(v))
+                toast("Cancel the download first.", ic::INFO);
             track(iid, top, 82);
         }
         if (updater::has_previous()) {

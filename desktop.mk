@@ -14,15 +14,15 @@ SRCS := $(shell find src -name '*.cpp' -not -path 'src/platform/wiiu/*')
 OBJS := $(SRCS:%.cpp=$(BUILD)/%.o)
 DEPS := $(OBJS:.o=.d)
 
-PKGS       := sdl2 SDL2_ttf SDL2_image libcurl jansson tinyxml2 libzip
+PKGS       := sdl2 SDL2_ttf SDL2_image libcurl jansson tinyxml2 libzip libcrypto
 PKG_CONFIG := pkg-config
 LIBDIRS    :=
 
 ifeq ($(shell uname -s),Darwin)
 BREW := $(shell brew --prefix 2>/dev/null)
 ifneq ($(BREW),)
-# Homebrew's curl is keg-only, so pkg-config doesn't find it on its own
-PKG_CONFIG := PKG_CONFIG_PATH="$(BREW)/opt/curl/lib/pkgconfig:$$PKG_CONFIG_PATH" pkg-config
+# Homebrew's curl and OpenSSL are keg-only, so pkg-config doesn't find them on its own
+PKG_CONFIG := PKG_CONFIG_PATH="$(BREW)/opt/curl/lib/pkgconfig:$(BREW)/opt/openssl@3/lib/pkgconfig:$$PKG_CONFIG_PATH" pkg-config
 LIBDIRS    := -L$(BREW)/lib
 endif
 endif

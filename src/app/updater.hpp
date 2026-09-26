@@ -20,6 +20,7 @@ struct Release {
     std::string url;      // its coffeeflix.wuhb
     std::string sha256;   // lower-case hex, as GitHub published it
     int64_t size = 0;
+    bool dev = false;     // a developer build (below), not a release
 };
 
 const char* version();  // this build's
@@ -54,6 +55,16 @@ void install_now();
 bool has_previous();
 std::string previous_version();
 void switch_to_previous();
+
+// Developer updates: test builds that tools/dev-update.sh offers from a computer on the same
+// network take the place of GitHub releases. Hidden until a button code on the Updates screen
+// unlocks them, and only builds signed with the developer's key are offered.
+bool dev_unlocked();
+// Locking turns developer updates off too. False while a download runs (nothing changes).
+bool set_dev_unlocked(bool on);
+bool developer();
+bool set_developer(bool on);
+const std::string& dev_server();  // "192.168.1.20:47292" once found
 
 // The very last thing before exiting, once nothing reads bundled files: the swap.
 void finish_on_exit();
