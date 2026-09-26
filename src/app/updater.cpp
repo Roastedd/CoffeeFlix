@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/sha256.hpp"
 #include "core/store.hpp"
@@ -80,9 +81,8 @@ tasks::Scope g_scope;
 // Desktop tests point this at a local server (never set on the Wii U).
 std::string latest_url() { return util::env_or("COFFEEFLIX_UPDATE_URL", LATEST); }
 
-// Where the update comes from, for messages.
+// Where the update comes from, for the log.
 const char* source(const Release& rel) { return rel.dev ? "your computer" : "GitHub"; }
-const char* Source(const Release& rel) { return rel.dev ? "Your computer" : "GitHub"; }
 
 // What the user's answers about an update (skipped, told about) refer to.
 std::string key(const Release& rel) { return rel.dev ? rel.sha256 : rel.version; }
@@ -239,10 +239,10 @@ CheckResult fetch_latest() {
     req.max_bytes = 1 << 20;
     http::Response r = http::perform(req);
     if (!r.ok()) {
-        out.error = r.status == 403 || r.status == 429 ? "GitHub is busy right now. Try again in an hour."
-                    : r.status == 404                  ? "CoffeeFlix has no releases yet"
+        out.error = r.status == 403 || r.status == 429 ? tr("GitHub is busy right now. Try again in an hour.")
+                    : r.status == 404                  ? tr("CoffeeFlix has no releases yet")
                     : !r.error.empty()                 ? r.error
-                                                       : util::fmt("GitHub answered %ld", r.status);
+                                                       : util::fmt(tr("GitHub answered %ld"), r.status);
         return out;
     }
     json::Doc doc = json::Doc::parse(r.body);
@@ -260,12 +260,12 @@ CheckResult fetch_latest() {
         if (util::starts_with(digest, "sha256:")) out.rel.sha256 = util::lower(digest.substr(7));
     }
     bool test = latest_url() != LATEST;
-    if (!doc) out.error = "GitHub's answer didn't make sense";
-    else if (numbers(out.rel.version).empty()) out.error = "The latest release has no version number";
-    else if (out.rel.url.empty()) out.error = "The latest release has no coffeeflix.wuhb";
-    else if (!is_sha256(out.rel.sha256)) out.error = "GitHub gave no checksum for the download, so it can't be checked";
-    else if (!test && !util::starts_with(out.rel.url, DOWNLOADS)) out.error = "The download isn't on CoffeeFlix's GitHub page";
-    else if (out.rel.size < (1 << 20) || out.rel.size > (256 << 20)) out.error = "The download's size looks wrong";
+    if (!doc) out.error = tr("GitHub's answer didn't make sense");
+    else if (numbers(out.rel.version).empty()) out.error = tr("The latest release has no version number");
+    else if (out.rel.url.empty()) out.error = tr("The latest release has no coffeeflix.wuhb");
+    else if (!is_sha256(out.rel.sha256)) out.error = tr("GitHub gave no checksum for the download, so it can't be checked");
+    else if (!test && !util::starts_with(out.rel.url, DOWNLOADS)) out.error = tr("The download isn't on CoffeeFlix's GitHub page");
+    else if (out.rel.size < (1 << 20) || out.rel.size > (256 << 20)) out.error = tr("The download's size looks wrong");
     return out;
 }
 
@@ -336,7 +336,7 @@ CheckResult fetch_dev(const std::string& bundle) {
     out.rel.dev = true;
     out.server = find_dev_server();
     if (out.server.empty()) {
-        out.error = "Couldn't find your computer. Run tools/dev-update.sh on it, on the same network as this Wii U.";
+        out.error = tr("Couldn't find your computer. Run tools/dev-update.sh on it, on the same network as this Wii U.");
         return out;
     }
     http::Request req;
@@ -345,8 +345,8 @@ CheckResult fetch_dev(const std::string& bundle) {
     req.max_bytes = 1 << 20;
     http::Response r = http::perform(req);
     if (!r.ok()) {
-        out.error = r.status ? util::fmt("Your computer (%s) answered %ld", out.server.c_str(), r.status)
-                             : util::fmt("Couldn't reach your computer at %s. Is tools/dev-update.sh running?", out.server.c_str());
+        out.error = r.status ? util::fmt(tr("Your computer (%s) answered %ld"), out.server.c_str(), r.status)
+                             : util::fmt(tr("Couldn't reach your computer at %s. Is tools/dev-update.sh running?"), out.server.c_str());
         return out;
     }
     json::Doc doc = json::Doc::parse(r.body);
@@ -357,12 +357,12 @@ CheckResult fetch_dev(const std::string& bundle) {
     out.rel.size = json::num(root, {"size"});
     out.rel.sha256 = util::lower(json::str(root, {"sha256"}));
     std::vector<uint8_t> digest = from_hex(out.rel.sha256), sig = from_hex(util::lower(json::str(root, {"signature"})));
-    if (!doc) out.error = "Your computer's answer didn't make sense";
-    else if (out.rel.version.empty()) out.error = "The build has no version";
-    else if (!is_sha256(out.rel.sha256)) out.error = "Your computer gave no checksum for the build";
-    else if (out.rel.size < (1 << 20) || out.rel.size > (256 << 20)) out.error = "The build's size looks wrong";
+    if (!doc) out.error = tr("Your computer's answer didn't make sense");
+    else if (out.rel.version.empty()) out.error = tr("The build has no version");
+    else if (!is_sha256(out.rel.sha256)) out.error = tr("Your computer gave no checksum for the build");
+    else if (out.rel.size < (1 << 20) || out.rel.size > (256 << 20)) out.error = tr("The build's size looks wrong");
     else if (sig.empty() || !platform::verify_signature(DEV_KEY, digest.data(), sig))
-        out.error = "That build isn't signed with your developer key, so it can't be installed";
+        out.error = tr("That build isn't signed with your developer key, so it can't be installed");
     else out.running = running_sha256(bundle) == out.rel.sha256;
     return out;
 }
@@ -372,9 +372,11 @@ std::string verify(const std::string& path, const Release& rel, const Job& job) 
     FileHash fh;
     bool read = hash_file(path, &job.cancel, fh);
     if (job.cancel) return "Cancelled";
-    if (!read || fh.size != rel.size) return "Couldn't read the download back";
-    if (memcmp(fh.magic, "WUHB", 4)) return "The download isn't a Wii U app";
-    if (fh.sha256 != rel.sha256) return util::fmt("The download didn't match %s's checksum", source(rel));
+    if (!read || fh.size != rel.size) return tr("Couldn't read the download back");
+    if (memcmp(fh.magic, "WUHB", 4)) return tr("The download isn't a Wii U app");
+    if (fh.sha256 != rel.sha256)
+        return rel.dev ? tr("The download didn't match your computer's checksum")
+                       : tr("The download didn't match GitHub's checksum");
     return "";
 }
 
@@ -382,7 +384,7 @@ std::string verify(const std::string& path, const Release& rel, const Job& job) 
 std::string fetch(const Release& rel, const std::string& dest, Job& job) {
     remove(dest.c_str());
     FILE* f = fopen(dest.c_str(), "wb");
-    if (!f) return "Couldn't write to the SD card";
+    if (!f) return tr("Couldn't write to the SD card");
     int64_t written = 0;
     bool write_failed = false, too_big = false;
     http::Request req;
@@ -407,13 +409,14 @@ std::string fetch(const Release& rel, const std::string& dest, Job& job) {
     };
     http::Response r = http::perform(req);
     if (fclose(f) != 0) write_failed = true;
-    std::string err = job.cancel                         ? "Cancelled"
-                      : write_failed                     ? "Couldn't save the download. Is the SD card full?"
-                      : too_big                          ? util::fmt("The download was bigger than %s said", source(rel))
-                      : r.status >= 300                  ? util::fmt("%s answered %ld", Source(rel), r.status)
-                      : !r.error.empty()                 ? r.error
-                      : written != rel.size              ? "The download stopped early"
-                                                         : verify(dest, rel, job);
+    std::string err;
+    if (job.cancel) err = "Cancelled";
+    else if (write_failed) err = tr("Couldn't save the download. Is the SD card full?");
+    else if (too_big) err = rel.dev ? tr("The download was bigger than your computer said") : tr("The download was bigger than GitHub said");
+    else if (r.status >= 300) err = util::fmt(rel.dev ? tr("Your computer answered %ld") : tr("GitHub answered %ld"), r.status);
+    else if (!r.error.empty()) err = r.error;
+    else if (written != rel.size) err = tr("The download stopped early");
+    else err = verify(dest, rel, job);
     if (!err.empty()) remove(dest.c_str());
     return err;
 }
@@ -459,8 +462,8 @@ void on_checked(CheckResult r, bool automatic_check) {
                 r.rel.version.c_str(), APP_VERSION);
     if (automatic_check && !automatic() && store::get_str("update_notified") != key(r.rel)) {
         store::set_str("update_notified", key(r.rel));
-        ui::toast(r.rel.dev ? util::fmt("Developer build %s is available. Install it in Settings.", r.rel.version.c_str())
-                            : util::fmt("CoffeeFlix %s is available. Update it in Settings.", r.rel.version.c_str()),
+        ui::toast(r.rel.dev ? util::fmt(tr("Developer build %s is available. Install it in Settings."), r.rel.version.c_str())
+                            : util::fmt(tr("CoffeeFlix %s is available. Update it in Settings."), r.rel.version.c_str()),
                   ic::CLOUD_DOWNLOAD);
     }
 }
@@ -513,29 +516,29 @@ void install() {
     if (file_size(dl) != rel.size || !is_bundle(dl)) {
         remove(dl.c_str());
         remember_ready(nullptr);
-        fail("The downloaded update went missing, so nothing changed");
+        fail(tr("The downloaded update went missing, so nothing changed"));
         return;
     }
     std::string settings = platform::data_dir() + "/coffeeflix.json", data;
     if (util::read_file(settings, data)) util::write_file_atomic(settings + ".bak", data);
     if (!platform::release_app_bundle()) {
-        fail("Aroma didn't let go of the running app, so nothing changed");
+        fail(tr("Aroma didn't let go of the running app, so nothing changed"));
         return;
     }
     if (util::file_exists(bak) && remove(bak.c_str()) != 0) {
-        fail(util::fmt("Couldn't remove the older kept version (%s), so nothing changed", strerror(errno)));
+        fail(util::fmt(tr("Couldn't remove the older kept version (%s), so nothing changed"), strerror(errno)));
         return;
     }
     if (rename(g_bundle.c_str(), bak.c_str()) != 0) {
-        fail(util::fmt("Couldn't set the current version aside (%s), so nothing changed", strerror(errno)));
+        fail(util::fmt(tr("Couldn't set the current version aside (%s), so nothing changed"), strerror(errno)));
         return;
     }
     if (rename(dl.c_str(), g_bundle.c_str()) != 0) {
         std::string why = strerror(errno);
         if (rename(bak.c_str(), g_bundle.c_str()) == 0) {
-            fail("Couldn't put the new version in place (" + why + "), so nothing changed");
+            fail(util::fmt(tr("Couldn't put the new version in place (%s), so nothing changed"), why.c_str()));
         } else {
-            fail(util::fmt("Couldn't put the new version in place (%s). On a PC, rename %s to %s", why.c_str(),
+            fail(util::fmt(tr("Couldn't put the new version in place (%s). On a PC, rename %s to %s"), why.c_str(),
                            util::file_name(bak).c_str(), util::file_name(g_bundle).c_str()));
         }
         return;
@@ -556,18 +559,18 @@ void swap_back() {
     remove(dl.c_str());  // or it would install again next time
     remember_ready(nullptr);
     if (!platform::release_app_bundle()) {
-        fail("Aroma didn't let go of the running app, so nothing changed");
+        fail(tr("Aroma didn't let go of the running app, so nothing changed"));
         return;
     }
     remove(aside.c_str());
     if (rename(g_bundle.c_str(), aside.c_str()) != 0) {
-        fail(util::fmt("Couldn't set the current version aside (%s), so nothing changed", strerror(errno)));
+        fail(util::fmt(tr("Couldn't set the current version aside (%s), so nothing changed"), strerror(errno)));
         return;
     }
     if (rename(bak.c_str(), g_bundle.c_str()) != 0) {
         std::string why = strerror(errno);
         rename(aside.c_str(), g_bundle.c_str());
-        fail("Couldn't put the kept version in place (" + why + "), so nothing changed");
+        fail(util::fmt(tr("Couldn't put the kept version in place (%s), so nothing changed"), why.c_str()));
         return;
     }
     rename(aside.c_str(), bak.c_str());  // else init() finishes it
@@ -612,23 +615,23 @@ void init() {
     std::string installed = store::get_str("update_installed"), failed = store::get_str("update_error");
     if (!installed.empty()) {
         store::set_str("update_installed", "");
-        if (installed == APP_VERSION) ui::toast(util::fmt("Now running CoffeeFlix %s", APP_VERSION), ic::CHECK_CIRCLE);
+        if (installed == APP_VERSION) ui::toast(util::fmt(tr("Now running CoffeeFlix %s"), APP_VERSION), ic::CHECK_CIRCLE);
     }
     if (!failed.empty()) {
         store::set_str("update_error", "");
-        ui::toast("The update didn't install: " + failed, ic::ERROR_OUTLINE);
+        ui::toast(util::fmt(tr("The update didn't install: %s"), failed.c_str()), ic::ERROR_OUTLINE);
     }
 
     if (numbers(APP_VERSION).empty()) {
-        g_reason = util::fmt("This test build can't tell which release is newer. Get new versions from %s.", RELEASES_PAGE);
+        g_reason = util::fmt(tr("This test build can't tell which release is newer. Get new versions from %s."), RELEASES_PAGE);
         return;
     }
     g_bundle = platform::app_bundle();
     if (g_bundle.empty()) {
         g_reason = platform::is_wiiu()
-                       ? util::fmt("Updating here works when CoffeeFlix runs as coffeeflix.wuhb from the Wii U Menu "
-                                   "(Aroma). Get new versions from %s.", RELEASES_PAGE)
-                       : std::string("Updating is for the Wii U app.");
+                       ? util::fmt(tr("Updating here works when CoffeeFlix runs as coffeeflix.wuhb from the Wii U Menu "
+                                      "(Aroma). Get new versions from %s."), RELEASES_PAGE)
+                       : std::string(tr("Updating is for the Wii U app."));
         return;
     }
     g_supported = true;
@@ -711,7 +714,8 @@ void download() {
         remember_ready(&rel);
         g_state = READY;
         log_message(LOG_OK, "Update", "%s is downloaded and matches %s's checksum", rel.version.c_str(), source(rel));
-        ui::toast(util::fmt("%s %s is ready. It installs when you close CoffeeFlix.", rel.dev ? "Developer build" : "CoffeeFlix",
+        ui::toast(util::fmt(rel.dev ? tr("Developer build %s is ready. It installs when you close CoffeeFlix.")
+                                    : tr("CoffeeFlix %s is ready. It installs when you close CoffeeFlix."),
                             rel.version.c_str()),
                   ic::CHECK_CIRCLE);
     });

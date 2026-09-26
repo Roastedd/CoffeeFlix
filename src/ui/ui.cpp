@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "audio/mixer.hpp"
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
@@ -81,11 +82,11 @@ Theme g_theme;
 
 struct Accent { const char* name; uint32_t a, b; };
 const Accent ACCENTS[] = {
-    {"Caramel", 0xFFA24C, 0xFF5F6D},
-    {"Berry", 0xFF4D8D, 0xA855F7},
-    {"Mint", 0x2DD4BF, 0x22C55E},
-    {"Ocean", 0x38BDF8, 0x6366F1},
-    {"Gold", 0xFACC15, 0xF97316},
+    {N_("Caramel"), 0xFFA24C, 0xFF5F6D},
+    {N_("Berry"), 0xFF4D8D, 0xA855F7},
+    {N_("Mint"), 0x2DD4BF, 0x22C55E},
+    {N_("Ocean"), 0x38BDF8, 0x6366F1},
+    {N_("Gold"), 0xFACC15, 0xF97316},
 };
 
 void build_theme() {
@@ -259,7 +260,7 @@ void set_accent(int index) {
     build_theme();
 }
 int accent_count() { return (int)(sizeof(ACCENTS) / sizeof(ACCENTS[0])); }
-const char* accent_name(int index) { return ACCENTS[std::clamp(index, 0, accent_count() - 1)].name; }
+const char* accent_name(int index) { return tr(ACCENTS[std::clamp(index, 0, accent_count() - 1)].name); }
 
 // --- frame --------------------------------------------------------------------------------
 
@@ -521,8 +522,11 @@ void draw_overlays() {
         float in = anim::ease_out_back(age / 0.35f);
         float out = 1.0f - anim::smoothstep((age - (life - 0.35f)) / 0.35f);
         float a = std::min(1.0f, age / 0.15f) * out;
-        float w = text::measure(font::body_bold, it->msg) + (it->icon ? 76 : 48);
-        Rect r(W * 0.5f - w * 0.5f, y - (1 - in) * 30, w, 50);
+        // Two lines when one would run past the screen's edges.
+        float pad = it->icon ? 76 : 48, tw = text::measure(font::body_bold, it->msg), max_tw = W - 200 - pad;
+        bool two = tw > max_tw;
+        float w = std::min(tw, max_tw) + pad, h = two ? 50 + text::line_height(font::body_bold) : 50;
+        Rect r(W * 0.5f - w * 0.5f, y - (1 - in) * 30, w, h);
         gfx::push_alpha(a);
         gfx::shadow(r, 22, Color(0, 0, 0, 150));
         gfx::fill_rrect(r, 25, Color(28, 24, 34, 245));
@@ -532,9 +536,12 @@ void draw_overlays() {
             text::icon(it->icon, 24, tx + 10, r.cy(), it->color);
             tx += 32;
         }
-        text::draw(font::body_bold, tx, r.cy() - text::line_height(font::body_bold) * 0.5f, it->msg, g_theme.text);
+        if (two)
+            text::draw_wrapped(font::body_bold, Rect(tx, r.y + 12, max_tw, h - 12), it->msg, g_theme.text, 2);
+        else
+            text::draw(font::body_bold, tx, r.cy() - text::line_height(font::body_bold) * 0.5f, it->msg, g_theme.text);
         gfx::pop_alpha();
-        y += 60 * a;
+        y += (h + 10) * a;
         ++it;
     }
 
@@ -726,7 +733,7 @@ bool toggle_row(Id id, const Rect& r, const char* label, const char* desc, bool*
     Color fg2 = gfx::lerp(t.text2, Color(21, 18, 26, 170), it.f);
     Rect br = r.offset(bump_x(id), bump_y(id));
     float ty = desc && *desc ? br.y + 14 : br.cy() - text::line_height(font::label) * 0.5f;
-    text::draw(font::label, br.x + 24, ty, label, fg);
+    text::draw_fit(font::label, br.x + 24, ty, br.w - 140, label, fg);
     if (desc && *desc) text::draw_fit(font::small, br.x + 24, ty + 30, br.w - 140, desc, fg2);
 
     float on = tween(ui::id(id, "knob"), *value ? 1.0f : 0.0f, 16.0f);
@@ -750,11 +757,14 @@ bool value_row(Id id, const Rect& r, const char* label, const char* value, int i
         text::icon(icon, 26, x + 12, br.cy(), fg);
         x += 40;
     }
-    text::draw(font::label, x, br.cy() - text::line_height(font::label) * 0.5f, label, fg);
+    // The label gets the room it needs, as long as the value keeps some.
+    float room = br.r() - 52 - x - 24, vw = 0;
     if (value && *value) {
-        float vw = std::min(text::measure(font::body, value), br.w * 0.5f);
+        float lw = text::measure(font::label, label);
+        vw = std::min({text::measure(font::body, value), br.w * 0.5f, std::max(room - lw, room * 0.35f)});
         text::draw_fit(font::body, br.r() - 52 - vw, br.cy() - text::line_height(font::body) * 0.5f, vw, value, fg2);
     }
+    text::draw_fit(font::label, x, br.cy() - text::line_height(font::label) * 0.5f, room - vw, label, fg);
     text::icon(ic::CHEVRON_RIGHT, 26, br.r() - 30, br.cy(), fg2);
     return it.clicked;
 }

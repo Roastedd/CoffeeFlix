@@ -1,6 +1,7 @@
 // Fullscreen photo viewer with zoom/pan, crossfades and a Ken Burns slideshow.
 #include <cmath>
 
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
@@ -61,7 +62,7 @@ public:
         if (in.pressed_(BTN_Y)) {
             slideshow_ = !slideshow_;
             slide_start_ = ui::time();
-            toast(slideshow_ ? "Slideshow on" : "Slideshow off", ic::PLAYLIST_PLAY);
+            toast(slideshow_ ? tr("Slideshow on") : tr("Slideshow off"), ic::PLAYLIST_PLAY);
         }
         if (slideshow_ && ui::time() - slide_start_ > 6.0) go(1);
         if (zoom_ <= 1.0f) pan_x_ = pan_y_ = 0;
@@ -79,8 +80,8 @@ public:
             gfx::push_alpha(a);
             gfx::fill_rect_vgrad(Rect(0, H - 130, W, 130), Color(0, 0, 0, 0), Color(0, 0, 0, 200));
             text::draw_fit(font::title, 60, H - 84, W - 500, util::file_name(paths_[index_]), t.text);
-            text::draw(font::small_bold, 60, H - 46, util::fmt("%d of %zu", index_ + 1, paths_.size()), t.text2);
-            hint_bar({{"A", "Zoom"}, {"Y", slideshow_ ? "Stop" : "Slideshow"}, {"B", "Back"}}, H - 60);
+            text::draw(font::small_bold, 60, H - 46, util::fmt(tr("%d of %zu"), index_ + 1, paths_.size()), t.text2);
+            hint_bar({{"A", tr("Zoom")}, {"Y", slideshow_ ? tr("Stop") : tr("Slideshow")}, {"B", tr("Back")}}, H - 60);
             gfx::pop_alpha();
         }
     }
@@ -107,7 +108,7 @@ private:
         }
         if (!img || !img->ready) {
             if (current && img && !img->failed) spinner(W * 0.5f, H * 0.5f, 28, theme().accent, 4);
-            if (current && img && img->failed) empty_state(Rect(W * 0.5f - 300, H * 0.5f - 150, 600, 300), ic::ERROR_OUTLINE, "Can't open this image", "");
+            if (current && img && img->failed) empty_state(Rect(W * 0.5f - 300, H * 0.5f - 150, 600, 300), ic::ERROR_OUTLINE, tr("Can't open this image"), "");
             return;
         }
         float s = std::min(W / img->w, H / img->h);

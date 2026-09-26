@@ -1,4 +1,5 @@
 // Internet radio: favorites, local and worldwide top stations, genres, search.
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -48,7 +49,8 @@ void play_station(const radio::Station& s) {
 
 void fav_station(const radio::Station& s) {
     bool on = radio::toggle_favorite(s);
-    toast(on ? "Added " + s.name + " to favorites" : "Removed from favorites", on ? ic::FAVORITE : ic::FAVORITE_BORDER);
+    toast(on ? util::fmt(tr("Added %s to favorites"), s.name.c_str()) : tr("Removed from favorites"),
+          on ? ic::FAVORITE : ic::FAVORITE_BORDER);
 }
 
 class StationGridScreen : public app::Screen {
@@ -66,8 +68,8 @@ public:
         text::draw_fit(font::headline, x0, y, W - x0 - 60, title_, theme().text);
         y += 80;
         if (loader_.loaded && loader_.list.items.empty()) {
-            if (loader_.list.error.empty()) empty_state(Rect(x0, y, W - x0 - 60, 280), ic::RADIO, "No stations found", "");
-            else if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, "Couldn't load stations",
+            if (loader_.list.error.empty()) empty_state(Rect(x0, y, W - x0 - 60, 280), ic::RADIO, tr("No stations found"), "");
+            else if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, tr("Couldn't load stations"),
                                         loader_.list.error.c_str()))
                 loader_.load(fn_);
             y += 320;
@@ -84,7 +86,7 @@ public:
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Play"}, {"X", "Favorite"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Play")}, {"X", tr("Favorite")}, {"B", tr("Back")}});
     }
 
 private:
@@ -110,10 +112,10 @@ public:
         Id g = id("radio");
         page_.begin(id(g, "page"));
         float y = page_.y(52);
-        text::draw(font::display, x0, y, "Radio", t.text);
+        text::draw(font::display, x0, y, tr("Radio"), t.text);
         Id top = id(g, "top");
-        if (search_bar(id(top, "search"), Rect(x0 + 230, y + 4, W - x0 - 290, 56), "", "Search 40,000+ stations", top, F_DEFAULT))
-            prompt_text("Search radio stations", "", "Station name", [](std::string q) {
+        if (search_bar(id(top, "search"), Rect(x0 + 230, y + 4, W - x0 - 290, 56), "", tr("Search 40,000+ stations"), top, F_DEFAULT))
+            prompt_text(tr("Search radio stations"), "", tr("Station name"), [](std::string q) {
                 if (q.empty()) return;
                 app::push(std::make_unique<StationGridScreen>("\xE2\x80\x9C" + q + "\xE2\x80\x9D", [q] { return radio::search(q); }));
             });
@@ -122,10 +124,11 @@ public:
         float cx = x0;
         auto& gs = radio::genres();
         for (size_t i = 0; i < gs.size(); i++) {
-            float w = text::measure(font::small_bold, gs[i].name) + 58;
-            if (chip(id(top, (int64_t)i), Rect(cx, y, w, 42), gs[i].name, false, top, gs[i].icon)) {
+            const char* name = tr(gs[i].name);
+            float w = text::measure(font::small_bold, name) + 58;
+            if (chip(id(top, (int64_t)i), Rect(cx, y, w, 42), name, false, top, gs[i].icon)) {
                 std::string tag = gs[i].tag;
-                app::push(std::make_unique<StationGridScreen>(gs[i].name, [tag] { return radio::by_tag(tag, 60); }));
+                app::push(std::make_unique<StationGridScreen>(name, [tag] { return radio::by_tag(tag, 60); }));
             }
             cx += w + 12;
         }
@@ -133,9 +136,9 @@ public:
         if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
         auto favs = radio::favorites();
-        if (!favs.empty()) y += station_shelf(id(g, "favs"), x0, y, "Your favorites", favs, false) + 10;
+        if (!favs.empty()) y += station_shelf(id(g, "favs"), x0, y, tr("Your favorites"), favs, false) + 10;
         if (top_.loaded && top_.list.items.empty() && local_.loaded && local_.list.items.empty() && !top_.list.error.empty()) {
-            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, "Couldn't reach the radio directory",
+            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, tr("Couldn't reach the radio directory"),
                                    top_.list.error.c_str())) {
                 std::string cc = country_;
                 local_.load([cc] { return radio::by_country(cc, 40); });
@@ -143,11 +146,11 @@ public:
             }
             y += 330;
         } else {
-            y += station_shelf(id(g, "local"), x0, y, ("Popular in " + country_).c_str(), local_.list.items, !local_.loaded) + 10;
-            y += station_shelf(id(g, "top"), x0, y, "Top stations worldwide", top_.list.items, !top_.loaded) + 10;
+            y += station_shelf(id(g, "local"), x0, y, util::fmt(tr("Popular in %s"), country_.c_str()).c_str(), local_.list.items, !local_.loaded) + 10;
+            y += station_shelf(id(g, "top"), x0, y, tr("Top stations worldwide"), top_.list.items, !top_.loaded) + 10;
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Play"}, {"X", "Favorite"}});
+        hint_bar({{"A", tr("Play")}, {"X", tr("Favorite")}});
     }
 
 private:

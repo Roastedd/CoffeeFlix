@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "core/i18n.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
@@ -33,7 +34,7 @@ Listing list_local(const std::string& dir) {
     Listing out;
     DIR* d = opendir(dir.c_str());
     if (!d) {
-        out.error = "Can't open this folder";
+        out.error = tr("Can't open this folder");
         return out;
     }
     while (dirent* de = readdir(d)) {
@@ -87,16 +88,16 @@ public:
         page_.begin(id(g, "page"));
 
         float y = page_.y(64);
-        text::draw(font::display, x0, y, root_ ? "My Media" : title_, t.text);
+        text::draw(font::display, x0, y, root_ ? tr("My Media") : title_, t.text);
         y += 66;
         if (!root_) {
             text::draw_fit(font::small, x0, y, W - x0 - 60, path_, t.text3);
             y += 40;
         } else {
-            text::draw(font::body, x0, y, "Your videos, music and photos on the SD card and network.", t.text2);
+            text::draw(font::body, x0, y, tr("Your videos, music and photos on the SD card and network."), t.text2);
             y += 50;
             y = draw_roots(x0, y, g);
-            text::draw(font::title, x0, y, "CoffeeFlix folder", t.text);
+            text::draw(font::title, x0, y, tr("CoffeeFlix folder"), t.text);
             y += 50;
         }
 
@@ -104,8 +105,8 @@ public:
             empty_state(Rect(x0, y, W - x0 - 60, 260), ic::ERROR_OUTLINE, listing_.error.c_str(), "");
             y += 280;
         } else if (!loading_ && listing_.entries.empty()) {
-            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::FOLDER, "Nothing here yet",
-                        "Copy videos, music or photos into sd:/wiiu/apps/coffeeflix with an SD card reader or FTP.");
+            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::FOLDER, tr("Nothing here yet"),
+                        tr("Copy videos, music or photos into sd:/wiiu/apps/coffeeflix with an SD card reader or FTP."));
             y += 300;
         } else {
             GridSpec gs;
@@ -119,7 +120,7 @@ public:
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Open"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Open")}, {"B", tr("Back")}});
     }
 
 private:
@@ -140,13 +141,13 @@ private:
                 c.icon = v[i].icon;
                 c.subtitle = v[i].path;
             } else if (i == (int)v.size()) {
-                c.title = "Network shares";
+                c.title = tr("Network shares");
                 c.icon = ic::LAN;
-                c.subtitle = nshares == 0 ? "Add a PC or NAS" : util::fmt("%zu saved", nshares);
+                c.subtitle = nshares == 0 ? tr("Add a PC or NAS") : util::fmt(tr("%zu saved"), nshares);
             } else {
-                c.title = "Media servers";
+                c.title = tr("Media servers");
                 c.icon = ic::DNS;
-                c.subtitle = "Found automatically (DLNA)";
+                c.subtitle = tr("Found automatically (DLNA)");
             }
             return c;
         };

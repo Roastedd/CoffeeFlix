@@ -4,6 +4,7 @@
 #include <cstdlib>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
@@ -51,9 +52,9 @@ json::Doc gql(const std::string& query, const std::string& variables_json, std::
     }
     json::Doc doc = json::Doc::parse(r.body);
     if (!doc) {
-        error = "Unexpected response from Twitch";
+        error = tr("Unexpected response from Twitch");
     } else if (json_t* errs = json_object_get(doc.get(), "errors"); json::size(errs) > 0 && !json_object_get(doc.get(), "data")) {
-        error = json::str(errs, {0, "message"}, "Twitch request failed");
+        error = json::str(errs, {0, "message"}, tr("Twitch request failed"));
         return json::Doc();
     }
     return doc;
@@ -116,7 +117,7 @@ bool resolve(const std::string& login, player::Source& src, std::string& error) 
     json_t* tok = json::at(doc.get(), {"data", "streamPlaybackAccessToken"});
     std::string value = json::str(tok, {"value"}), sig = json::str(tok, {"signature"});
     if (value.empty() || sig.empty()) {
-        error = "This channel is offline";
+        error = tr("This channel is offline");
         return false;
     }
     std::string usher = util::fmt(
@@ -125,7 +126,7 @@ bool resolve(const std::string& login, player::Source& src, std::string& error) 
         util::env_or("COFFEEFLIX_TWITCH_USHER", "https://usher.ttvnw.net").c_str(), util::lower(login).c_str(), sig.c_str(), util::url_encode(value).c_str(), rand() % 999999);
     http::Response r = http::get(usher, {}, 15);
     if (r.status == 404) {
-        error = "This channel is offline";
+        error = tr("This channel is offline");
         return false;
     }
     if (!r.ok()) {
@@ -136,7 +137,7 @@ bool resolve(const std::string& login, player::Source& src, std::string& error) 
     int max_h = src.quality > 0 ? src.quality : (int)store::get_int("twitch_quality", 720);
     const hls::Variant* v = hls::pick(m, max_h, true, player::max_fps);
     if (!v) {
-        error = "No compatible stream quality";
+        error = tr("No compatible stream quality");
         return false;
     }
     log_message(LOG_OK, "Twitch", "%s: %dp%.0f (%d kbps)", login.c_str(), v->height, v->fps, v->bandwidth / 1000);

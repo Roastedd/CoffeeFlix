@@ -1,4 +1,5 @@
 // Search everything at once: YouTube, Jellyfin, Twitch, radio and podcasts.
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -30,11 +31,11 @@ public:
         Id g = id("search");
         page_.begin(id(g, "page"));
         float y = page_.y(52);
-        text::draw(font::display, x0, y, "Search", t.text);
+        text::draw(font::display, x0, y, tr("Search"), t.text);
         y += 84;
         Id top = id(g, "top");
-        if (search_bar(id(top, "bar"), Rect(x0, y, W - x0 - 60, 64), query_, "Movies, videos, channels, stations, podcasts\xE2\x80\xA6",
-                       top, F_DEFAULT))
+        if (search_bar(id(top, "bar"), Rect(x0, y, W - x0 - 60, 64), query_,
+                       tr("Movies, videos, channels, stations, podcasts\xE2\x80\xA6"), top, F_DEFAULT))
             open_keyboard();
         y += 90;
         if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
@@ -42,7 +43,7 @@ public:
         if (query_.empty()) {
             auto recent = store::recent_searches("global");
             if (!recent.empty()) {
-                text::draw(font::title, x0, y, "Recent searches", t.text);
+                text::draw(font::title, x0, y, tr("Recent searches"), t.text);
                 y += 50;
                 float cx = x0;
                 Id rg = id(g, "recent");
@@ -57,8 +58,8 @@ public:
                 }
                 y += 70;
             } else {
-                empty_state(Rect(x0, y, W - x0 - 60, 260), ic::SEARCH, "Find anything",
-                            "One search looks through YouTube, your Jellyfin library, Twitch, radio stations and podcasts.");
+                empty_state(Rect(x0, y, W - x0 - 60, 260), ic::SEARCH, tr("Find anything"),
+                            tr("One search looks through YouTube, your Jellyfin library, Twitch, radio stations and podcasts."));
                 y += 300;
             }
             page_.end(y + page_.scroll());
@@ -69,7 +70,7 @@ public:
         if (!jf_.empty() || jf_loading_) {
             any = true;
             ShelfSpec s;
-            s.title = "In your Jellyfin library";
+            s.title = tr("In your Jellyfin library");
             s.count = (int)jf_.size();
             s.loading = jf_loading_;
             s.shape = CARD_POSTER;
@@ -102,7 +103,7 @@ public:
                 c.image = youtube::thumbnail(yt_[i].id);
                 c.title = yt_[i].title;
                 c.subtitle = yt_[i].channel;
-                c.badge = yt_[i].duration;
+                c.badge = youtube::duration_label(yt_[i]);
                 c.live = yt_[i].live;
                 c.icon = ic::SMART_DISPLAY;
                 return c;
@@ -115,7 +116,7 @@ public:
         if (!ytc_.empty()) {
             any = true;
             ShelfSpec s;
-            s.title = "YouTube channels";
+            s.title = tr("YouTube channels");
             s.count = (int)ytc_.size();
             s.shape = CARD_CIRCLE;
             s.item_w = 130;
@@ -133,7 +134,7 @@ public:
         if (!tw_.empty() || tw_loading_) {
             any = true;
             ShelfSpec s;
-            s.title = "Twitch channels";
+            s.title = tr("Twitch channels");
             s.count = (int)tw_.size();
             s.loading = tw_loading_;
             s.shape = CARD_CIRCLE;
@@ -148,14 +149,14 @@ public:
             };
             s.on_click = [this](int i) {
                 if (tw_[i].live) play_video(twitch::make_source(tw_[i]));
-                else toast(tw_[i].name + " is offline", ic::INFO);
+                else toast(util::fmt(tr("%s is offline"), tw_[i].name.c_str()), ic::INFO);
             };
             y += shelf(id(g, "tw"), x0, y, s, &page_) + 10;
         }
         if (!radio_.empty() || radio_loading_) {
             any = true;
             ShelfSpec s;
-            s.title = "Radio stations";
+            s.title = tr("Radio stations");
             s.count = (int)radio_.size();
             s.loading = radio_loading_;
             s.shape = CARD_SQUARE;
@@ -174,7 +175,7 @@ public:
         if (!pods_.empty() || pods_loading_) {
             any = true;
             ShelfSpec s;
-            s.title = "Podcasts";
+            s.title = tr("Podcasts");
             s.count = (int)pods_.size();
             s.loading = pods_loading_;
             s.shape = CARD_SQUARE;
@@ -195,17 +196,17 @@ public:
         }
         loading = jf_loading_ || yt_loading_ || tw_loading_ || radio_loading_ || pods_loading_;
         if (!any && !loading) {
-            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::SEARCH, "No results",
-                        errors_.empty() ? "Try different words." : errors_.c_str());
+            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::SEARCH, tr("No results"),
+                        errors_.empty() ? tr("Try different words.") : errors_.c_str());
             y += 300;
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Open"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Open")}, {"B", tr("Back")}});
     }
 
 private:
     void open_keyboard() {
-        prompt_text("Search", query_, "Search everything", [this](std::string q) {
+        prompt_text(tr("Search"), query_, tr("Search everything"), [this](std::string q) {
             if (!q.empty()) run(q);
         });
     }

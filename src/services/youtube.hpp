@@ -15,6 +15,8 @@ struct Video {
     std::string duration, views, published;
     bool live = false;
 };
+// v.duration as shown ("Short" in the current language).
+std::string duration_label(const Video& v);
 
 struct Results {
     std::vector<Video> items;
@@ -48,7 +50,7 @@ struct PlaylistResults {
 enum class Tab { VIDEOS, SHORTS, LIVE };
 
 struct Topic {
-    const char* name;
+    const char* name;  // English (N_): tr() it where it's shown
     const char* query;
     int icon;
 };

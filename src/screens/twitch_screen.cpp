@@ -1,4 +1,5 @@
 // Twitch: followed channels, top streams, categories, search.
+#include "core/i18n.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
 #include "player/player.hpp"
@@ -39,9 +40,9 @@ CardInfo stream_card(const twitch::Stream& s) {
     c.image = s.live ? s.preview : s.avatar;
     c.image_w = 400;
     c.title = s.live ? s.title : s.name;
-    c.subtitle = s.live ? s.name + (s.game.empty() ? "" : " \xC2\xB7 " + s.game) : "Offline";
+    c.subtitle = s.live ? s.name + (s.game.empty() ? "" : " \xC2\xB7 " + s.game) : tr("Offline");
     c.live = s.live;
-    if (s.live) c.badge = util::format_count(s.viewers) + " watching";
+    if (s.live) c.badge = util::fmt(tr("%s watching"), util::format_count(s.viewers).c_str());
     c.icon = ic::LIVE_TV;
     c.favorite = twitch::is_followed(s.login);
     return c;
@@ -49,7 +50,7 @@ CardInfo stream_card(const twitch::Stream& s) {
 
 void watch(const twitch::Stream& s) {
     if (!s.live) {
-        toast(s.name + " is offline right now", ic::INFO);
+        toast(util::fmt(tr("%s is offline right now"), s.name.c_str()), ic::INFO);
         return;
     }
     play_video(twitch::make_source(s));
@@ -57,7 +58,8 @@ void watch(const twitch::Stream& s) {
 
 void follow(const twitch::Stream& s) {
     bool on = twitch::toggle_follow(s);
-    toast(on ? "Following " + s.name : "Unfollowed " + s.name, on ? ic::FAVORITE : ic::FAVORITE_BORDER);
+    toast(on ? util::fmt(tr("Following %s"), s.name.c_str()) : util::fmt(tr("Unfollowed %s"), s.name.c_str()),
+          on ? ic::FAVORITE : ic::FAVORITE_BORDER);
 }
 
 class StreamGridScreen : public app::Screen {
@@ -73,8 +75,8 @@ public:
         y += 80;
         const auto& items = data_.value.items;
         if (data_.loaded && items.empty()) {
-            if (data_.value.error.empty()) empty_state(Rect(x0, y, W - x0 - 60, 280), ic::LIVE_TV, "Nobody's live here", "");
-            else if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, "Couldn't reach Twitch",
+            if (data_.value.error.empty()) empty_state(Rect(x0, y, W - x0 - 60, 280), ic::LIVE_TV, tr("Nobody's live here"), "");
+            else if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, tr("Couldn't reach Twitch"),
                                         data_.value.error.c_str()))
                 data_.reload();
             y += 320;
@@ -92,7 +94,7 @@ public:
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Watch"}, {"X", "Follow"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Watch")}, {"X", tr("Follow")}, {"B", tr("Back")}});
     }
 
 private:
@@ -119,15 +121,15 @@ public:
         float y = page_.y(52);
         text::draw(font::display, x0, y, "Twitch", t.text);
         Id top = id(g, "top");
-        if (search_bar(id(top, "search"), Rect(x0 + 220, y + 4, W - x0 - 280, 56), "", "Search channels", top, F_DEFAULT))
-            prompt_text("Search Twitch", "", "Channel name", [](std::string q) {
+        if (search_bar(id(top, "search"), Rect(x0 + 220, y + 4, W - x0 - 280, 56), "", tr("Search channels"), top, F_DEFAULT))
+            prompt_text(tr("Search Twitch"), "", tr("Channel name"), [](std::string q) {
                 if (!q.empty()) app::push(make_twitch_search(q));
             });
         y += 96;
         if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
         if (top_.loaded && top_.value.items.empty() && !top_.value.error.empty()) {
-            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, "Couldn't reach Twitch",
+            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, tr("Couldn't reach Twitch"),
                                    top_.value.error.c_str())) {
                 top_.reload();
                 cats_.reload();
@@ -140,7 +142,7 @@ public:
         const auto& fol = followed_.value.items;
         if (!fol.empty()) {
             ShelfSpec s;
-            s.title = "Followed channels";
+            s.title = tr("Followed channels");
             s.count = (int)fol.size();
             s.item_w = 300;
             s.item = [&fol](int i) { return stream_card(fol[i]); };
@@ -152,7 +154,7 @@ public:
 
         const auto& live = top_.value.items;
         ShelfSpec s;
-        s.title = "Live now";
+        s.title = tr("Live now");
         s.count = (int)live.size();
         s.loading = !top_.loaded;
         s.item_w = 300;
@@ -164,7 +166,7 @@ public:
 
         const auto& cats = cats_.value.items;
         ShelfSpec c;
-        c.title = "Top categories";
+        c.title = tr("Top categories");
         c.count = (int)cats.size();
         c.loading = !cats_.loaded;
         c.shape = CARD_POSTER;
@@ -174,7 +176,7 @@ public:
             ci.image = cats[i].box_art;
             ci.image_w = 285;
             ci.title = cats[i].name;
-            ci.subtitle = util::format_count(cats[i].viewers) + " watching";
+            ci.subtitle = util::fmt(tr("%s watching"), util::format_count(cats[i].viewers).c_str());
             ci.icon = ic::SPORTS_ESPORTS;
             return ci;
         };
@@ -184,7 +186,7 @@ public:
         };
         y += shelf(id(g, "cats"), x0, y, c, &page_) + 10;
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Watch"}, {"X", "Follow"}});
+        hint_bar({{"A", tr("Watch")}, {"X", tr("Follow")}});
     }
 
 private:

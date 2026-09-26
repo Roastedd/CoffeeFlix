@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "audio/mixer.hpp"
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
@@ -107,9 +108,10 @@ bool card(Id id, const Rect& ir, CardShape shape, const CardInfo& c, Id group, i
 
     // Overlays on the image
     if (c.live) {
-        Rect b(r.x + 10, r.y + 10, 52, 24);
+        const char* live = tr("LIVE");
+        Rect b(r.x + 10, r.y + 10, std::max(52.0f, text::measure(font::caption, live) + 16), 24);
         gfx::fill_rrect(b, 6, t.bad);
-        text::draw(font::caption, b.cx(), b.y + 4, "LIVE", gfx::WHITE, text::CENTER);
+        text::draw(font::caption, b.cx(), b.y + 4, live, gfx::WHITE, text::CENTER);
     }
     if (!c.badge.empty()) {
         float bw = text::measure(font::caption, c.badge) + 14;
@@ -317,6 +319,7 @@ void empty_state(const Rect& r, int icon, const char* title, const char* desc) {
 bool empty_state_action(Id id, const Rect& r, int icon, const char* title, const char* desc, const char* action,
                         int action_icon) {
     empty_state(r, icon, title, desc);
+    if (!action) action = tr("Try again");
     float w = measure_button(action, action_icon);
     float y = r.y + 20 + 174 + (desc && *desc ? 64 : 0);
     return button(id, Rect(r.cx() - w * 0.5f, y, w, 50), action, action_icon, BTN_PRIMARY, 0, F_DEFAULT);
@@ -357,7 +360,7 @@ void prompt_text(const std::string& title, const std::string& initial, const std
     o.hint = hint.empty() ? title : hint;
     o.password = password;
     o.url = url;
-    o.ok_label = "OK";
+    o.ok_label = tr("OK");
     g_prompt.active = true;
     g_prompt.title = title;
     g_prompt.done = std::move(done);
@@ -409,7 +412,7 @@ void draw_prompt() {
     text::draw(font::label, tx, field.cy() - 13, v, t.text);
     if (std::fmod((float)ui::time(), 1.0f) < 0.55f) gfx::fill_rect(Rect(tx + tw + 3, field.cy() - 14, 2.5f, 28), t.accent);
     gfx::pop_clip();
-    text::draw(font::small, card.x + 36, card.b() - 46, "Type on your keyboard \xC2\xB7 Enter to confirm \xC2\xB7 Esc to cancel", t.text3);
+    text::draw(font::small, card.x + 36, card.b() - 46, tr("Type on your keyboard \xC2\xB7 Enter to confirm \xC2\xB7 Esc to cancel"), t.text3);
 }
 
 // --- action menu ------------------------------------------------------------------
@@ -494,9 +497,9 @@ void draw_menu() {
 
     float hx = x + 36, hy = H - 48;
     button_glyph(hx + 13, hy + 13, "A", 24);
-    text::draw(font::small_bold, hx + 32, hy + 3, "Select", t.text2);
-    button_glyph(hx + 123, hy + 13, "B", 24);
-    text::draw(font::small_bold, hx + 142, hy + 3, "Close", t.text2);
+    hx += 32 + text::draw(font::small_bold, hx + 32, hy + 3, tr("Select"), t.text2) + 28;
+    button_glyph(hx + 13, hy + 13, "B", 24);
+    text::draw(font::small_bold, hx + 32, hy + 3, tr("Close"), t.text2);
 
     if (run) {
         hide_menu();  // focusable() already played the select sound

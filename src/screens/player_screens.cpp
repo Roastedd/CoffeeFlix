@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "audio/mixer.hpp"
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
@@ -22,9 +23,9 @@ using namespace ui;
 void draw_time_row(float x, float y, float w, double pos, double dur, bool live) {
     const Theme& t = theme();
     if (live) {
-        Rect badge(x, y, 58, 26);
+        Rect badge(x, y, std::max(58.0f, text::measure(font::caption, tr("LIVE")) + 20), 26);
         gfx::fill_rrect(badge, 6, t.bad);
-        text::draw(font::caption, badge.cx(), badge.y + 4, "LIVE", gfx::WHITE, text::CENTER);
+        text::draw(font::caption, badge.cx(), badge.y + 4, tr("LIVE"), gfx::WHITE, text::CENTER);
         return;
     }
     text::draw(font::small_bold, x, y, util::format_duration(pos), t.text);
@@ -53,7 +54,7 @@ struct TrackMenu {
         } else {
             bool subs = k == SUBTITLES;
             tracks = subs ? player::subtitle_tracks() : player::audio_tracks();
-            if (subs) tracks.insert(tracks.begin(), player::Track{-1, "Off"});
+            if (subs) tracks.insert(tracks.begin(), player::Track{-1, tr("Off")});
             current = subs ? player::subtitle_track() : player::audio_track();
         }
         open = true;
@@ -75,7 +76,7 @@ struct TrackMenu {
         float pw = 400, x = W - pw * a;
         gfx::fill_rect_hgrad(Rect(x - 80, 0, 80, H), Color(8, 6, 12, 0), Color(8, 6, 12, 230));
         gfx::fill_rect(Rect(x, 0, pw, H), Color(12, 10, 16, 238));
-        text::draw(font::title, x + 36, 60, kind == SUBTITLES ? "Subtitles" : kind == QUALITY ? "Quality" : "Audio",
+        text::draw(font::title, x + 36, 60, kind == SUBTITLES ? tr("Subtitles") : kind == QUALITY ? tr("Quality") : tr("Audio"),
                    t.text);
         Id g = id("trackmenu");
         const float top = 120, row = 64, view = H - 30 - top;
@@ -192,7 +193,7 @@ public:
                       Color(255, 255, 255, (uint8_t)(50 * ra)));
             gfx::push_alpha(std::min(1.0f, ra * 2));
             text::icon(ripple_dir_ > 0 ? ic::FAST_FORWARD : ic::FAST_REWIND, 56, cx, H * 0.5f - 16, gfx::WHITE);
-            text::draw(font::body_bold, cx, H * 0.5f + 22, util::fmt("%+d seconds", ripple_amount_), gfx::WHITE, text::CENTER);
+            text::draw(font::body_bold, cx, H * 0.5f + 22, util::fmt(tr("%+d seconds"), ripple_amount_), gfx::WHITE, text::CENTER);
             gfx::pop_alpha();
         }
 
@@ -341,13 +342,15 @@ private:
         // YouTube: subscribe to the uploader without leaving the video.
         if (src.service == "youtube" && !src.channel_id.empty()) {
             bool on = yt::subscribed(src.channel_id);
-            if (button(id(g, "subscribe"), Rect(64, cy - 23, on ? 190 : 170, 46), on ? "Subscribed" : "Subscribe",
-                       on ? ic::CHECK : ic::SUBSCRIPTIONS, on ? BTN_NORMAL : BTN_PRIMARY, g))
+            const char* label = on ? tr("Subscribed") : tr("Subscribe");
+            int icon = on ? ic::CHECK : ic::SUBSCRIPTIONS;
+            if (button(id(g, "subscribe"), Rect(64, cy - 23, std::max(on ? 190.0f : 170.0f, measure_button(label, icon)), 46), label,
+                       icon, on ? BTN_NORMAL : BTN_PRIMARY, g))
                 yt::set_subscribed(src.channel_id, src.subtitle, "", !on);
         }
 
-        if (st == player::FAILED) draw_message(ic::ERROR_OUTLINE, "Playback failed", player::error().c_str(), true);
-        else if (st == player::ENDED) draw_message(ic::REFRESH, "Finished", "", false);
+        if (st == player::FAILED) draw_message(ic::ERROR_OUTLINE, tr("Playback failed"), player::error().c_str(), true);
+        else if (st == player::ENDED) draw_message(ic::REFRESH, tr("Finished"), "", false);
         gfx::pop_alpha();
     }
 
@@ -361,12 +364,14 @@ private:
         if (detail && *detail) text::draw_wrapped(font::small, Rect(card.x + 30, card.y + 118, card.w - 60, 40), detail, t.text2, 2, text::CENTER);
         Id g = id("vp_msg");
         push_layer();
-        if (button(id(g, "retry"), Rect(card.cx() - 180, card.b() - 64, 170, 46), error ? "Retry" : "Replay", ic::REFRESH,
-                   BTN_PRIMARY, g, F_DEFAULT)) {
+        const char* again = error ? tr("Retry") : tr("Replay");
+        float aw = std::max(170.0f, measure_button(again, ic::REFRESH)), bw = std::max(170.0f, measure_button(tr("Back"), ic::ARROW_BACK));
+        float bx = card.cx() - (aw + 20 + bw) * 0.5f;
+        if (button(id(g, "retry"), Rect(bx, card.b() - 64, aw, 46), again, ic::REFRESH, BTN_PRIMARY, g, F_DEFAULT)) {
             if (error) player::retry();
             else player::seek(0), player::set_paused(false);
         }
-        if (button(id(g, "back"), Rect(card.cx() + 10, card.b() - 64, 170, 46), "Back", ic::ARROW_BACK, BTN_NORMAL, g))
+        if (button(id(g, "back"), Rect(bx + aw + 20, card.b() - 64, bw, 46), tr("Back"), ic::ARROW_BACK, BTN_NORMAL, g))
             app::pop();
         pop_layer();
     }
@@ -427,13 +432,13 @@ public:
         float x = 560, w = W - x - 90;
         float y = 170;
         if (player::live()) {
-            Rect badge(x, y, 64, 28);
+            Rect badge(x, y, std::max(64.0f, text::measure(font::caption, tr("LIVE")) + 36), 28);
             gfx::fill_rrect(badge, 7, t.bad);
             gfx::fill_circle(badge.x + 14, badge.cy(), 4 + 1.5f * (0.5f + 0.5f * std::sin((float)ui::time() * 4)), gfx::WHITE);
-            text::draw(font::caption, badge.x + 24, badge.y + 5, "LIVE", gfx::WHITE);
+            text::draw(font::caption, badge.x + 24, badge.y + 5, tr("LIVE"), gfx::WHITE);
             y += 44;
         }
-        auto lines = text::wrap(font::display, src.title.empty() ? "Unknown" : src.title, w, 2);
+        auto lines = text::wrap(font::display, src.title.empty() ? tr("Unknown") : src.title, w, 2);
         for (auto& l : lines) {
             text::draw(font::display, x, y, l, t.text);
             y += text::line_height(font::display);
@@ -495,7 +500,7 @@ public:
         Input& in = input();
         if (in.pressed_(BTN_ZR) || in.pressed_(BTN_R)) player::seek_relative(30);
         if (in.pressed_(BTN_ZL) || in.pressed_(BTN_L)) player::seek_relative(-15);
-        hint_bar({{"B", "Back"}, {"L", "-15s"}, {"R", "+30s"}});
+        hint_bar({{"B", tr("Back")}, {"L", "-15s"}, {"R", "+30s"}});
     }
 };
 

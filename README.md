@@ -19,6 +19,7 @@ CoffeeFlix is free. If you enjoy it, you can [buy me a coffee on Ko-fi](https://
 - **Podcasts**: search Apple's directory, subscribe, and pick up episodes where you left off.
 - **Your own files**: videos (with `.srt` subtitles), music, photos, and comics and books (CBZ, EPUB) from the SD card, from a Windows, Mac or NAS share (SMB), or from a DLNA server such as Plex, which it finds on its own.
 - A Home screen and search that cover all of the above, and music that keeps playing while you browse.
+- In English, Tagalog, Spanish, French, German, Italian, Portuguese, Dutch, Japanese, Chinese and Korean. It follows the Wii U's language, or you can pick one under *Settings > Language*.
 
 ## Installing
 
@@ -64,7 +65,7 @@ In photos, L and R flip through pictures, A zooms and Y starts a slideshow. In t
 
 ## Settings
 
-Accent color, sounds, screensaver, default quality for YouTube, Jellyfin and Twitch, 60 fps video, how the Wii U decodes video, subtitles and captions, SponsorBlock, your region, and importing or exporting YouTube subscriptions. They're saved in `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
+Language, accent color, sounds, screensaver, default quality for YouTube, Jellyfin and Twitch, 60 fps video, how the Wii U decodes video, subtitles and captions, SponsorBlock, your region, and importing or exporting YouTube subscriptions. They're saved in `sd:/wiiu/apps/coffeeflix/coffeeflix.json`.
 
 ## Formats and tips
 
@@ -97,6 +98,10 @@ tools/docker-build.sh DEBUG=1    # debug build
 With devkitPro installed (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-tinyxml2`, `ppc-giflib`, `ppc-libzip`, `ppc-libjpeg-turbo`), run `tools/build-deps.sh` once and then `make`. `WIIU_IP=192.168.x.x tools/deploy.sh` copies a build to a Wii U running an FTP server.
 
 FFmpeg-wiiu is patched during the build; the patches are in [tools/patches](tools/patches).
+
+### Translations
+
+The interface text is English in the code, wrapped in `tr("...")`, and each language has a file in [content/lang](content/lang) that maps it to that language. `tools/i18n.py` shows what each language is missing and catches mistakes, and `tools/i18n.py update` adds new text to every file. Corrections from native speakers are welcome.
 
 ## Support
 

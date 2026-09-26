@@ -6,6 +6,7 @@ extern "C" {
 
 #include <memory>
 
+#include "core/i18n.hpp"
 #include "services/smb.hpp"
 
 namespace player {
@@ -46,7 +47,7 @@ AVIOContext* smb_io_open(const std::string& url, const std::atomic<bool>* abort,
     AVIOContext* pb = buf ? avio_alloc_context(buf, BUFFER_SIZE, 0, s.get(), read_packet, nullptr, seek) : nullptr;
     if (!pb) {
         av_free(buf);
-        error = "Out of memory";
+        error = tr("Out of memory");
         return nullptr;
     }
     s.release();  // owned by pb until smb_io_free()

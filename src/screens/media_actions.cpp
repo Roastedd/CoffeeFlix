@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
 #include "player/player.hpp"
@@ -59,13 +60,13 @@ CardInfo entry_card(const Entry& e, const char* service) {
         c.image_w = 320;
     }
     if (e.kind == K_DIR) {
-        c.subtitle = "Folder";
+        c.subtitle = tr("Folder");
     } else {
         std::string ext = util::file_extension(e.name);
         for (auto& ch : ext) ch = (char)toupper((unsigned char)ch);
         c.subtitle = ext + " \xC2\xB7 " + util::format_bytes(e.size);
     }
-    if (e.kind == K_VIDEO && store::resume_position(service, e.path) > 0) c.badge = "Resume";
+    if (e.kind == K_VIDEO && store::resume_position(service, e.path) > 0) c.badge = tr("Resume");
     return c;
 }
 
@@ -121,7 +122,7 @@ void open_file(const std::vector<Entry>& siblings, size_t index, const char* ser
         }
         case K_BOOK:
             // The reader opens documents from the SD card only.
-            if (smb::is_url(e.path)) ui::toast("Copy books to the SD card to read them", ic::BOOK);
+            if (smb::is_url(e.path)) ui::toast(tr("Copy books to the SD card to read them"), ic::BOOK);
             else app::push(make_reader(e.path));
             break;
         default: break;

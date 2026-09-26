@@ -44,6 +44,18 @@ std::string media_root();
 struct Volume { std::string label, path; int icon; };
 int volumes(Volume* out, int max);
 
+// The console's language: "en", "ja", "zh", "zh-tw"... (desktop: from COFFEEFLIX_LANGUAGE or LANG).
+std::string system_language();
+// Fonts for Chinese, Japanese and Korean, which the bundled ones don't have (Wii U: the console's
+// own, already in memory; desktop: the computer's). False when there's none.
+enum CjkFont { CJK_JAPANESE, CJK_CHINESE, CJK_KOREAN, CJK_FONT_COUNT };
+struct FontFile {
+    const void* data = nullptr;  // else read from path
+    size_t size = 0;
+    std::string path;
+};
+bool cjk_font(CjkFont which, FontFile& out);
+
 bool network_connected();
 std::string ip_address();
 // Prepares a new TCP socket before it connects (Wii U: large receive buffers, which a single

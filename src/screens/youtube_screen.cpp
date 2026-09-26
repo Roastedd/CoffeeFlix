@@ -2,6 +2,7 @@
 // subscriptions, search.
 #include <algorithm>
 
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -55,7 +56,7 @@ public:
 
         if (!channels_.empty()) {
             ShelfSpec s;
-            s.title = "Channels";
+            s.title = tr("Channels");
             s.count = (int)channels_.size();
             s.shape = CARD_CIRCLE;
             s.item_w = 130;
@@ -72,21 +73,21 @@ public:
                 youtube::Channel c = channels_[i];
                 bool sub = yt::subscribed(c.id);
                 show_menu(c.name, c.subscribers, {
-                    {"Open channel", ic::ACCOUNT_CIRCLE, [c] { app::push(yt::make_channel(c.id, c.name, c.avatar)); }},
-                    {sub ? "Unsubscribe" : "Subscribe", sub ? ic::REMOVE : ic::PERSON_ADD,
+                    {tr("Open channel"), ic::ACCOUNT_CIRCLE, [c] { app::push(yt::make_channel(c.id, c.name, c.avatar)); }},
+                    {sub ? tr("Unsubscribe") : tr("Subscribe"), sub ? ic::REMOVE : ic::PERSON_ADD,
                      [c, sub] { yt::set_subscribed(c.id, c.name, c.avatar, !sub); }},
                 });
             };
             y += shelf(id(g, "channels"), x0, y, s, &page_) + 12;
-            text::draw(font::title, x0, y, "Videos", t.text);
+            text::draw(font::title, x0, y, tr("Videos"), t.text);
             y += 52;
         }
 
         if (feed_.loaded && feed_.res.items.empty()) {
             if (feed_.res.error.empty()) {
-                empty_state(Rect(x0, y, W - x0 - 60, 280), ic::SEARCH, "No videos found", "Try a different search.");
+                empty_state(Rect(x0, y, W - x0 - 60, 280), ic::SEARCH, tr("No videos found"), tr("Try a different search."));
             } else if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF,
-                                          "Couldn't reach YouTube", feed_.res.error.c_str())) {
+                                          tr("Couldn't reach YouTube"), feed_.res.error.c_str())) {
                 feed_.reload();
             }
             y += 330;
@@ -110,7 +111,7 @@ public:
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Play"}, {"X", "More"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Play")}, {"X", tr("More")}, {"B", tr("Back")}});
     }
 
 private:
@@ -123,7 +124,7 @@ private:
 };
 
 std::unique_ptr<app::Screen> search_results(const std::string& q) {
-    return std::make_unique<VideoGridScreen>(q, "Search results", [q](const std::string& c) {
+    return std::make_unique<VideoGridScreen>(q, tr("Search results"), [q](const std::string& c) {
         return youtube::search(q, youtube::PARAMS_VIDEOS, c);
     }, q);
 }
@@ -180,8 +181,8 @@ public:
         if (icon_button(id(top, "subs"), bx - 70, y + 32, 28, ic::SUBSCRIPTIONS, top)) app::push(yt::make_subscriptions());
         if (icon_button(id(top, "account"), bx - 140, y + 32, 28, ic::ACCOUNT_CIRCLE, top, 0, yt_account::signed_in()))
             yt::account_menu();
-        if (search_bar(id(top, "search"), Rect(x0 + 300, y + 4, bx - 140 - 28 - 24 - x0 - 300, 56), "", "Search YouTube", top,
-                       F_DEFAULT))
+        if (search_bar(id(top, "search"), Rect(x0 + 300, y + 4, bx - 140 - 28 - 24 - x0 - 300, 56), "", tr("Search YouTube"),
+                       top, F_DEFAULT))
             open_search();
         y += 84;
 
@@ -189,10 +190,11 @@ public:
         float cx = x0;
         auto& tps = youtube::topics();
         for (size_t i = 0; i < tps.size(); i++) {
-            float w = text::measure(font::small_bold, tps[i].name) + 58;
-            if (chip(id(top, (int64_t)i), Rect(cx, y, w, 42), tps[i].name, false, top, tps[i].icon)) {
+            const char* name = tr(tps[i].name);
+            float w = text::measure(font::small_bold, name) + 58;
+            if (chip(id(top, (int64_t)i), Rect(cx, y, w, 42), name, false, top, tps[i].icon)) {
                 std::string q = tps[i].query;
-                app::push(std::make_unique<VideoGridScreen>(tps[i].name, "Popular this week", [q](const std::string& c) {
+                app::push(std::make_unique<VideoGridScreen>(name, tr("Popular this week"), [q](const std::string& c) {
                     return youtube::search(q, youtube::PARAMS_POPULAR_WEEK, c);
                 }));
             }
@@ -207,7 +209,7 @@ public:
             if (r.service == "youtube") resume.push_back(r);
         if (!resume.empty()) {
             ShelfSpec s;
-            s.title = "Continue watching";
+            s.title = tr("Continue watching");
             s.count = (int)resume.size();
             s.item_w = 300;
             s.item = [resume](int i) {
@@ -216,7 +218,7 @@ public:
                 c.title = resume[i].title;
                 c.subtitle = resume[i].subtitle;
                 c.progress = resume[i].duration > 0 ? (float)(resume[i].position / resume[i].duration) : 0;
-                c.badge = util::format_duration(resume[i].duration - resume[i].position) + " left";
+                c.badge = util::fmt(tr("%s left"), util::format_duration(resume[i].duration - resume[i].position).c_str());
                 return c;
             };
             s.on_click = [resume](int i) { yt::play(resume_video(resume[i])); };
@@ -224,28 +226,29 @@ public:
             s.on_x = [resume](int i) {
                 youtube::Video v = resume_video(resume[i]);
                 yt::MenuOptions o;
-                o.extra.push_back({"Remove from Continue watching", ic::REMOVE, [v] { store::resume_remove("youtube", v.id); }});
+                o.extra.push_back({tr("Remove from Continue watching"), ic::REMOVE,
+                                   [v] { store::resume_remove("youtube", v.id); }});
                 yt::video_menu(v, o);
             };
             y += shelf(id(g, "resume"), x0, y, s, &page_) + 12;
         }
 
         if (trending_.loaded && trending_.res.items.empty() && !trending_.res.error.empty()) {
-            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, "Couldn't reach YouTube",
+            if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 280), ic::WIFI_OFF, tr("Couldn't reach YouTube"),
                                    trending_.res.error.c_str())) {
                 trending_.reload();
                 for (auto& f : topic_feeds_) f->reload();
             }
             page_.end(y + 330 + page_.scroll());
-            hint_bar({{"A", "Select"}});
+            hint_bar({{"A", tr("Select")}});
             return;
         }
-        if (personal_) y += video_shelf(id(g, "foryou"), x0, y, "For you", foryou_) + 12;
+        if (personal_) y += video_shelf(id(g, "foryou"), x0, y, tr("For you"), foryou_) + 12;
 
         if (!subs_.res.items.empty() || subs_.loading) {
-            y += video_shelf(id(g, "subs"), x0, y, "From your subscriptions", subs_) + 12;
+            y += video_shelf(id(g, "subs"), x0, y, tr("From your subscriptions"), subs_) + 12;
             ShelfSpec s;
-            s.title = "Channels";
+            s.title = tr("Channels");
             s.count = (int)chans_.size();
             s.shape = CARD_CIRCLE;
             s.item_w = 130;
@@ -262,7 +265,7 @@ public:
 
         if (!later_.empty()) {
             ShelfSpec s;
-            s.title = "Watch later";
+            s.title = tr("Watch later");
             s.count = (int)later_.size();
             s.item_w = 300;
             s.item = [this](int i) { return yt::video_card(later_[i]); };
@@ -272,15 +275,15 @@ public:
             y += shelf(id(g, "later"), x0, y, s, &page_) + 12;
         }
 
-        y += video_shelf(id(g, "trending"), x0, y, "Popular this week", trending_) + 12;
+        y += video_shelf(id(g, "trending"), x0, y, tr("Popular this week"), trending_) + 12;
 
         for (size_t i = 0; i < topic_feeds_.size(); i++) {
             Feed& f = *topic_feeds_[i];
             if (y < H + 300) f.load();  // lazy: only when about to scroll into view
-            y += video_shelf(id(g, (int64_t)(100 + i)), x0, y, tps[i].name, f) + 12;
+            y += video_shelf(id(g, (int64_t)(100 + i)), x0, y, tr(tps[i].name), f) + 12;
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", "Play"}, {"X", "More"}, {"Y", "Not interested"}});
+        hint_bar({{"A", tr("Play")}, {"X", tr("More")}, {"Y", tr("Not interested")}});
     }
 
 private:
@@ -308,7 +311,7 @@ private:
         if (f.loaded && f.res.items.empty()) {
             if (!f.res.error.empty()) {
                 text::draw(font::title, x, y, title, theme().text);
-                text::draw(font::body, x, y + 46, "Couldn't load: " + f.res.error, theme().text3);
+                text::draw(font::body, x, y + 46, util::fmt(tr("Couldn't load: %s"), f.res.error.c_str()), theme().text3);
                 return 90;
             }
             return 0;
@@ -333,13 +336,13 @@ private:
         s.on_y = [&f](int i) {
             yt_recs::not_interested(f.res.items[i]);
             f.res.items.erase(f.res.items.begin() + i);
-            toast("Got it, you'll see less like this", ic::CHECK_CIRCLE);
+            toast(tr("Got it, you'll see less like this"), ic::CHECK_CIRCLE);
         };
         return shelf(sid, x, y, s, &page_);
     }
 
     void open_search() {
-        prompt_text("Search YouTube", "", "Search YouTube", [](std::string q) {
+        prompt_text(tr("Search YouTube"), "", tr("Search YouTube"), [](std::string q) {
             if (q.empty()) return;
             store::add_recent_search("youtube", q);
             yt_recs::on_search(q);

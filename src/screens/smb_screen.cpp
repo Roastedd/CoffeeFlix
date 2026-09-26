@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <unordered_set>
 
+#include "core/i18n.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
 #include "screens/media_actions.hpp"
@@ -75,13 +76,13 @@ public:
         if (failed) {
             empty_state(Rect(x0, y, W - x0 - 60, 260), ic::ERROR_OUTLINE, listing_.error.c_str(), "");
             y += 280;
-            float bw = measure_button("Try again", ic::REFRESH);
-            if (button(id(g, "retry"), Rect(x0 + (W - x0 - 60 - bw) * 0.5f, y, bw, 56), "Try again", ic::REFRESH))
+            float bw = measure_button(tr("Try again"), ic::REFRESH);
+            if (button(id(g, "retry"), Rect(x0 + (W - x0 - 60 - bw) * 0.5f, y, bw, 56), tr("Try again"), ic::REFRESH))
                 reload();
             y += 80;
         } else if (!loading_ && listing_.entries.empty()) {
-            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::FOLDER, "Nothing to play here",
-                        "This folder has no videos, music or photos.");
+            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::FOLDER, tr("Nothing to play here"),
+                        tr("This folder has no videos, music or photos."));
             y += 300;
         } else {
             GridSpec gs;
@@ -95,7 +96,7 @@ public:
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", failed ? "Try again" : "Open"}, {"B", "Back"}});
+        hint_bar({{"A", failed ? tr("Try again") : tr("Open")}, {"B", tr("Back")}});
     }
 
 private:
@@ -139,9 +140,9 @@ public:
         float x0 = content_x();
         Id g = id("smb_form");
         float y = 64;
-        text::draw(font::display, x0, y, original_name_.empty() ? "Add network share" : "Edit network share", t.text);
+        text::draw(font::display, x0, y, original_name_.empty() ? tr("Add network share") : tr("Edit network share"), t.text);
         y += 66;
-        text::draw(font::body, x0, y, "A shared folder on a Windows PC, Mac, Linux server or NAS.", t.text2);
+        text::draw(font::body, x0, y, tr("A shared folder on a Windows PC, Mac, Linux server or NAS."), t.text2);
         y += 54;
 
         float w = std::min(780.0f, W - x0 - 60);
@@ -152,27 +153,27 @@ public:
             return clicked && !connecting_;
         };
 
-        if (row("host", "Computer", s_.host.empty() ? "Not set" : s_.host, ic::COMPUTER))
-            prompt_text("Computer name or IP address", s_.host, "e.g. 192.168.1.20",
+        if (row("host", tr("Computer"), s_.host.empty() ? tr("Not set") : s_.host, ic::COMPUTER))
+            prompt_text(tr("Computer name or IP address"), s_.host, tr("e.g. 192.168.1.20"),
                         [this](std::string v) { set_host(v); }, false, true);
-        if (row("share", "Shared folder", s_.share.empty() ? "Not set" : s_.share, ic::FOLDER))
-            prompt_text("Shared folder", s_.share, "e.g. Media", [this](std::string v) { s_.share = clean_segment(v); });
-        if (row("user", "Username", login().empty() ? "Guest" : login(), ic::PERSON))
-            prompt_text("Username", login(), "Empty for guest access", [this](std::string v) { set_login(v); });
-        if (row("password", "Password", s_.password.empty() ? "None" : masked(s_.password), ic::KEY))
-            prompt_text("Password", s_.password, "", [this](std::string v) { s_.password = v; }, true);
+        if (row("share", tr("Shared folder"), s_.share.empty() ? tr("Not set") : s_.share, ic::FOLDER))
+            prompt_text(tr("Shared folder"), s_.share, tr("e.g. Media"), [this](std::string v) { s_.share = clean_segment(v); });
+        if (row("user", tr("Username"), login().empty() ? tr("Guest") : login(), ic::PERSON))
+            prompt_text(tr("Username"), login(), tr("Empty for guest access"), [this](std::string v) { set_login(v); });
+        if (row("password", tr("Password"), s_.password.empty() ? tr("None") : masked(s_.password), ic::KEY))
+            prompt_text(tr("Password"), s_.password, "", [this](std::string v) { s_.password = v; }, true);
         std::string auto_name = smb::default_name(s_);
-        if (row("name", "Display name", !s_.name.empty() ? s_.name : !auto_name.empty() ? auto_name : "Automatic",
+        if (row("name", tr("Display name"), !s_.name.empty() ? s_.name : !auto_name.empty() ? auto_name : tr("Automatic"),
                 ic::DESCRIPTION))
-            prompt_text("Display name", s_.name, smb::default_name(s_), [this](std::string v) { s_.name = v; });
+            prompt_text(tr("Display name"), s_.name, smb::default_name(s_), [this](std::string v) { s_.name = v; });
 
         y += 14;
-        const char* label = connecting_ ? "Connecting\xE2\x80\xA6" : "Connect";
-        float bw = std::max(measure_button("Connect", ic::LAN), measure_button(label));
+        const char* label = connecting_ ? tr("Connecting\xE2\x80\xA6") : tr("Connect");
+        float bw = std::max(measure_button(tr("Connect"), ic::LAN), measure_button(label));
         if (button(id(g, "connect"), Rect(x0, y, bw, 58), label, connecting_ ? 0 : ic::LAN, BTN_PRIMARY) && !connecting_)
             connect();
         if (connecting_) spinner(x0 + bw + 40, y + 29, 16, t.accent, 4);
-        hint_bar({{"A", "Select"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Select")}, {"B", tr("Back")}});
     }
 
 private:
@@ -212,7 +213,7 @@ private:
 
     void connect() {
         if (s_.host.empty() || s_.share.empty()) {
-            toast(s_.host.empty() ? "Enter the computer name or IP address" : "Enter the shared folder name",
+            toast(s_.host.empty() ? tr("Enter the computer name or IP address") : tr("Enter the shared folder name"),
                   ic::ERROR_OUTLINE, theme().warn);
             set_focus(id(id("smb_form"), s_.host.empty() ? "host" : "share"));
             return;
@@ -237,7 +238,7 @@ private:
                 }
                 if (!original_name_.empty()) smb::remove_share(original_name_);
                 std::string name = smb::save_share(s_);
-                toast("Connected to " + name, ic::CHECK_CIRCLE, theme().good);
+                toast(util::fmt(tr("Connected to %s"), name.c_str()), ic::CHECK_CIRCLE, theme().good);
                 app::pop();
             });
     }
@@ -263,9 +264,9 @@ public:
         page_.begin(id(g, "page"));
 
         float y = page_.y(64);
-        text::draw(font::display, x0, y, "Network shares", t.text);
+        text::draw(font::display, x0, y, tr("Network shares"), t.text);
         y += 66;
-        text::draw(font::body, x0, y, "Videos, music and photos shared from a PC, Mac or NAS on your network.", t.text2);
+        text::draw(font::body, x0, y, tr("Videos, music and photos shared from a PC, Mac or NAS on your network."), t.text2);
         y += 50;
 
         // Actions are applied after the grid: they change the list it is drawing.
@@ -278,8 +279,8 @@ public:
         gs.item = [this](int i) {
             CardInfo c;
             if (i == (int)shares_.size()) {
-                c.title = "Add share";
-                c.subtitle = "Connect to a computer or NAS";
+                c.title = tr("Add share");
+                c.subtitle = tr("Connect to a computer or NAS");
                 c.icon = ic::ADD;
                 return c;
             }
@@ -299,9 +300,9 @@ public:
 
         if (shares_.empty()) {
             y += text::draw_wrapped(font::body, Rect(x0, y + 10, std::min(760.0f, W - x0 - 60), 120),
-                                    "Share a folder on your computer first (on Windows: right-click it, "
-                                    "Properties \xE2\x80\xBA Sharing), then add it here with the computer's name "
-                                    "or IP address.",
+                                    tr("Share a folder on your computer first (on Windows: right-click it, "
+                                       "Properties \xE2\x80\xBA Sharing), then add it here with the computer's name "
+                                       "or IP address."),
                                     t.text3, 4);
         }
         page_.end(y + 20 + page_.scroll());
@@ -312,8 +313,8 @@ public:
             app::push(std::make_unique<ShareForm>(shares_[focused]));
         }
         if (remove >= 0 && remove < (int)shares_.size()) confirm_remove(shares_[remove].name);
-        if (on_share) hint_bar({{"A", "Open"}, {"Y", "Edit"}, {"X", "Remove"}, {"B", "Back"}});
-        else hint_bar({{"A", "Add"}, {"B", "Back"}});
+        if (on_share) hint_bar({{"A", tr("Open")}, {"Y", tr("Edit")}, {"X", tr("Remove")}, {"B", tr("Back")}});
+        else hint_bar({{"A", tr("Add")}, {"B", tr("Back")}});
     }
 
 private:
@@ -322,13 +323,13 @@ private:
         if (pending_remove_ != name || ui::time() - pending_since_ > 4) {
             pending_remove_ = name;
             pending_since_ = ui::time();
-            toast("Press X again to remove " + name, ic::DELETE, theme().warn);
+            toast(util::fmt(tr("Press X again to remove %s"), name.c_str()), ic::DELETE, theme().warn);
             return;
         }
         smb::remove_share(name);
         pending_remove_.clear();
         shares_ = smb::saved_shares();
-        toast("Removed " + name, ic::DELETE);
+        toast(util::fmt(tr("Removed %s"), name.c_str()), ic::DELETE);
     }
 
     std::vector<smb::Share> shares_;

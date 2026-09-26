@@ -25,7 +25,7 @@ List by_country(const std::string& country_code, int limit = 40);
 List by_tag(const std::string& tag, int limit = 40);
 List search(const std::string& query, int limit = 60);
 
-struct Genre { const char* name; const char* tag; int icon; };
+struct Genre { const char* name; const char* tag; int icon; };  // name: English (N_), tr() it where it's shown
 const std::vector<Genre>& genres();
 
 player::Source make_source(const Station& s);

@@ -87,5 +87,5 @@ constexpr int CHEVRON_RIGHT = 0xe5cc, CHEVRON_LEFT = 0xe5cb, EXPAND_MORE = 0xe5c
               SPORTS_SOCCER = 0xea2f, PERSON_ADD = 0xe7fe, ACCOUNT_CIRCLE = 0xe853, WATCH_LATER = 0xe924,
               PLAYLIST_ADD = 0xe03b, PLAYLIST_ADD_CHECK = 0xe065, THUMB_DOWN = 0xe8db, FILE_UPLOAD = 0xe2c6,
               FILE_DOWNLOAD = 0xe2c4, SYSTEM_UPDATE = 0xe62a, RESTORE = 0xe8b3, NEW_RELEASES = 0xe031,
-              VERIFIED = 0xef76;
+              VERIFIED = 0xef76, RADIO_CHECKED = 0xe837, RADIO_UNCHECKED = 0xe836;
 }  // namespace ic

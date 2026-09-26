@@ -14,6 +14,7 @@
 #include <mutex>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "logger/logger.hpp"
 #include "services/hls.hpp"
@@ -72,7 +73,7 @@ std::vector<std::string> ssdp_search(int wait_ms, std::string& error) {
     std::vector<std::string> found;
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) {
-        error = "Can't search the network";
+        error = tr("Can't search the network");
         return found;
     }
     sockaddr_in local;
@@ -95,7 +96,7 @@ std::vector<std::string> ssdp_search(int wait_ms, std::string& error) {
     for (int i = 0; i < 2; i++)
         if (sendto(fd, msg, strlen(msg), 0, (sockaddr*)&dst, sizeof(dst)) > 0) sent = true;
     if (!sent) {
-        error = "Can't search the network";
+        error = tr("Can't search the network");
         close(fd);
         return found;
     }
@@ -164,7 +165,7 @@ bool describe(const std::string& location, Server& out) {
     out.udn = text(dev, "UDN");
     out.service_type = text(service, "serviceType");
     out.control_url = hls::resolve_url(base, text(service, "controlURL"));
-    if (out.name.empty()) out.name = out.model.empty() ? "Media server" : out.model;
+    if (out.name.empty()) out.name = out.model.empty() ? tr("Media server") : out.model;
     if (out.udn.empty()) out.udn = location;
 
     // Largest PNG/JPEG icon up to 256 px.
@@ -314,8 +315,8 @@ Listing browse(const Server& server, const std::string& object_id) {
         http::Response r = http::perform(req);
         if (!r.ok()) {
             if (out.items.empty()) {
-                out.error = r.status ? util::fmt("The server refused the request (%ld)", r.status)
-                                     : "Can't reach " + server.name;
+                out.error = r.status ? util::fmt(tr("The server refused the request (%ld)"), r.status)
+                                     : util::fmt(tr("Can't reach %s"), server.name.c_str());
                 return out;
             }
             break;  // keep what arrived
@@ -329,7 +330,7 @@ Listing browse(const Server& server, const std::string& object_id) {
         int total = atoi(text(resp, "TotalMatches").c_str());
         if (!result) {
             if (out.items.empty()) {
-                out.error = "The server sent an answer CoffeeFlix doesn't understand";
+                out.error = tr("The server sent an answer CoffeeFlix doesn't understand");
                 return out;
             }
             break;

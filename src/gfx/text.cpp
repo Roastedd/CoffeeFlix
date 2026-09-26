@@ -6,7 +6,9 @@
 #include <cstdio>
 #include <unordered_map>
 
+#include "core/i18n.hpp"
 #include "logger/logger.hpp"
+#include "platform/platform.hpp"
 
 namespace text {
 
@@ -33,6 +35,11 @@ std::unordered_map<uint32_t, TTF_Font*> g_fonts;  // (weight << 16) | raster siz
 std::unordered_map<uint64_t, Glyph> g_glyphs;
 std::unordered_map<uint32_t, Metrics> g_metrics;
 int g_atlas_gen = 0;
+
+// Chinese, Japanese and Korean come from the system's fonts (Inter has none of it).
+platform::FontFile g_cjk[platform::CJK_FONT_COUNT];
+bool g_has_cjk[platform::CJK_FONT_COUNT] = {};
+std::unordered_map<uint32_t, TTF_Font*> g_cjk_fonts;  // (font << 24) | (bold << 16) | raster size
 
 inline int raster_size(Font f) { return std::max(4, (int)std::lround(f.size * gfx::output_scale())); }
 inline float raster_scale(Font f) { return (float)raster_size(f) / f.size; }
@@ -67,6 +74,35 @@ const Metrics& get_metrics(Weight w, int px) {
     return g_metrics[key] = m;
 }
 
+TTF_Font* get_cjk_font(int which, bool bold, int px) {
+    if (!g_has_cjk[which]) return nullptr;
+    uint32_t key = ((uint32_t)which << 24) | ((uint32_t)bold << 16) | (uint32_t)px;
+    auto it = g_cjk_fonts.find(key);
+    if (it != g_cjk_fonts.end()) return it->second;
+    const platform::FontFile& f = g_cjk[which];
+    SDL_RWops* rw = f.data ? SDL_RWFromConstMem(f.data, (int)f.size) : SDL_RWFromFile(f.path.c_str(), "rb");
+    TTF_Font* font = rw ? TTF_OpenFontRW(rw, 1, px) : nullptr;
+    if (!font) {
+        log_message(LOG_ERROR, "Text", "Couldn't open system font %d: %s", which, TTF_GetError());
+        g_has_cjk[which] = false;
+    } else {
+        TTF_SetFontHinting(font, TTF_HINTING_LIGHT);
+        if (bold) TTF_SetFontStyle(font, TTF_STYLE_BOLD);  // they come in one weight
+    }
+    return g_cjk_fonts[key] = font;
+}
+
+// Which system font to try first: Chinese characters are drawn differently in each language.
+int cjk_order() {
+    static int gen = -1, order = 0;
+    if (gen != i18n::generation()) {
+        gen = i18n::generation();
+        std::string_view lang = i18n::current().code;
+        order = lang == "zh" ? 1 : lang == "ko" ? 2 : 0;
+    }
+    return order;
+}
+
 void check_atlas_generation() {
     if (g_atlas_gen != gfx::atlas_generation()) {
         g_glyphs.clear();
@@ -76,7 +112,8 @@ void check_atlas_generation() {
 
 const Glyph& get_glyph(Weight w, int px, uint32_t cp) {
     check_atlas_generation();
-    uint64_t key = ((uint64_t)w << 56) | ((uint64_t)px << 32) | cp;
+    int order = cjk_order();
+    uint64_t key = ((uint64_t)w << 56) | ((uint64_t)px << 32) | ((uint64_t)order << 24) | cp;
     auto it = g_glyphs.find(key);
     if (it != g_glyphs.end()) return it->second;
 
@@ -84,6 +121,18 @@ const Glyph& get_glyph(Weight w, int px, uint32_t cp) {
     TTF_Font* font = get_font(w, px);
     if (!font) return g_glyphs[key] = g;
 
+    float shift = 0;  // lines up a system font's baseline with Inter's
+    if (!TTF_GlyphIsProvided32(font, cp) && w != ICONS) {
+        static const int ORDERS[3][3] = {{0, 1, 2}, {1, 0, 2}, {2, 0, 1}};
+        for (int which : ORDERS[order]) {
+            TTF_Font* cjk = get_cjk_font(which, w == SEMIBOLD || w == BOLD, px);
+            if (cjk && TTF_GlyphIsProvided32(cjk, cp)) {
+                shift = (float)(TTF_FontAscent(font) - TTF_FontAscent(cjk));
+                font = cjk;
+                break;
+            }
+        }
+    }
     if (!TTF_GlyphIsProvided32(font, cp)) {
         // Emoji and pictographs (all over YouTube titles and captions) have no font here: leave
         // them out rather than drawing a box each. Other missing characters still show one.
@@ -133,7 +182,7 @@ const Glyph& get_glyph(Weight w, int px, uint32_t cp) {
                 gfx::atlas_upload(region, px_data + (size_t)y0 * rgba->pitch + x0 * 4, rgba->pitch);
                 g.region = region;
                 g.off_x = (float)(std::min(0, minx) + x0);
-                g.off_y = (float)y0;
+                g.off_y = (float)y0 + shift;
                 g.visible = true;
             }
             SDL_FreeSurface(rgba);
@@ -177,13 +226,17 @@ bool init(const std::string& content_dir) {
         if (n > 0 && fread(g_font_data[w].data(), 1, n, f) != (size_t)n) g_font_data[w].clear();
         fclose(f);
     }
+    for (int i = 0; i < platform::CJK_FONT_COUNT; i++) g_has_cjk[i] = platform::cjk_font((platform::CjkFont)i, g_cjk[i]);
     return !g_font_data[REGULAR].empty();
 }
 
 void shutdown() {
     for (auto& [k, f] : g_fonts)
         if (f) TTF_CloseFont(f);
+    for (auto& [k, f] : g_cjk_fonts)
+        if (f) TTF_CloseFont(f);
     g_fonts.clear();
+    g_cjk_fonts.clear();
     g_glyphs.clear();
     g_metrics.clear();
     TTF_Quit();
@@ -265,43 +318,93 @@ float draw_fit(Font f, float x, float y, float max_w, std::string_view s, gfx::C
     return draw(f, x, y, e, c, align);
 }
 
+namespace {
+
+// Chinese, Japanese and Korean don't need spaces to break a line: it can break next to any of
+// their characters, except before closing punctuation (、。」) or after opening punctuation (「).
+bool is_cjk(uint32_t cp) {
+    return (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xAC00 && cp <= 0xD7AF) ||
+           (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFF00 && cp <= 0xFFEF) || cp >= 0x20000;
+}
+
+bool no_break_before(uint32_t cp) {
+    static const std::u32string_view CLOSE =
+        U",.!?:;)]}%\u2019\u201D\u2026\u3001\u3002\u3005\u3009\u300B\u300D\u300F\u3011\u3015\u3017\u3019\u301F"
+        U"\u3041\u3043\u3045\u3047\u3049\u3063\u3083\u3085\u3087\u308E\u309D\u309E\u30A1\u30A3\u30A5\u30A7\u30A9"
+        U"\u30C3\u30E3\u30E5\u30E7\u30EE\u30F5\u30F6\u30FB\u30FC\uFF01\uFF05\uFF09\uFF0C\uFF0E\uFF1A\uFF1B\uFF1F"
+        U"\uFF3D\uFF5D";
+    return CLOSE.find((char32_t)cp) != std::u32string_view::npos;
+}
+
+bool no_break_after(uint32_t cp) {
+    static const std::u32string_view OPEN =
+        U"([{\u2018\u201C\u3008\u300A\u300C\u300E\u3010\u3014\u3016\u3018\u301D\uFF08\uFF3B\uFF5B";
+    return OPEN.find((char32_t)cp) != std::u32string_view::npos;
+}
+
+}  // namespace
+
 std::vector<std::string> wrap(Font f, std::string_view s, float width, int max_lines) {
+    // The pieces a line can break between: words, and single CJK characters.
+    struct Piece {
+        size_t a, b;
+        bool space;    // a space comes before it
+        bool newline;  // it is a line break
+    };
+    std::vector<Piece> pieces;
+    bool space = false, glue = false, prev_cjk = false;
+    for (size_t i = 0; i < s.size();) {
+        size_t a = i;
+        uint32_t cp = next_codepoint(s, i);
+        if (cp == ' ') {
+            space = true;
+            continue;
+        }
+        if (cp == '\n') {
+            pieces.push_back({a, i, false, true});
+            space = false;
+            continue;
+        }
+        bool cjk = is_cjk(cp);
+        bool join = !pieces.empty() && !pieces.back().newline && !space &&
+                    (glue || no_break_before(cp) || (!cjk && !prev_cjk));
+        if (join) pieces.back().b = i;
+        else pieces.push_back({a, i, space, false});
+        space = false;
+        glue = no_break_after(cp);
+        prev_cjk = cjk;
+    }
+
     std::vector<std::string> lines;
     std::string line;
     float line_w = 0;
     float space_w = measure(f, " ");
-    size_t i = 0;
     auto push_line = [&]() {
         lines.push_back(line);
         line.clear();
         line_w = 0;
     };
-    while (i < s.size()) {
-        if (s[i] == '\n') {
+    size_t k = 0;
+    while (k < pieces.size()) {
+        const Piece& p = pieces[k++];
+        if (p.newline) {
             push_line();
-            i++;
-            continue;
+        } else {
+            std::string_view word = s.substr(p.a, p.b - p.a);
+            float ww = measure(f, word);
+            float gap = p.space && !line.empty() ? space_w : 0;
+            if (!line.empty() && line_w + gap + ww > width) {
+                push_line();
+                gap = 0;
+            }
+            if (gap > 0) line += ' ';
+            line.append(word);
+            line_w += gap + ww;
         }
-        if (s[i] == ' ') {
-            i++;
-            continue;
-        }
-        size_t j = i;
-        while (j < s.size() && s[j] != ' ' && s[j] != '\n') j++;
-        std::string_view word = s.substr(i, j - i);
-        float ww = measure(f, word);
-        if (!line.empty() && line_w + space_w + ww > width) push_line();
-        if (!line.empty()) {
-            line += ' ';
-            line_w += space_w;
-        }
-        line.append(word);
-        line_w += ww;
-        i = j;
         if (max_lines > 0 && (int)lines.size() >= max_lines) break;
     }
     if (!line.empty()) push_line();
-    bool truncated = i < s.size();
+    bool truncated = k < pieces.size();
     if (max_lines > 0 && (int)lines.size() > max_lines) {
         lines.resize(max_lines);
         truncated = true;

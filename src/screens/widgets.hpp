@@ -87,7 +87,7 @@ float grid(Id id, float x, float y, const GridSpec& spec, Page* page = nullptr);
 void empty_state(const Rect& r, int icon, const char* title, const char* desc);
 // Empty state with a focusable action button; returns true when pressed.
 bool empty_state_action(Id id, const Rect& r, int icon, const char* title, const char* desc,
-                        const char* action = "Try again", int action_icon = ic::REFRESH);
+                        const char* action = nullptr /* "Try again" */, int action_icon = ic::REFRESH);
 void section_title(float x, float y, const char* title, const char* subtitle = nullptr);
 // Pill-shaped fake text field that opens the keyboard when activated.
 bool search_bar(Id id, const Rect& r, const std::string& query, const char* placeholder, Id group = 0, int flags = 0);

@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "audio/mixer.hpp"
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "logger/logger.hpp"
 #include "platform/text_input.hpp"
@@ -324,10 +325,32 @@ int volumes(Volume* out, int max) {
     int n = 0;
     std::string media = media_root();
     util::make_dirs(media);
-    if (n < max) out[n++] = Volume{"CoffeeFlix folder", media, 0xe2c7};
+    if (n < max) out[n++] = Volume{tr("CoffeeFlix folder"), media, 0xe2c7};
     const char* home = getenv("HOME");
-    if (home && n < max) out[n++] = Volume{"Home", home, 0xe88a};
+    if (home && n < max) out[n++] = Volume{tr("Home"), home, 0xe88a};
     return n;
+}
+
+std::string system_language() {
+    // "pt_BR.UTF-8" -> "pt", "zh_TW.UTF-8" -> "zh-tw"
+    std::string l = util::lower(util::env_or("COFFEEFLIX_LANGUAGE", util::env_or("LANG", "en")));
+    l = l.substr(0, l.find('.'));
+    if (l == "zh_tw" || l == "zh_hk" || l == "zh-tw") return "zh-tw";
+    return l.substr(0, l.find_first_of("_-"));
+}
+
+bool cjk_font(CjkFont which, FontFile& out) {
+    // macOS's; COFFEEFLIX_CJK_FONT names one for everything elsewhere.
+    static const char* PATHS[CJK_FONT_COUNT] = {
+        "/System/Library/Fonts/\xE3\x83\x92\xE3\x83\xA9\xE3\x82\xAE\xE3\x83\x8E\xE8\xA7\x92\xE3\x82\xB4\xE3\x82\xB7\xE3\x83\x83\xE3\x82\xAF W3.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    };
+    if (which < 0 || which >= CJK_FONT_COUNT) return false;
+    std::string path = util::env_or("COFFEEFLIX_CJK_FONT", PATHS[which]);
+    if (!util::file_exists(path)) return false;
+    out.path = path;
+    return true;
 }
 
 bool network_connected() { return true; }

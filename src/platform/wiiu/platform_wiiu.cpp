@@ -3,6 +3,8 @@
 #include <whb/proc.h>
 #include <coreinit/dynload.h>
 #include <coreinit/energysaver.h>
+#include <coreinit/memory.h>
+#include <coreinit/userconfig.h>
 #include <nn/ac.h>
 #include <nn/nets2/somemopt.h>
 #include <sys/socket.h>
@@ -20,8 +22,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <thread>
 
+#include "core/i18n.hpp"
 #include "core/util.hpp"
 #include "logger/logger.hpp"
 #include "platform/text_input.hpp"
@@ -359,9 +363,38 @@ int volumes(Volume* out, int max) {
     auto add = [&](const char* label, const char* path, int icon) {
         if (n < max && util::dir_exists(path)) out[n++] = Volume{label, path, icon};
     };
-    add("CoffeeFlix folder", "/vol/external01/wiiu/apps/coffeeflix", 0xe2c7);
-    add("SD Card", "/vol/external01", 0xe623);
+    add(tr("CoffeeFlix folder"), "/vol/external01/wiiu/apps/coffeeflix", 0xe2c7);
+    add(tr("SD Card"), "/vol/external01", 0xe623);
     return n;
+}
+
+std::string system_language() {
+    // cafe.language counts from Japanese (nn::swkbd::LanguageType).
+    static const char* CODES[] = {"ja", "en", "fr", "de", "it", "es", "zh", "ko", "nl", "pt", "ru", "zh-tw"};
+    alignas(0x40) uint32_t lang = 1;
+    alignas(0x40) UCSysConfig config;
+    memset(&config, 0, sizeof(config));
+    strncpy(config.name, "cafe.language", sizeof(config.name) - 1);
+    config.dataType = UC_DATATYPE_UNSIGNED_INT;
+    config.dataSize = sizeof(lang);
+    config.data = &lang;
+    UCHandle uc = UCOpen();
+    if (uc < 0) return "en";
+    UCError err = UCReadSysConfig(uc, 1, &config);
+    UCClose(uc);
+    return err == 0 && lang < sizeof(CODES) / sizeof(CODES[0]) ? CODES[lang] : "en";
+}
+
+bool cjk_font(CjkFont which, FontFile& out) {
+    static const OSSharedDataType TYPES[CJK_FONT_COUNT] = {OS_SHAREDDATATYPE_FONT_STANDARD, OS_SHAREDDATATYPE_FONT_CHINESE,
+                                                           OS_SHAREDDATATYPE_FONT_KOREAN};
+    void* data = nullptr;
+    uint32_t size = 0;
+    if (which < 0 || which >= CJK_FONT_COUNT || !OSGetSharedData(TYPES[which], 0, &data, &size) || !data || !size)
+        return false;
+    out.data = data;
+    out.size = size;
+    return true;
 }
 
 bool network_connected() {

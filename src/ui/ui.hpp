@@ -38,7 +38,7 @@ struct Theme {
 const Theme& theme();
 void set_accent(int index);  // see accent_names()
 int accent_count();
-const char* accent_name(int index);
+const char* accent_name(int index);  // in the current language
 
 // Font presets
 namespace font {

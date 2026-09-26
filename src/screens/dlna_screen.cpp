@@ -1,5 +1,6 @@
 // Media servers (DLNA / UPnP): the servers found on the network and a folder
 // browser that plays videos, music and photos straight from them.
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -34,7 +35,7 @@ player::Source source_for(const dlna::Server& server, const dlna::Item& it) {
     s.id = it.url;  // stable on real servers; lets Continue Watching reopen it directly
     if (it.kind == dlna::VIDEO) {
         s.start = store::resume_position("dlna", it.url);
-        if (!it.subtitles.empty()) s.external_subs.push_back({"Subtitles", it.subtitles});
+        if (!it.subtitles.empty()) s.external_subs.push_back({tr("Subtitles"), it.subtitles});
     } else {
         s.remember_position = false;
     }
@@ -65,12 +66,12 @@ public:
         bool failed = !loading_ && !listing_.ok;
         if (failed) {
             if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 300), ic::ERROR_OUTLINE,
-                                   "Can't open this folder", listing_.error.c_str()))
+                                   tr("Can't open this folder"), listing_.error.c_str()))
                 reload();
             y += 340;
         } else if (!loading_ && listing_.items.empty()) {
-            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::FOLDER, "Nothing to play here",
-                        "This folder has no videos, music or photos.");
+            empty_state(Rect(x0, y, W - x0 - 60, 260), ic::FOLDER, tr("Nothing to play here"),
+                        tr("This folder has no videos, music or photos."));
             y += 300;
         } else {
             GridSpec gs;
@@ -84,7 +85,7 @@ public:
             y += grid(id(g, "grid"), x0, y, gs, &page_);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", failed ? "Try again" : "Open"}, {"B", "Back"}});
+        hint_bar({{"A", failed ? tr("Try again") : tr("Open")}, {"B", tr("Back")}});
     }
 
 private:
@@ -96,19 +97,19 @@ private:
         c.image_w = 360;
         switch (it.kind) {
             case dlna::CONTAINER:
-                c.subtitle = it.child_count >= 0 ? util::fmt("%d item%s", it.child_count, it.child_count == 1 ? "" : "s")
-                                                 : "Folder";
+                c.subtitle = it.child_count >= 0 ? util::fmt(it.child_count == 1 ? tr("%d item") : tr("%d items"), it.child_count)
+                                                 : tr("Folder");
                 break;
             case dlna::VIDEO:
-                c.subtitle = it.duration > 0 ? util::format_duration(it.duration) : "Video";
+                c.subtitle = it.duration > 0 ? util::format_duration(it.duration) : tr("Video");
                 if (it.size) c.subtitle += " \xC2\xB7 " + util::format_bytes(it.size);
-                if (store::resume_position("dlna", it.url) > 0) c.badge = "Resume";
+                if (store::resume_position("dlna", it.url) > 0) c.badge = tr("Resume");
                 break;
             case dlna::AUDIO:
                 c.subtitle = !it.artist.empty() ? it.artist : it.album;
                 if (it.duration > 0) c.badge = util::format_duration(it.duration);
                 break;
-            case dlna::IMAGE: c.subtitle = "Photo"; break;
+            case dlna::IMAGE: c.subtitle = tr("Photo"); break;
         }
         return c;
     }
@@ -180,15 +181,15 @@ public:
         page_.begin(id(g, "page"));
 
         float y = page_.y(64);
-        text::draw(font::display, x0, y, "Media servers", t.text);
+        text::draw(font::display, x0, y, tr("Media servers"), t.text);
         y += 66;
-        text::draw(font::body, x0, y, "Plex, Jellyfin, Emby, NAS and PC media servers on your network (DLNA).", t.text2);
+        text::draw(font::body, x0, y, tr("Plex, Jellyfin, Emby, NAS and PC media servers on your network (DLNA)."), t.text2);
         y += 50;
 
         if (!searching_ && servers_.empty()) {
-            if (empty_state_action(id(g, "again"), Rect(x0, y, W - x0 - 60, 320), ic::DNS, "No media servers found",
-                                   "Make sure the server has DLNA sharing turned on and is on the same network as your Wii U.",
-                                   "Search again", ic::REFRESH))
+            if (empty_state_action(id(g, "again"), Rect(x0, y, W - x0 - 60, 320), ic::DNS, tr("No media servers found"),
+                                   tr("Make sure the server has DLNA sharing turned on and is on the same network as your Wii U."),
+                                   tr("Search again"), ic::REFRESH))
                 search();
             y += 360;
         } else {
@@ -217,8 +218,8 @@ public:
             }
         }
         page_.end(y + page_.scroll());
-        if (servers_.empty()) hint_bar({{"A", "Search again"}, {"B", "Back"}});
-        else hint_bar({{"A", "Open"}, {"Y", "Search again"}, {"B", "Back"}});
+        if (servers_.empty()) hint_bar({{"A", tr("Search again")}, {"B", tr("Back")}});
+        else hint_bar({{"A", tr("Open")}, {"Y", tr("Search again")}, {"B", tr("Back")}});
     }
 
 private:

@@ -12,6 +12,7 @@
 #include <cstring>
 #include <mutex>
 
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
@@ -62,17 +63,19 @@ std::string describe(const std::string& raw, int rc, const Share& s) {
     std::string e = util::trim(raw);
     auto has = [&](const char* k) { return e.find(k) != std::string::npos; };
     if (has("LOGON_FAILURE") || has("STATUS_ACCOUNT_") || has("STATUS_PASSWORD_") || has("WRONG_PASSWORD"))
-        return "Wrong username or password";
-    if (has("BAD_NETWORK_NAME")) return "There is no share called \"" + s.share + "\" on " + s.host;
-    if (has("ACCESS_DENIED") || rc == -EACCES) return "Access denied";
-    if (rc == -ETIMEDOUT) return "Timed out connecting to " + s.host;
-    if (has("Invalid address")) return "Can't find " + s.host + " on the network";
-    if (has("Socket connect failed") || has("Connect failed")) return "Can't connect to " + s.host;
-    if (has("Negotiate failed")) return s.host + " doesn't support SMB 2 or newer";
-    if (rc == -ENOENT) return "Not found";
-    if (rc == -EFBIG) return "The file is too large";
+        return tr("Wrong username or password");
+    if (has("BAD_NETWORK_NAME"))
+        return util::fmt(tr("There is no share called \"%s\" on %s"), s.share.c_str(), s.host.c_str());
+    if (has("ACCESS_DENIED") || rc == -EACCES) return tr("Access denied");
+    if (rc == -ETIMEDOUT) return util::fmt(tr("Timed out connecting to %s"), s.host.c_str());
+    if (has("Invalid address")) return util::fmt(tr("Can't find %s on the network"), s.host.c_str());
+    if (has("Socket connect failed") || has("Connect failed"))
+        return util::fmt(tr("Can't connect to %s"), s.host.c_str());
+    if (has("Negotiate failed")) return util::fmt(tr("%s doesn't support SMB 2 or newer"), s.host.c_str());
+    if (rc == -ENOENT) return tr("Not found");
+    if (rc == -EFBIG) return tr("The file is too large");
     if (!e.empty()) return e;
-    return rc < 0 ? std::string(strerror(-rc)) : "Unknown error";
+    return rc < 0 ? std::string(strerror(-rc)) : tr("Unknown error");
 }
 
 std::string describe(smb2_context* ctx, int rc, const Share& s) { return describe(smb2_get_error(ctx), rc, s); }
@@ -99,7 +102,7 @@ Conn* open_conn(const Share& s, std::string& error) {
 #endif
     smb2_context* ctx = smb2_init_context();
     if (!ctx) {
-        error = "Out of memory";
+        error = tr("Out of memory");
         return nullptr;
     }
     // No username and no password: anonymous (guest) login.
@@ -219,7 +222,7 @@ std::string clean_path(std::string p) {
 // Splits a URL into the share to connect to and the path inside it.
 bool resolve(const std::string& url, Share& s, std::string& path, std::string& error) {
     if (!is_url(url)) {
-        error = "Not a network share address";
+        error = tr("Not a network share address");
         return false;
     }
     std::string rest = url.substr(6);
@@ -252,7 +255,7 @@ bool resolve(const std::string& url, Share& s, std::string& path, std::string& e
     s.share = path.substr(0, ps);
     path = ps == std::string::npos ? "" : path.substr(ps + 1);
     if (s.host.empty() || s.share.empty()) {
-        error = "Unknown network share";
+        error = tr("Unknown network share");
         return false;
     }
     return true;
@@ -296,7 +299,8 @@ std::string save_share(const Share& s) {
 void remove_share(const std::string& name) { store::fav_set(STORE_SERVICE, store::Fav{name, "", "", "", ""}, false); }
 
 std::string default_name(const Share& s) {
-    std::string name = s.host.empty() || s.share.empty() ? s.share + s.host : s.share + " on " + s.host;
+    std::string name = s.host.empty() || s.share.empty() ? s.share + s.host
+                                                         : util::fmt(tr("%s on %s"), s.share.c_str(), s.host.c_str());
     return util::replace_all(name, "/", "-");
 }
 

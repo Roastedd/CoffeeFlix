@@ -1,6 +1,7 @@
 // Home: a hero for whatever is focused, and shelves pulled from every service.
 #include <ctime>
 
+#include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -35,7 +36,7 @@ struct HomeItem {
 };
 
 struct Row {
-    std::string title;
+    std::string title;  // English, also the shelf's id: tr() it where it's shown
     CardShape shape = CARD_WIDE;
     float w = 300;
     std::vector<HomeItem> items;
@@ -46,10 +47,10 @@ const char* greeting() {
     time_t t = time(nullptr);
     struct tm lt;
     localtime_r(&t, &lt);
-    if (lt.tm_hour < 5) return "Up late?";
-    if (lt.tm_hour < 12) return "Good morning";
-    if (lt.tm_hour < 18) return "Good afternoon";
-    return "Good evening";
+    if (lt.tm_hour < 5) return tr("Up late?");
+    if (lt.tm_hour < 12) return tr("Good morning");
+    if (lt.tm_hour < 18) return tr("Good afternoon");
+    return tr("Good evening");
 }
 
 HomeItem from_resume(const store::Resume& r) {
@@ -57,7 +58,7 @@ HomeItem from_resume(const store::Resume& r) {
     h.title = r.title;
     h.subtitle = r.subtitle;
     h.progress = r.duration > 0 ? (float)(r.position / r.duration) : 0;
-    h.badge = r.duration > 0 ? util::format_duration(r.duration - r.position) + " left" : "";
+    h.badge = r.duration > 0 ? util::fmt(tr("%s left"), util::format_duration(r.duration - r.position).c_str()) : "";
     if (r.service == "youtube") {
         h.icon = ic::SMART_DISPLAY;
         h.service = "YouTube";
@@ -71,12 +72,12 @@ HomeItem from_resume(const store::Resume& r) {
         h.more = [v] { yt::video_menu(v); };
     } else if (r.service == "podcast") {
         h.icon = ic::PODCASTS;
-        h.service = "Podcast";
+        h.service = tr("Podcast");
         h.image = h.hero = r.image;
         h.open = [r] { play_audio(podcasts::source_from_resume(r.id, r.title, r.subtitle, r.image, r.extra)); };
     } else {
         h.icon = r.video ? ic::MOVIE : ic::MUSIC;
-        h.service = r.service == "smb" ? "Network" : r.service == "dlna" ? "Media server" : "My Media";
+        h.service = r.service == "smb" ? tr("Network") : r.service == "dlna" ? tr("Media server") : tr("My Media");
         h.image = h.hero = r.image;
         if (h.image.empty() && r.video && r.service == "local") h.image = h.hero = "thumb://" + r.id;
         h.open = [r] {
@@ -99,13 +100,13 @@ HomeItem from_jellyfin(const jellyfin::Item& it) {
     h.icon = ic::VIDEO_LIBRARY;
     h.service = "Jellyfin";
     h.title = it.type == "Episode" ? it.series_name : it.name;
-    h.subtitle = it.type == "Episode" ? util::fmt("S%d E%d \xC2\xB7 %s", it.parent_index, it.index, it.name.c_str()) : it.year;
+    h.subtitle = it.type == "Episode" ? util::fmt(tr("S%d E%d \xC2\xB7 %s"), it.parent_index, it.index, it.name.c_str()) : it.year;
     h.description = it.overview;
     h.image = jellyfin::thumb(it, 480);
     h.hero = jellyfin::backdrop(it, 1280);
     if (it.position > 0 && it.runtime > 0) {
         h.progress = (float)(it.position / it.runtime);
-        h.badge = util::format_duration(it.runtime - it.position) + " left";
+        h.badge = util::fmt(tr("%s left"), util::format_duration(it.runtime - it.position).c_str());
     }
     jellyfin::Item copy = it;
     h.open = [copy] { play_video(jellyfin::make_source(copy)); };
@@ -121,7 +122,7 @@ HomeItem from_twitch(const twitch::Stream& s) {
     h.description = s.title;
     h.image = h.hero = s.preview;
     h.live = true;
-    h.badge = util::format_count(s.viewers) + " watching";
+    h.badge = util::fmt(tr("%s watching"), util::format_count(s.viewers).c_str());
     h.open = [s] { play_video(twitch::make_source(s)); };
     return h;
 }
@@ -134,7 +135,7 @@ HomeItem from_youtube(const youtube::Video& v) {
     h.subtitle = v.channel + (v.views.empty() ? "" : " \xC2\xB7 " + v.views);
     h.image = youtube::thumbnail(v.id);
     h.hero = youtube::thumbnail_hq(v.id);
-    h.badge = v.live ? "" : v.duration;
+    h.badge = v.live ? "" : youtube::duration_label(v);
     h.live = v.live;
     h.open = [v] { yt::play(v); };
     h.more = [v] { yt::video_menu(v); };
@@ -144,7 +145,7 @@ HomeItem from_youtube(const youtube::Video& v) {
 HomeItem from_station(const radio::Station& s) {
     HomeItem h;
     h.icon = ic::RADIO;
-    h.service = "Radio";
+    h.service = tr("Radio");
     h.title = s.name;
     h.subtitle = s.country;
     h.description = s.tags;
@@ -202,10 +203,10 @@ public:
             text::draw(font::caption, badge.x + 28, badge.y + 6, f->service, t.text);
             mx += bw + 12;
             if (f->live) {
-                Rect lb(mx, ty + 8, 52, 28);
+                Rect lb(mx, ty + 8, std::max(52.0f, text::measure(font::caption, tr("LIVE")) + 20), 28);
                 gfx::fill_rrect(lb, 7, t.bad);
-                text::draw(font::caption, lb.cx(), lb.y + 6, "LIVE", gfx::WHITE, text::CENTER);
-                mx += 64;
+                text::draw(font::caption, lb.cx(), lb.y + 6, tr("LIVE"), gfx::WHITE, text::CENTER);
+                mx += lb.w + 12;
             }
             text::draw_fit(font::body_bold, mx, ty + 10, 640 - (mx - x0), f->subtitle, t.text2);
             ty += 48;
@@ -213,7 +214,7 @@ public:
             gfx::pop_alpha();
         } else {
             text::draw(font::display, x0, ty, "CoffeeFlix", t.text);
-            text::draw(font::body, x0, ty + 64, "YouTube, Twitch, Jellyfin, radio, podcasts and your own files.", t.text2);
+            text::draw(font::body, x0, ty + 64, tr("YouTube, Twitch, Jellyfin, radio, podcasts and your own files."), t.text2);
         }
 
         // --- shelves --------------------------------------------------------------------
@@ -224,7 +225,7 @@ public:
             Row& row = rows_[r];
             if (row.items.empty() && !row.loading) continue;
             ShelfSpec s;
-            s.title_str = row.title;
+            s.title_str = tr(row.title.c_str());
             s.count = (int)row.items.size();
             s.loading = row.loading;
             s.shape = row.shape;
@@ -258,8 +259,8 @@ public:
         page_.end(y + page_.scroll());
         bool more = focus_row_ >= 0 && focus_row_ < (int)rows_.size() && focus_col_ >= 0 &&
                     focus_col_ < (int)rows_[focus_row_].items.size() && rows_[focus_row_].items[focus_col_].more;
-        if (more) hint_bar({{"A", "Open"}, {"X", "More"}});
-        else hint_bar({{"A", "Open"}});
+        if (more) hint_bar({{"A", tr("Open")}, {"X", tr("More")}});
+        else hint_bar({{"A", tr("Open")}});
     }
 
 private:
@@ -290,16 +291,16 @@ private:
     float start_tiles(Id g, float x0, float y) {
         struct Tile { const char* title; const char* sub; int icon; app::Section s; uint32_t color; };
         const Tile tiles[] = {
-            {"YouTube", "Search and watch", ic::SMART_DISPLAY, app::SEC_YOUTUBE, 0xE53935},
-            {"Jellyfin", jellyfin::account().valid() ? "Your library" : "Connect your server", ic::VIDEO_LIBRARY,
+            {"YouTube", tr("Search and watch"), ic::SMART_DISPLAY, app::SEC_YOUTUBE, 0xE53935},
+            {"Jellyfin", jellyfin::account().valid() ? tr("Your library") : tr("Connect your server"), ic::VIDEO_LIBRARY,
              app::SEC_JELLYFIN, 0x7E57C2},
-            {"Twitch", "Live streams", ic::LIVE_TV, app::SEC_TWITCH, 0x9146FF},
-            {"Radio", "40,000 stations", ic::RADIO, app::SEC_RADIO, 0xFB8C00},
-            {"Podcasts", "Shows and episodes", ic::PODCASTS, app::SEC_PODCASTS, 0xD81B60},
-            {"My Media", "SD card and network", ic::FOLDER, app::SEC_MEDIA, 0x00897B},
+            {"Twitch", tr("Live streams"), ic::LIVE_TV, app::SEC_TWITCH, 0x9146FF},
+            {tr("Radio"), tr("40,000 stations"), ic::RADIO, app::SEC_RADIO, 0xFB8C00},
+            {tr("Podcasts"), tr("Shows and episodes"), ic::PODCASTS, app::SEC_PODCASTS, 0xD81B60},
+            {tr("My Media"), tr("SD card and network"), ic::FOLDER, app::SEC_MEDIA, 0x00897B},
         };
         ShelfSpec s;
-        s.title = "Explore";
+        s.title = tr("Explore");
         s.count = 6;
         s.item_w = 220;
         s.item = [&tiles](int i) {
@@ -355,25 +356,25 @@ private:
         if (!dirty_) return;
         dirty_ = false;
         rows_.clear();
-        Row cont{"Continue watching", CARD_WIDE, 300, {}, false};
+        Row cont{N_("Continue watching"), CARD_WIDE, 300, {}, false};
         for (auto& jr : jf_resume_) cont.items.push_back(from_jellyfin(jr));
         for (auto& r : store::resume_list(12)) cont.items.push_back(from_resume(r));
         cont.loading = cont.items.empty() && jf_loading_;
         rows_.push_back(std::move(cont));
 
-        Row next{"Next up", CARD_WIDE, 300, {}, false};
+        Row next{N_("Next up"), CARD_WIDE, 300, {}, false};
         for (auto& it : jf_next_) next.items.push_back(from_jellyfin(it));
         rows_.push_back(std::move(next));
 
-        Row live{"Live on Twitch", CARD_WIDE, 300, {}, tw_loading_};
+        Row live{N_("Live on Twitch"), CARD_WIDE, 300, {}, tw_loading_};
         for (auto& s : tw_live_) live.items.push_back(from_twitch(s));
         rows_.push_back(std::move(live));
 
-        Row stations{"Your radio stations", CARD_SQUARE, 160, {}, false};
+        Row stations{N_("Your radio stations"), CARD_SQUARE, 160, {}, false};
         for (auto& s : radio::favorites()) stations.items.push_back(from_station(s));
         rows_.push_back(std::move(stations));
 
-        Row yt{yt_personal_ ? "Recommended for you" : "Popular on YouTube", CARD_WIDE, 300, {}, yt_loading_};
+        Row yt{yt_personal_ ? N_("Recommended for you") : N_("Popular on YouTube"), CARD_WIDE, 300, {}, yt_loading_};
         for (auto& v : yt_) yt.items.push_back(from_youtube(v));
         rows_.push_back(std::move(yt));
     }

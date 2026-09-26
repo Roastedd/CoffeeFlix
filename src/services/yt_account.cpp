@@ -5,6 +5,7 @@
 #include <mutex>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
@@ -43,7 +44,7 @@ http::Response post_form(const char* path, const std::string& form) {
 std::string describe(const http::Response& r, json_t* root) {
     if (!r.error.empty()) return r.error;
     std::string e = json::str(root, {"error"});
-    return e.empty() ? util::fmt("Google answered %ld", r.status) : e;
+    return e.empty() ? util::fmt(tr("Google answered %ld"), r.status) : e;
 }
 
 // Keeps the tokens of a token response; false when it has none.
@@ -89,8 +90,9 @@ Code request_code() {
     c.expires_in = (int)json::num(doc.get(), {"expires_in"}, 1800);
     c.ok = r.ok() && !c.device_code.empty() && !c.user_code.empty();
     if (!c.ok) {
-        c.error = "Couldn't get a code from Google (" + describe(r, doc.get()) + ")";
-        log_message(LOG_WARNING, "YouTube", "%s", c.error.c_str());
+        std::string why = describe(r, doc.get());
+        c.error = util::fmt(tr("Couldn't get a code from Google (%s)"), why.c_str());
+        log_message(LOG_WARNING, "YouTube", "Couldn't get a code from Google (%s)", why.c_str());
     }
     return c;
 }
@@ -107,9 +109,9 @@ Poll poll(const std::string& device_code, int& interval, std::string& error) {
         return WAITING;
     }
     if (!take_tokens(doc.get())) {
-        error = e == "expired_token"   ? "The code ran out of time"
-                : e == "access_denied" ? "Sign-in was cancelled on the other device"
-                                       : "Couldn't sign in (" + describe(r, doc.get()) + ")";
+        error = e == "expired_token"   ? tr("The code ran out of time")
+                : e == "access_denied" ? tr("Sign-in was cancelled on the other device")
+                                       : util::fmt(tr("Couldn't sign in (%s)"), describe(r, doc.get()).c_str());
         log_message(LOG_WARNING, "YouTube", "Sign-in failed: %s", describe(r, doc.get()).c_str());
         return FAILED;
     }
@@ -134,7 +136,7 @@ std::string access_token(bool renew, std::string& error) {
     }
     std::string refresh = store::get_str("yt_account_token", "");
     if (refresh.empty()) {
-        error = "Not signed in to YouTube";
+        error = tr("Not signed in to YouTube");
         return "";
     }
     http::Response r = post_form("token", std::string(CLIENT) + "&refresh_token=" + util::url_encode(refresh) +
@@ -148,11 +150,12 @@ std::string access_token(bool renew, std::string& error) {
         // Withdrawn from the Google account's settings, or unused for months.
         log_message(LOG_WARNING, "YouTube", "Google no longer accepts the sign-in; signed out");
         forget();
-        error = "Signed out of YouTube: sign in again in Settings";
+        error = tr("Signed out of YouTube: sign in again in Settings");
         return "";
     }
-    error = "Couldn't renew the YouTube sign-in (" + describe(r, doc.get()) + ")";
-    log_message(LOG_WARNING, "YouTube", "%s", error.c_str());
+    std::string why = describe(r, doc.get());
+    error = util::fmt(tr("Couldn't renew the YouTube sign-in (%s)"), why.c_str());
+    log_message(LOG_WARNING, "YouTube", "Couldn't renew the YouTube sign-in (%s)", why.c_str());
     return "";
 }
 
@@ -160,7 +163,7 @@ bool signed_in() { return !store::get_str("yt_account_token", "").empty(); }
 
 std::string name() {
     std::string n = store::get_str("yt_account_name", "");
-    return n.empty() ? "YouTube account" : n;
+    return n.empty() ? tr("YouTube account") : n;
 }
 
 std::string photo() { return store::get_str("yt_account_photo", ""); }

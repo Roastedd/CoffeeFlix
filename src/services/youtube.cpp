@@ -8,6 +8,7 @@
 #include <set>
 
 #include "core/http.hpp"
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
@@ -114,7 +115,7 @@ json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string&
     http::Response r = http::post_json(api_base() + endpoint + "?prettyPrint=false", payload, headers, 20);
     if (status) *status = r.status;
     if (!r.ok()) {
-        error = !r.error.empty() ? r.error : r.status ? util::fmt("YouTube answered %ld", r.status) : "YouTube request failed";
+        error = !r.error.empty() ? r.error : r.status ? util::fmt(tr("YouTube answered %ld"), r.status) : tr("YouTube request failed");
         return json::Doc();
     }
     double t0 = util::now_seconds();
@@ -123,7 +124,7 @@ json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string&
     if (took > 1.0 || getenv("COFFEEFLIX_HTTP_TRACE"))
         log_message(took > 1.0 ? LOG_WARNING : LOG_DEBUG, "YouTube", "%s: %zu KB of JSON parsed in %.2f s", endpoint,
                     r.body.size() / 1024, took);
-    if (!doc) error = "Unexpected response from YouTube";
+    if (!doc) error = tr("Unexpected response from YouTube");
     else remember_visitor(doc.get());
     return doc;
 }
@@ -209,7 +210,7 @@ bool parse_short(json_t* l, Video& v) {
     if (v.title.empty()) v.title = json::yt_text(json_object_get(l, "headline"));
     v.views = json::str(l, {"overlayMetadata", "secondaryText", "content"});
     if (v.views.empty()) v.views = json::yt_text(json_object_get(l, "viewCountText"));
-    v.duration = "Short";
+    v.duration = "Short";  // kept in English, as saved lists have it: see duration_label()
     return !v.title.empty();
 }
 
@@ -502,7 +503,7 @@ const Format* pick_audio(const std::vector<Format>& formats, player::Source& src
         for (auto& l : src.audio_languages) seen = seen || l.first == f->audio_id;
         if (seen) continue;
         std::string label = f->audio_label.empty() ? f->audio_id : f->audio_label;
-        if (f->audio_dubbed) label += " (auto-dubbed)";
+        if (f->audio_dubbed) label = util::fmt(tr("%s (auto-dubbed)"), label.c_str());
         src.audio_languages.emplace_back(f->audio_id, label);
     }
     // The original first, the rest by name.
@@ -521,7 +522,7 @@ const Format* pick_audio(const std::vector<Format>& formats, player::Source& src
 bool from_hls(const std::string& manifest, int max_height, const Client& c, player::Source& src, std::string& error) {
     http::Response r = http::get(manifest, {{"User-Agent", c.user_agent}}, 15);
     if (!r.ok()) {
-        error = "Couldn't load the stream playlist";
+        error = tr("Couldn't load the stream playlist");
         return false;
     }
     hls::Master m = hls::parse(r.body, manifest);
@@ -531,7 +532,7 @@ bool from_hls(const std::string& manifest, int max_height, const Client& c, play
     }
     const hls::Variant* v = hls::pick(m, max_height, true, player::max_fps);
     if (!v) {
-        error = "No compatible stream (H.264) found";
+        error = tr("No compatible stream (H.264) found");
         return false;
     }
     src.url = v->url;
@@ -585,7 +586,7 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
     if (status != "OK") {
         error = json::str(root, {"playabilityStatus", "reason"});
         if (error.empty()) error = json::yt_text(json::at(root, {"playabilityStatus", "errorScreen", "playerErrorMessageRenderer", "reason"}));
-        if (error.empty()) error = "This video can't be played (" + status + ")";
+        if (error.empty()) error = util::fmt(tr("This video can't be played (%s)"), status.c_str());
         return false;
     }
 
@@ -606,13 +607,13 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
     std::string hls_url = json::str(sd, {"hlsManifestUrl"});
     if (live) {
         if (hls_url.empty()) {
-            error = "Live stream isn't available";
+            error = tr("Live stream isn't available");
             return false;
         }
         return from_hls(hls_url, max_height, c, src, error);
     }
     if (&c == &ANDROID_VR && token.empty()) {
-        error = "This video can't be played right now";
+        error = tr("This video can't be played right now");
         return false;
     }
 
@@ -654,7 +655,7 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
         return true;
     }
     if (!hls_url.empty()) return from_hls(hls_url, max_height, c, src, error);
-    error = "No playable H.264 streams";
+    error = tr("No playable H.264 streams");
     return false;
 }
 
@@ -662,14 +663,14 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
 
 const std::vector<Topic>& topics() {
     static const std::vector<Topic> t = {
-        {"Music", "music video", ic::MUSIC},
-        {"Gaming", "gaming", ic::SPORTS_ESPORTS},
-        {"News", "news today", ic::NEWSPAPER},
-        {"Sports", "sports highlights", ic::SPORTS_SOCCER},
-        {"Science", "science explained", ic::AUTO_AWESOME},
-        {"Trailers", "official trailer", ic::MOVIE},
-        {"Comedy", "comedy", ic::PEOPLE},
-        {"Cooking", "recipe", ic::LOCAL_CAFE},
+        {N_("Music"), "music video", ic::MUSIC},
+        {N_("Gaming"), "gaming", ic::SPORTS_ESPORTS},
+        {N_("News"), "news today", ic::NEWSPAPER},
+        {N_("Sports"), "sports highlights", ic::SPORTS_SOCCER},
+        {N_("Science"), "science explained", ic::AUTO_AWESOME},
+        {N_("Trailers"), "official trailer", ic::MOVIE},
+        {N_("Comedy"), "comedy", ic::PEOPLE},
+        {N_("Cooking"), "recipe", ic::LOCAL_CAFE},
     };
     return t;
 }
@@ -880,7 +881,7 @@ bool account_subscribe(const std::string& channel_id, bool on, std::string& erro
     // It answers with the new state of the button when it has one.
     json_t* done = json::find_key(doc.get(), "updateSubscribeButtonAction", 8);
     if (done && json::boolean(done, {"subscribed"}, on) != on) {
-        error = "YouTube didn't change it";
+        error = tr("YouTube didn't change it");
         return false;
     }
     return true;
@@ -892,7 +893,7 @@ bool account_info(AccountInfo& out, std::string& error) {
     json_t* a = json::find_key(doc.get(), "activeAccountHeaderRenderer", 16);
     out.name = json::yt_text(json_object_get(a, "accountName"));
     out.photo = best_image(json::at(a, {"accountPhoto"}));
-    if (out.name.empty()) error = "No account in the answer";
+    if (out.name.empty()) error = tr("No account in the answer");
     return !out.name.empty();
 }
 
@@ -988,6 +989,8 @@ Results related(const std::string& video_id) {
     return r;
 }
 
+std::string duration_label(const Video& v) { return v.duration == "Short" ? tr("Short") : v.duration; }
+
 std::string thumbnail(const std::string& id) { return "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg"; }
 std::string thumbnail_hq(const std::string& id) { return "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg"; }
 
@@ -998,13 +1001,13 @@ bool resolve(const std::string& id, int max_height, player::Source& src, std::st
     auto take_segments = [&] {
         if (!segments.valid()) return;
         static const std::pair<const char*, const char*> LABELS[] = {
-            {"sponsor", "Skipped sponsor"}, {"selfpromo", "Skipped self-promotion"},
-            {"interaction", "Skipped subscribe reminder"}};
+            {"sponsor", N_("Skipped sponsor")}, {"selfpromo", N_("Skipped self-promotion")},
+            {"interaction", N_("Skipped subscribe reminder")}};
         src.skip_segments.clear();
         for (const Segment& seg : segments.get()) {
-            const char* label = "Skipped segment";
+            const char* label = tr("Skipped segment");
             for (auto& l : LABELS)
-                if (seg.category == l.first) label = l.second;
+                if (seg.category == l.first) label = tr(l.second);
             src.skip_segments.push_back({seg.start, seg.end, label});
         }
         if (!src.skip_segments.empty())
@@ -1033,7 +1036,7 @@ bool resolve(const std::string& id, int max_height, player::Source& src, std::st
         }
         log_message(LOG_WARNING, "YouTube", "ANDROID_VR client failed for %s signed in: %s", id.c_str(), err.c_str());
     }
-    error = first_error.empty() ? "YouTube playback failed" : first_error;
+    error = first_error.empty() ? tr("YouTube playback failed") : first_error;
     return false;
 }
 
