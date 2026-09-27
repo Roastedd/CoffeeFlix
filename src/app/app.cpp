@@ -429,7 +429,15 @@ int run(int, char**) {
         return 1;
     }
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
-    SDL_Window* window = SDL_CreateWindow("CoffeeFlix", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720,
+    // Everything is laid out at 1280x720 (the logical size below). The Wii U draws it at the TV's
+    // size when that's 1080p, and SDL makes the GamePad a 1280x720 copy.
+    int win_w = 1280, win_h = 720;
+    SDL_DisplayMode tv;
+    if (platform::is_wiiu() && SDL_GetDesktopDisplayMode(0, &tv) == 0 && tv.h >= 1080) {
+        win_w = tv.w;
+        win_h = tv.h;
+    }
+    SDL_Window* window = SDL_CreateWindow("CoffeeFlix", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h,
                                           platform::is_wiiu() ? 0 : SDL_WINDOW_RESIZABLE);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, 0);
@@ -439,13 +447,14 @@ int run(int, char**) {
     }
     SDL_RenderSetLogicalSize(renderer, 1280, 720);
     SDL_RendererInfo info;
-    if (SDL_GetRendererInfo(renderer, &info) == 0) log_message(LOG_OK, "App", "Renderer: %s", info.name);
+    if (SDL_GetRendererInfo(renderer, &info) == 0) log_message(LOG_OK, "App", "Renderer: %s, drawing at %dx%d", info.name, win_w, win_h);
     platform::post_video_init(window, renderer);
 
     std::string content = platform::content_dir();
     gfx::init(renderer);
     if (!text::init(content)) log_message(LOG_ERROR, "App", "Fonts missing in %s", content.c_str());
     store::load(platform::data_dir() + "/coffeeflix.json");
+    store::set_user(platform::user_id());
     i18n::init(content);
     http::init(content + "/cacert.pem", platform::tune_socket);
     http::set_verify_tls(store::get_bool("verify_tls", true));

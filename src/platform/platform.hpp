@@ -40,6 +40,9 @@ std::string content_dir();
 // Writable app folder (settings, caches) and the user's media root.
 std::string data_dir();
 std::string media_root();
+// The Wii U user CoffeeFlix runs as ("80000001", for good), whose sign-ins it uses; empty when
+// there is one set for everyone (desktop: from COFFEEFLIX_USER).
+std::string user_id();
 // Roots offered by the file browser as {label, path} pairs.
 struct Volume { std::string label, path; int icon; };
 int volumes(Volume* out, int max);

@@ -1,6 +1,7 @@
 #include "services/jellyfin.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <iterator>
 #include <mutex>
@@ -24,6 +25,7 @@ const char* VERSION = "2.0.0";
 std::mutex g_m;
 Account g_acc;
 bool g_loaded = false;
+std::atomic<int> g_version{0};
 
 void load_account() {
     if (g_loaded) return;
@@ -62,8 +64,9 @@ http::Response request(const std::string& server, const std::string& token, cons
     http::Request r;
     r.method = method;
     r.url = server + path;
-    std::string auth = auth_value(token);
-    r.headers = {{"Authorization", auth}, {"X-Emby-Authorization", auth}, {"Accept", "application/json"}};
+    // Only this header and ApiKey= in URLs: Jellyfin 12 refuses the older ways (X-Emby-Authorization,
+    // api_key=) unless the server turns them back on. Both work since 10.7.
+    r.headers = {{"Authorization", auth_value(token)}, {"Accept", "application/json"}};
     if (!body.empty() || method == "POST") {
         r.headers.emplace_back("Content-Type", "application/json");
         r.body = body.empty() ? "{}" : body;
@@ -174,8 +177,13 @@ AuthResult finish_auth(const std::string& url, const http::Response& r) {
         store::set_str("jf_token", g_acc.token);
         store::set_str("jf_user_id", g_acc.user_id);
         store::set_str("jf_user_name", g_acc.user_name);
+        // The same account signed in again: its older sign-in goes.
+        auto saved = store::saved_accounts("jellyfin");
+        for (size_t i = saved.size(); i-- > 0;)
+            if (saved[i]["jf_server"] == url && saved[i]["jf_user_id"] == uid) store::forget_saved_account("jellyfin", i);
     }
     store::save_now();
+    g_version++;
     res.ok = true;
     return res;
 }
@@ -276,7 +284,7 @@ bool resolve_video(const Item& it, player::Source& src, std::string& error) {
     bool direct = json::boolean(ms, {"SupportsDirectPlay"}) || json::boolean(ms, {"SupportsDirectStream"});
     std::string method;
     if (direct && transcode.empty()) {
-        src.url = util::fmt("%s/Videos/%s/stream?static=true&mediaSourceId=%s&deviceId=%s&api_key=%s&PlaySessionId=%s",
+        src.url = util::fmt("%s/Videos/%s/stream?static=true&mediaSourceId=%s&deviceId=%s&ApiKey=%s&PlaySessionId=%s",
                             a.server.c_str(), it.id.c_str(), msid.c_str(), device_id().c_str(), a.token.c_str(),
                             psid.c_str());
         src.chunked_http = true;  // the file as it is: downloaded ahead in parts
@@ -305,7 +313,7 @@ bool resolve_video(const Item& it, player::Source& src, std::string& error) {
         if (json::str(st, {"Type"}) != "Subtitle" || !json::boolean(st, {"IsTextSubtitleStream"})) continue;
         int idx = (int)json::num(st, {"Index"});
         std::string label = json::str(st, {"DisplayTitle"}, json::str(st, {"Language"}, tr("Subtitles")));
-        std::string url = util::fmt("%s/Videos/%s/%s/Subtitles/%d/0/Stream.srt?api_key=%s", a.server.c_str(),
+        std::string url = util::fmt("%s/Videos/%s/%s/Subtitles/%d/0/Stream.srt?ApiKey=%s", a.server.c_str(),
                                     it.id.c_str(), msid.c_str(), idx, a.token.c_str());
         auto entry = std::make_pair(label, url);
         if (idx == def_sub) src.external_subs.insert(src.external_subs.begin(), entry);
@@ -354,7 +362,50 @@ void sign_out() {
     g_acc = Account();
     g_acc.server = a.server;  // keep the address for convenience
     for (const char* k : {"jf_token", "jf_user_id", "jf_user_name"}) store::set_str(k, "");
+    g_version++;
 }
+
+std::vector<Account> others() {
+    std::vector<Account> out;
+    for (auto& s : store::saved_accounts("jellyfin")) {
+        Account a{s["jf_server"], s["jf_server_name"], s["jf_user_id"], s["jf_user_name"], s["jf_token"]};
+        if (a.valid()) out.push_back(a);
+    }
+    return out;
+}
+
+void switch_to(size_t i) {
+    std::lock_guard<std::mutex> lk(g_m);
+    load_account();
+    // By its place among the valid ones (others()).
+    auto saved = store::saved_accounts("jellyfin");
+    for (size_t j = 0; j < saved.size(); j++) {
+        Account a{saved[j]["jf_server"], "", saved[j]["jf_user_id"], "", saved[j]["jf_token"]};
+        if (!a.valid() || i-- > 0) continue;
+        store::use_account("jellyfin", j, g_acc.valid());
+        g_loaded = false;
+        load_account();
+        log_message(LOG_OK, "Jellyfin", "Switched to another Jellyfin account");
+        g_version++;
+        return;
+    }
+}
+
+void add_account() {
+    std::lock_guard<std::mutex> lk(g_m);
+    load_account();
+    if (!g_acc.valid()) return;
+    std::string server = g_acc.server, name = g_acc.server_name;
+    store::save_account("jellyfin");
+    store::set_str("jf_server", server);
+    store::set_str("jf_server_name", name);
+    g_acc = Account();
+    g_acc.server = server;
+    g_acc.server_name = name;
+    g_version++;
+}
+
+int version() { return g_version.load(); }
 
 std::string normalize_url(const std::string& input) {
     std::string u = util::trim(input);
@@ -569,7 +620,7 @@ player::Source make_source(const Item& it, bool from_start) {
         Account a = snapshot();
         s.url = util::fmt("%s/Audio/%s/universal?UserId=%s&DeviceId=%s&MaxStreamingBitrate=320000&"
                           "Container=mp3,aac,m4a,flac,ogg,opus,wav,webma&TranscodingContainer=mp3&TranscodingProtocol=http&"
-                          "AudioCodec=mp3&api_key=%s",
+                          "AudioCodec=mp3&ApiKey=%s",
                           a.server.c_str(), it.id.c_str(), a.user_id.c_str(), device_id().c_str(), a.token.c_str());
         return s;
     }

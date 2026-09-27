@@ -129,6 +129,21 @@ struct PacketQueue {
         std::lock_guard<std::mutex> lk(m);
         return eof && q.empty();
     }
+    // The first keyframe waiting of generation `gen`: false when there's none yet, else its pts and
+    // whether `check` accepts it (under the lock: a seek frees the packets).
+    template <class F>
+    bool next_key(uint32_t gen, int64_t& pts, bool& ok, F check) {
+        std::lock_guard<std::mutex> lk(m);
+        for (auto& p : q) {
+            if (p.gen != gen) return false;
+            if (p.pkt->flags & AV_PKT_FLAG_KEY) {
+                pts = p.pkt->pts;
+                ok = pts != AV_NOPTS_VALUE && check(p.pkt);
+                return true;
+            }
+        }
+        return false;
+    }
     void wake() { cv.notify_all(); }
 };
 
@@ -291,13 +306,14 @@ struct Session {
     std::atomic<float> speed{1};  // playback speed (always 1 for live streams)
 
     // Pictures faster than the decoder can go (1080p60 on the Wii U): the share of them it has
-    // time for, the rest left out (video_loop). When leaving out all it can isn't enough, the
-    // video plays at 720p instead (decoder_step_down).
-    std::atomic<float> keep_share{1}, unreferenced_share{0};
+    // time for, the rest left out (video_loop). When that means a long freeze before each keyframe,
+    // the video plays at 720p instead (decoder_step_down), `freeze` seconds (estimated or seen).
+    std::atomic<float> keep_share{1}, unreferenced_share{0}, freeze{0}, gop{0};
     std::atomic<bool> decoder_too_slow{false};
 
     // Playback statistics, logged every 10 s of playing (playback_stats).
     std::atomic<int> decode_us{0}, decoded{0}, dropped{0}, left_out{0};  // by the video thread
+    std::atomic<int> tail_out{0}, tails{0}, tail_ms_max{0};  // of left_out: before keyframes
     std::atomic<int> bytes_read{0};                           // by the demuxers
     HttpIoStats io_mark[2];  // the inputs' downloads as of stats.since (download_report)
     struct {
@@ -826,34 +842,47 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
     av_packet_free(&pkt);
 }
 
-// Whether an H.264 packet is a picture no other picture refers to (nal_ref_idc 0 in its slices:
-// the B-frames of YouTube's streams, over half of them), so leaving it out harms no other.
-// `length_size`: bytes of each NAL unit's length (MP4), 0 for start codes (MPEG-TS).
-bool unreferenced_picture(const AVPacket* p, int length_size) {
+// Calls `f` with the header byte of each NAL unit of an H.264 packet, while it returns true.
+// `length_size`: bytes of each NAL unit's length (MP4), 0 for start codes (MPEG-TS). False when
+// `f` stopped or the packet is malformed.
+template <class F>
+bool each_nal(const AVPacket* p, int length_size, F f) {
     const uint8_t* d = p->data;
     const uint8_t* end = d + p->size;
-    bool slice = false;
-    auto check = [&](uint8_t header) {  // false: a reference picture, or not a picture at all
-        const int type = header & 0x1f;
-        if (type == 1 || type == 5) slice = true;
-        return !(type == 5 || type == 7 || type == 8 || (type == 1 && header >> 5));
-    };
     if (length_size > 0) {
         while (end - d > length_size) {
             uint32_t n = 0;
             for (int i = 0; i < length_size; i++) n = n << 8 | d[i];
             d += length_size;
-            if (n == 0 || n > (uint32_t)(end - d) || !check(d[0])) return false;
+            if (n == 0 || n > (uint32_t)(end - d) || !f(d[0])) return false;
             d += n;
         }
     } else {
         for (; end - d > 3; d++)
             if (d[0] == 0 && d[1] == 0 && d[2] == 1) {
-                if (!check(d[3])) return false;
+                if (!f(d[3])) return false;
                 d += 2;
             }
     }
-    return slice;
+    return true;
+}
+
+// Whether an H.264 packet is a picture no other picture refers to (nal_ref_idc 0 in its slices:
+// the B-frames of YouTube's streams, over half of them), so leaving it out harms no other.
+bool unreferenced_picture(const AVPacket* p, int length_size) {
+    bool slice = false;
+    return each_nal(p, length_size, [&](uint8_t header) {  // false: a reference picture, or not a picture at all
+        const int type = header & 0x1f;
+        if (type == 1 || type == 5) slice = true;
+        return !(type == 5 || type == 7 || type == 8 || (type == 1 && header >> 5));
+    }) && slice;
+}
+
+// Whether an H.264 packet is an IDR picture: nothing after it refers to a picture before it.
+bool idr_picture(const AVPacket* p, int length_size) {
+    bool idr = false;
+    each_nal(p, length_size, [&](uint8_t header) { return !(idr = (header & 0x1f) == 5); });
+    return idr;
 }
 
 void video_loop(std::shared_ptr<Session> sp) {
@@ -881,6 +910,8 @@ void video_loop(std::shared_ptr<Session> sp) {
     const AVCodecParameters* par = st->codecpar;
     const int length_size = par->extradata_size >= 7 && par->extradata[0] == 1 ? (par->extradata[4] & 3) + 1 : 0;
     double cost = 0;          // seconds a picture takes the decoder, smoothed
+    double cost_slow = 0;     // ...over a few seconds (the mean of the first ones)
+    int cost_n = 0;
     double credit = 0;        // pictures it has time for (decimation)
     double unref_share = -1;  // of the packets, smoothed
     int thin_packets = 0;
@@ -893,9 +924,33 @@ void video_loop(std::shared_ptr<Session> sp) {
     int64_t grid_from = AV_NOPTS_VALUE;  // pts of the last keyframe packet
     std::deque<int64_t> hidden;          // pts of pictures decoded only for the ones after them
     if (every > 1) s.keep_share = 1.0f / every;
+    // When leaving out unreferenced pictures isn't enough (few B-frames, a busy scene), the decoder
+    // falls behind. It catches up before a keyframe that starts afresh (an IDR: nothing after it
+    // refers to a picture before it): the pictures up to it are left out, the last one shown stays
+    // up a moment, and the decoder gets ahead again. It does so when that keyframe is due within
+    // `lead`, so each run of pictures from one keyframe to the next starts about that far ahead
+    // (Session::max_frames holds them), room for the busier parts of it.
+    const bool tails_on = thin && fps > 31 && par->height > 720;
+    const double lead = fps > 0 ? (s.max_frames - 1) / fps : 0;
+    const double start_time = s.in[0].fmt->start_time != AV_NOPTS_VALUE ? s.in[0].fmt->start_time / (double)AV_TIME_BASE : 0;
+    auto due_in = [&](int64_t pts) { return ts_to_sec(pts, s.vtb) - start_time - s.clock_now; };
+    bool tail_skip = false;             // leaving out the pictures up to the next keyframe
+    int tail = 0;                       // pictures left out before it
+    int next_key = 0;                   // the next keyframe waiting: 0 not seen yet, 1 an IDR, 2 not
+    int64_t next_key_pts = AV_NOPTS_VALUE;
+    int64_t last_key = AV_NOPTS_VALUE;  // pts of the last IDR keyframe decoded
+    double gop = 0;                     // seconds from IDR to IDR, smoothed
+    double freeze = 0;                  // seconds left out before each IDR, smoothed (from the third)
+    int gops = 0, idr_keys = 0;
+    bool idr_rare = false;              // more than 10 s from one to the next
+    double unref_slow = 0;              // unref_share over a few seconds (the mean of the first ones)
+    int unref_n = 0;
 
     while (!s.abort) {
-        if (timed && decode_took > 0) cost = cost > 0 ? 0.95 * cost + 0.05 * decode_took : decode_took;
+        if (timed && decode_took > 0) {
+            cost = cost > 0 ? 0.95 * cost + 0.05 * decode_took : decode_took;
+            cost_slow += (decode_took - cost_slow) / std::min(++cost_n, 200);
+        }
         decode_took = 0;
         timed = false;
         QPacket qp{nullptr, 0};
@@ -921,17 +976,75 @@ void video_loop(std::shared_ptr<Session> sp) {
                 avcodec_flush_buffers(s.vdec);
                 dec_gen = qp.gen;
                 hidden.clear();
+                tail_skip = false;
+                tail = next_key = gops = 0;
+                last_key = AV_NOPTS_VALUE;
             }
-            if (qp.pkt->flags & AV_PKT_FLAG_KEY) keyframe_seen = true;
+            const bool key = qp.pkt->flags & AV_PKT_FLAG_KEY;
+            if (key) keyframe_seen = true;
+            // Of the decoder's time, all pictures but the unreferenced ones take.
+            const double need = cost > 0 ? (1 - std::max(unref_share, 0.0)) * fps * cost : 0;
+            if (key && tails_on) {
+                // Some streams' keyframes are only sometimes IDRs (YouTube's): it catches up
+                // before those, so runs are counted from one to the next.
+                next_key = 0;
+                const bool idr = idr_picture(qp.pkt, length_size);
+                if (idr) idr_keys++;
+                if (qp.pkt->pts != AV_NOPTS_VALUE && last_key != AV_NOPTS_VALUE && qp.pkt->pts > last_key &&
+                    (qp.pkt->pts - last_key) * av_q2d(s.vtb) > 10)
+                    idr_rare = true;
+                if (idr && qp.pkt->pts != AV_NOPTS_VALUE) {
+                    if (last_key != AV_NOPTS_VALUE && qp.pkt->pts > last_key && s.clock_running) {
+                        const double g = (qp.pkt->pts - last_key) * av_q2d(s.vtb), f = tail / fps;
+                        gop = gop > 0 ? 0.7 * gop + 0.3 * g : g;
+                        if (++gops > 2) freeze = gops == 3 ? f : 0.7 * freeze + 0.3 * f;  // after the start's
+                        if (tail) s.tail_ms_max = std::max(s.tail_ms_max.load(), (int)std::lround(f * 1e3));
+                    }
+                    last_key = qp.pkt->pts;
+                }
+                tail_skip = false;
+                tail = 0;
+            } else if (!key && !tail_skip && tails_on && need > 0.9 && s.clock_running && qp.pkt->pts != AV_NOPTS_VALUE &&
+                       due_in(qp.pkt->pts) < lead) {
+                if (!next_key) {
+                    bool idr = false;
+                    if (s.vq.next_key(dec_gen, next_key_pts, idr, [&](const AVPacket* k) { return idr_picture(k, length_size); }))
+                        next_key = idr ? 1 : 2;
+                }
+                if (next_key == 1 && due_in(next_key_pts) < lead) {
+                    tail_skip = true;
+                    s.tails++;
+                }
+            }
+            if (tail_skip) {
+                tail++;
+                s.left_out++;
+                s.tail_out++;
+                av_packet_free(&qp.pkt);
+                continue;
+            }
             const bool unref = (thin || every > 1) && unreferenced_picture(qp.pkt, length_size);
             if (thin) {
                 unref_share = unref_share < 0 ? unref : 0.98 * unref_share + 0.02 * unref;
+                unref_slow += (unref - unref_slow) / std::min(++unref_n, 200);
                 s.unreferenced_share = (float)unref_share;
-                // Busier than all the time even with every unreferenced picture left out (a stream
-                // without B-frames, a slower decoder): no amount of leaving out keeps up. Only above
-                // 720p30, where playing 720p60 instead is lighter.
-                if (++thin_packets > 300 && cost > 0 && fps > 31 && par->height > 720 && (1 - unref_share) * fps * cost > 1)
-                    s.decoder_too_slow = true;
+                // More than the decoder has time for even with every unreferenced picture left out
+                // (a stream with few B-frames, a slower decoder): it catches up before keyframes
+                // (above). Frozen much of the time (estimated from the start, then as seen) or for
+                // long each time, and 720p60 (lighter) plays better, so only above 720p30. Streams
+                // with few IDR keyframes can't catch up so.
+                if (++thin_packets > 300 && cost > 0 && fps > 31 && par->height > 720 && !s.decoder_too_slow) {
+                    const double steady = (1 - unref_slow) * fps * cost_slow;
+                    const double share = steady > 1 ? 1 - 1 / steady : 0;  // of the time, frozen
+                    const bool slow = idr_keys == 0 || idr_rare
+                                          ? steady > 1
+                                          : share > 0.1 || (gops >= 6 && (freeze > 0.3 || freeze > 0.08 * gop));
+                    if (slow) {
+                        s.freeze = (float)(gops >= 6 ? freeze : share * gop);
+                        s.gop = (float)gop;
+                        s.decoder_too_slow = true;
+                    }
+                }
             }
             if (every > 1 && qp.pkt->pts != AV_NOPTS_VALUE) {
                 if ((qp.pkt->flags & AV_PKT_FLAG_KEY) || grid_from == AV_NOPTS_VALUE) grid_from = qp.pkt->pts;
@@ -950,7 +1063,8 @@ void video_loop(std::shared_ptr<Session> sp) {
                 // grid is gone already.
                 const double rate = fps * (1 - std::max(unref_share, 0.0) * (every - 1) / every);
                 const double keep = std::min(1.0, BUSY / (rate * cost));
-                s.keep_share = (float)std::max(0.0, 1.0 / every - rate / fps * (1 - keep));  // shown of all
+                s.keep_share = (float)(std::max(0.0, 1.0 / every - rate / fps * (1 - keep)) *  // shown of all
+                                       (1 - (gop > 0 ? std::min(1.0, freeze / gop) : 0.0)));
                 credit += keep;
                 if (credit < 1 && unref) {
                     s.left_out++;
@@ -1029,7 +1143,9 @@ void video_loop(std::shared_ptr<Session> sp) {
                     s.vdec->skip_frame = base_skip;
                     log_message(LOG_OK, "Player", "Video caught up");
                 }
-                if (lag > 0.1 && dropped_in_row < 3) {
+                // (Pictures of the Wii U's decoder cost nothing to show: those late while it catches
+                // up before a keyframe show late rather than one in four.)
+                if (lag > (tails_on ? 0.2 : 0.1) && dropped_in_row < 3) {
                     dropped_in_row++;
                     s.dropped++;
                     av_frame_unref(frame);
@@ -1405,9 +1521,11 @@ void open_session(std::shared_ptr<Session> sp) {
             s.has_video = true;
             s.vw = st->codecpar->width;
             s.vh = st->codecpar->height;
-            s.max_frames = (size_t)s.vw * s.vh > 1280 * 720 ? 3 : 5;
             AVRational fr = st->avg_frame_rate.num > 0 && st->avg_frame_rate.den > 0 ? st->avg_frame_rate : st->r_frame_rate;
             s.fps = fr.num > 0 && fr.den > 0 && av_q2d(fr) < 400 ? (float)av_q2d(fr) : 0;
+            // Pictures decoded ahead. The Wii U's decoder gets further ahead at 1080p60, for the
+            // busier parts between keyframes (video_loop): 12 of its pictures are 37 MB.
+            s.max_frames = (size_t)s.vw * s.vh <= 1280 * 720 ? 5 : s.hw && s.fps > 31 ? 12 : 3;
             vinfo = util::fmt("%s \xC2\xB7 %d\xC3\x97%d", codec_display_name(st->codecpar->codec_id), s.vw, s.vh);
         }
     }
@@ -1948,14 +2066,17 @@ bool auto_step_down(Session& s, double t) {
     return true;
 }
 
-// 1080p60 on the Wii U that leaving out pictures can't keep up with (video_loop): reopens at the
-// same place, where the service picks 720p60 (max_fps). Returns true when it replaced the session.
+// 1080p60 on the Wii U that leaving out pictures only keeps up with by long freezes (video_loop):
+// reopens at the same place, where the service picks 720p60 (max_fps). Returns true when it
+// replaced the session.
 bool decoder_step_down(Session& s) {
     if (!s.decoder_too_slow || g_hd60_too_slow || s.original.qualities.empty() || !s.original.resolve) return false;
     s.decoder_too_slow = false;
     g_hd60_too_slow = true;
-    log_message(LOG_WARNING, "Player", "Too much for the decoder even leaving out every unreferenced picture (%.0f%%): 720p60",
-                s.unreferenced_share * 100);
+    log_message(LOG_WARNING, "Player",
+                "Too much for the decoder: %.2f s left out before keyframes %.1f s apart (%.0f%% of the pictures "
+                "unreferenced): 720p60",
+                s.freeze.load(), s.gop.load(), s.unreferenced_share * 100);
     Source src = s.original;
     src.audio_language = chosen_language(s);
     if (!src.live) src.start = std::max(src.start, s.last_clock);
@@ -2451,6 +2572,7 @@ void playback_stats(Session& s, double t, int st) {
     if (st != PLAYING || s.seeking) {
         p = {};
         s.decode_us = s.decoded = s.dropped = s.left_out = s.bytes_read = 0;
+        s.tail_out = s.tails = s.tail_ms_max = 0;
         return;
     }
     if (p.since <= 0) {
@@ -2467,6 +2589,7 @@ void playback_stats(Session& s, double t, int st) {
     if (t - p.since < 10) return;
     int decoded = s.decoded.exchange(0), decode_us = s.decode_us.exchange(0), dropped = s.dropped.exchange(0);
     int left_out = s.left_out.exchange(0);
+    int tail_out = s.tail_out.exchange(0), tails = s.tails.exchange(0), tail_ms = s.tail_ms_max.exchange(0);
     s.last = {(float)(p.shown / (t - p.since)), decoded ? (float)(decode_us / 1e3 / decoded) : 0.0f, left_out, dropped, p.late};
     std::string downloads = download_report(s, t - p.since);
     std::string rest = util::fmt("%d of %d screen updates late (longest %.0f ms); %zu packets waiting, %.1f s of audio, "
@@ -2479,7 +2602,11 @@ void playback_stats(Session& s, double t, int st) {
                     "Playback: %d pictures shown in %.0f s (%d without a copy), %d late, %d dropped after decoding%s; "
                     "decoding %.1f ms per packet; showing %.1f ms (longest %.1f); %s",
                     p.shown, t - p.since, p.bound, p.late, dropped,
-                    left_out ? util::fmt(", %d left out (30 fps, or for the decoder)", left_out).c_str() : "",
+                    left_out ? util::fmt(", %d left out (30 fps, or for the decoder%s)", left_out,
+                                         tails ? util::fmt(": %d before %d keyframes, the longest %d ms", tail_out,
+                                                           tails, tail_ms).c_str()
+                                               : "").c_str()
+                             : "",
                     decoded ? decode_us / 1e3 / decoded : 0.0,
                     p.shown ? p.show_time * 1e3 / p.shown : 0.0, p.show_max * 1e3, rest.c_str());
     else

@@ -62,7 +62,7 @@ std::string export_subscriptions();
 
 // --- account (optional) ---------------------------------------------------------------------
 std::unique_ptr<app::Screen> make_sign_in();
-// Opens sign-in, or offers to sign out when signed in.
+// Opens sign-in, or offers the other accounts, another sign-in and signing out.
 void account_menu();
 // "For you": YouTube's own recommendations when signed in, otherwise the ones learned on this
 // console (yt_recs). Blocks on the network.

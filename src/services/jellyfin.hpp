@@ -16,6 +16,13 @@ struct Account {
 
 const Account& account();
 void sign_out();
+// The Wii U user's other accounts, to switch between. Each keeps a device ID of its own: Jellyfin
+// ends a device's earlier session when it signs in again.
+std::vector<Account> others();
+void switch_to(size_t i);  // the one in use goes among the others
+// Puts the account in use among the others to sign in to another one (the server's address stays).
+void add_account();
+int version();  // changes on sign-in, sign-out and switching, for screens to reload
 std::string normalize_url(const std::string& input);
 
 struct ServerInfo {

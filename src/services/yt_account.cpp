@@ -62,12 +62,14 @@ bool take_tokens(json_t* root) {
     return true;
 }
 
+void forget_access() {
+    std::lock_guard<std::mutex> lk(g_m);
+    g_access.clear();
+    g_expires = 0;
+}
+
 void forget() {
-    {
-        std::lock_guard<std::mutex> lk(g_m);
-        g_access.clear();
-        g_expires = 0;
-    }
+    forget_access();
     store::set_str("yt_account_token", "");
     store::set_str("yt_account_name", "");
     store::set_str("yt_account_photo", "");
@@ -108,7 +110,10 @@ Poll poll(const std::string& device_code, int& interval, std::string& error) {
         interval += 5;
         return WAITING;
     }
-    if (!take_tokens(doc.get())) {
+    // Another account signed in already stays among the others, to switch back to.
+    const bool approved = !json::str(doc.get(), {"access_token"}).empty();
+    if (approved && signed_in()) store::save_account("youtube");
+    if (!approved || !take_tokens(doc.get())) {
         error = e == "expired_token"   ? tr("The code ran out of time")
                 : e == "access_denied" ? tr("Sign-in was cancelled on the other device")
                                        : util::fmt(tr("Couldn't sign in (%s)"), describe(r, doc.get()).c_str());
@@ -120,6 +125,12 @@ Poll poll(const std::string& device_code, int& interval, std::string& error) {
     if (youtube::account_info(info, err)) {
         store::set_str("yt_account_name", info.name);
         store::set_str("yt_account_photo", info.photo);
+        // The same account signed in again: its older sign-in goes. Not revoked: that would end
+        // Google's whole grant to the app, the new sign-in included.
+        auto saved = store::saved_accounts("youtube");
+        for (size_t i = saved.size(); i-- > 0;)
+            if (!info.name.empty() && saved[i]["yt_account_name"] == info.name && saved[i]["yt_account_photo"] == info.photo)
+                store::forget_saved_account("youtube", i);
     } else {
         log_message(LOG_WARNING, "YouTube", "Signed in, but the account's name didn't load: %s", err.c_str());
     }
@@ -169,6 +180,22 @@ std::string name() {
 std::string photo() { return store::get_str("yt_account_photo", ""); }
 
 int version() { return g_version.load(); }
+
+std::vector<Other> others() {
+    std::vector<Other> out;
+    for (auto& a : store::saved_accounts("youtube")) {
+        std::string n = a["yt_account_name"];
+        out.push_back(Other{n.empty() ? tr("YouTube account") : n, a["yt_account_photo"]});
+    }
+    return out;
+}
+
+void switch_to(size_t i) {
+    forget_access();
+    store::use_account("youtube", i, signed_in());
+    log_message(LOG_OK, "YouTube", "Switched to another YouTube account");
+    g_version++;
+}
 
 void sign_out() {
     std::string refresh = store::get_str("yt_account_token", "");

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,11 @@ void load(const std::string& path);
 void save_now();
 void tick();  // call once per frame; saves in the background a few seconds after the last change
 
+// Sign-ins belong to the Wii U user CoffeeFlix runs as (platform::user_id): their settings and
+// favorite lists are kept apart for each user, the rest is everyone's. Call once, after load();
+// sign-ins saved before there was one set per user go to the first user to start CoffeeFlix.
+void set_user(const std::string& id);
+
 // --- settings ---------------------------------------------------------------
 bool get_bool(const char* key, bool def);
 int64_t get_int(const char* key, int64_t def);
@@ -21,6 +27,20 @@ std::string get_str(const char* key, const std::string& def = "");
 void set_bool(const char* key, bool v);
 void set_int(const char* key, int64_t v);
 void set_str(const char* key, const std::string& v);
+std::vector<std::string> get_str_all(const char* key);  // every user's value (to keep them out of logs)
+
+// --- other accounts of a service ("youtube", "jellyfin"), to switch between -----------------
+// Besides the account in use, whose sign-in is in the settings (and favorite lists) above, the
+// Wii U user's others: each one's text settings, most recently used first.
+std::vector<std::map<std::string, std::string>> saved_accounts(const char* service);
+// Up to 5 accounts a service: the account menus stop adding more (they have no room).
+constexpr size_t MAX_SAVED_ACCOUNTS = 4;
+// Puts the account in use among the others, first, and leaves its settings empty.
+void save_account(const char* service);
+// Takes other account `i` into use; the one in use goes among the others (first) with `keep`,
+// else it's dropped.
+void use_account(const char* service, size_t i, bool keep);
+void forget_saved_account(const char* service, size_t i);
 
 // --- favorites per service ("radio", "podcast", "twitch", "youtube_channel") --
 struct Fav {

@@ -9,6 +9,7 @@
 #include <coreinit/time.h>
 #include <coreinit/userconfig.h>
 #include <nn/ac.h>
+#include <nn/act.h>
 #include <nn/nets2/somemopt.h>
 #include <sys/socket.h>
 #include <vpad/input.h>
@@ -393,6 +394,17 @@ std::string content_dir() {
 }
 std::string data_dir() { return "/vol/external01/wiiu/apps/coffeeflix"; }
 std::string media_root() { return "/vol/external01/wiiu/apps/coffeeflix"; }
+
+// A persistent ID stays with a user for good; slot numbers are reused after one is deleted.
+std::string user_id() {
+    static const std::string id = [] {
+        if (nn::act::Initialize().IsFailure()) return std::string();
+        nn::act::PersistentId pid = nn::act::GetPersistentId();
+        nn::act::Finalize();
+        return pid ? util::fmt("%08x", (unsigned)pid) : std::string();
+    }();
+    return id;
+}
 
 int volumes(Volume* out, int max) {
     int n = 0;

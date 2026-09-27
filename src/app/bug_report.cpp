@@ -91,8 +91,10 @@ Info gather() {
     in.language = i18n::current().code;
     in.system_language = platform::system_language();
     in.log_dir = platform::data_dir();
-    for (const char* key : PRIVATE_SETTINGS) add_secret(in.secrets, store::get_str(key));
-    add_secret(in.secrets, host_of(store::get_str("jf_server")));
+    // Every Wii U user's: the run before may have been someone else's.
+    for (const char* key : PRIVATE_SETTINGS)
+        for (const std::string& v : store::get_str_all(key)) add_secret(in.secrets, v);
+    for (const std::string& server : store::get_str_all("jf_server")) add_secret(in.secrets, host_of(server));
     for (const smb::Share& s : smb::saved_shares()) add_secret(in.secrets, s.password);
     if (const char* home = getenv("HOME")) add_secret(in.secrets, home);  // desktop paths name the user
     return in;

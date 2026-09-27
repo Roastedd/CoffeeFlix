@@ -4,6 +4,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace yt_account {
 
@@ -31,7 +32,15 @@ std::string access_token(bool renew, std::string& error);
 bool signed_in();
 std::string name();
 std::string photo();
-int version();    // changes on sign-in and sign-out, for screens to reload
+int version();    // changes on sign-in, sign-out and switching, for screens to reload
 void sign_out();  // forgets the account and withdraws the token at Google (in the background)
+
+// The Wii U user's other accounts: signing in to one keeps the account signed in before among
+// them, to switch back to.
+struct Other {
+    std::string name, photo;
+};
+std::vector<Other> others();
+void switch_to(size_t i);  // the one in use goes among the others
 
 }  // namespace yt_account

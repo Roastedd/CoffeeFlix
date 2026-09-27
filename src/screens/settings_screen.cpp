@@ -216,30 +216,16 @@ public:
             std::string v = a.valid() ? util::fmt(tr("%s on %s"), a.user_name.c_str(),
                                                   (a.server_name.empty() ? a.server : a.server_name).c_str())
                                       : tr("Not connected");
-            if (value_row(iid, Rect(x0, top, w, 64), a.valid() ? tr("Jellyfin \xC2\xB7 Sign out") : "Jellyfin", v.c_str(),
-                          ic::VIDEO_LIBRARY, g)) {
-                if (a.valid()) {
-                    jellyfin::sign_out();
-                    toast(tr("Signed out of Jellyfin"), ic::LOGOUT);
-                } else {
-                    app::open_section(app::SEC_JELLYFIN);
-                }
-            }
+            if (value_row(iid, Rect(x0, top, w, 64), "Jellyfin", v.c_str(), ic::VIDEO_LIBRARY, g)) jellyfin_account_menu();
             track(iid, top, 64);
         }
         {
             Id iid = id(g, "yt");
             float top = row_h(64);
             bool in = yt_account::signed_in();
-            if (value_row(iid, Rect(x0, top, w, 64), in ? tr("YouTube \xC2\xB7 Sign out") : "YouTube",
-                          in ? yt_account::name().c_str() : tr("Not signed in (optional)"), ic::SMART_DISPLAY, g)) {
-                if (in) {
-                    yt_account::sign_out();
-                    toast(tr("Signed out of YouTube"), ic::LOGOUT);
-                } else {
-                    app::push(yt::make_sign_in());
-                }
-            }
+            if (value_row(iid, Rect(x0, top, w, 64), "YouTube", in ? yt_account::name().c_str() : tr("Not signed in (optional)"),
+                          ic::SMART_DISPLAY, g))
+                yt::account_menu();
             track(iid, top, 64);
         }
         if (yt_account::signed_in()) {

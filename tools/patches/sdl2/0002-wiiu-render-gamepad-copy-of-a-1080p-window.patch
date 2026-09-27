@@ -1,0 +1,182 @@
+diff --git a/src/render/wiiu/SDL_render_wiiu.h b/src/render/wiiu/SDL_render_wiiu.h
+index 4d7d46e..d909599 100644
+--- a/src/render/wiiu/SDL_render_wiiu.h
++++ b/src/render/wiiu/SDL_render_wiiu.h
+@@ -88,6 +88,8 @@ struct WIIU_RenderData
+     OSTime currFrameTimestamp;
+     OSTime lastFrameTimestamp;
+     SDL_Texture windowTex;
++    /* The window made 1280x720 for the GamePad, when it's larger (a 1080p TV's size) */
++    SDL_Texture drcTex;
+     WIIU_DrawState drawState;
+ };
+ 
+diff --git a/src/render/wiiu/SDL_render_wiiu.c b/src/render/wiiu/SDL_render_wiiu.c
+index 89c5ad8..21bcb91 100644
+--- a/src/render/wiiu/SDL_render_wiiu.c
++++ b/src/render/wiiu/SDL_render_wiiu.c
+@@ -167,6 +167,26 @@ void WIIU_SDL_CreateWindowTex(SDL_Renderer * renderer, SDL_Window * window)
+ 
+     /* Setup texture and color buffer for the window */
+     WIIU_SDL_CreateTexture(renderer, &data->windowTex);
++
++    /* A window larger than 1280x720 (a 1080p TV's size) gets a 1280x720 copy for the GamePad,
++       which shows it at 854x480: made that small in one step, the window would lose detail.
++       From MEM2: the MEM1 heap is made anew when the app comes back to the foreground, before
++       this frees the old copy. */
++    if (data->drcTex.driverdata) {
++        WIIU_SDL_DestroyTexture(renderer, &data->drcTex);
++        data->drcTex = (SDL_Texture) {0};
++    }
++    if (data->windowTex.w > 1280 && data->windowTex.h > 720) {
++        data->drcTex = (SDL_Texture) {
++            .format = SDL_PIXELFORMAT_RGBA8888,
++            .scaleMode = SDL_ScaleModeLinear,
++            .w = 1280,
++            .h = 720,
++        };
++        if (WIIU_SDL_CreateTexture(renderer, &data->drcTex) != 0) {
++            data->drcTex = (SDL_Texture) {0};
++        }
++    }
+ }
+ 
+ void WIIU_SDL_DestroyWindowTex(SDL_Renderer * renderer, SDL_Window * window)
+@@ -174,6 +194,7 @@ void WIIU_SDL_DestroyWindowTex(SDL_Renderer * renderer, SDL_Window * window)
+     WIIU_RenderData *data = (WIIU_RenderData *) renderer->driverdata;
+ 
+     WIIU_SDL_DestroyTexture(renderer, &data->windowTex);
++    WIIU_SDL_DestroyTexture(renderer, &data->drcTex);
+ }
+ 
+ int WIIU_SDL_SetRenderTarget(SDL_Renderer * renderer, SDL_Texture * texture)
+diff --git a/src/render/wiiu/SDL_rpresent_wiiu.c b/src/render/wiiu/SDL_rpresent_wiiu.c
+index a04d049..d905a24 100644
+--- a/src/render/wiiu/SDL_rpresent_wiiu.c
++++ b/src/render/wiiu/SDL_rpresent_wiiu.c
+@@ -33,6 +33,11 @@
+ #include <gx2/draw.h>
+ #include <gx2/swap.h>
+ #include <gx2/display.h>
++#include <gx2/mem.h>
++#include <gx2/sampler.h>
++#include <gx2/shaders.h>
++#include <gx2/texture.h>
++#include <gx2r/buffer.h>
+ #include <gx2r/draw.h>
+ 
+ static SDL_bool tvDrcEnabled = SDL_FALSE;
+@@ -61,15 +66,97 @@ int WIIU_SDL_SetVSync(SDL_Renderer * renderer, const int vsync)
+     return 0;
+ }
+ 
++/* Draws the window into its 1280x720 copy for the GamePad. */
++static SDL_bool WIIU_SDL_DrawDRCCopy(WIIU_RenderData *data)
++{
++    WIIU_TextureData *src = (WIIU_TextureData *) data->windowTex.driverdata;
++    WIIU_TextureData *dst = (WIIU_TextureData *) data->drcTex.driverdata;
++    WiiU_ShaderGroup *shaderGroup = WIIU_SDL_GetShaderGroup(SHADER_TEXTURE);
++    const float w = (float) data->drcTex.w, h = (float) data->drcTex.h;
++    const SDL_Color white = { 255, 255, 255, 255 };
++    const float corners[6][2] = { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
++    float projection[4][4] = { { 0 } };
++    GX2Sampler sampler;
++    GX2RBuffer *vertexBuffer;
++    SDL_Vertex *vertices;
++    uint32_t location;
++    int i;
++
++    vertexBuffer = WIIU_AllocRenderData(data, (GX2RBuffer) {
++        .flags =
++            GX2R_RESOURCE_BIND_VERTEX_BUFFER |
++            GX2R_RESOURCE_USAGE_CPU_WRITE,
++        .elemSize = sizeof(SDL_Vertex),
++        .elemCount = 6,
++    });
++    if (!vertexBuffer) {
++        return SDL_FALSE;
++    }
++    vertices = GX2RLockBufferEx(vertexBuffer, 0);
++    for (i = 0; i < 6; i++) {
++        vertices[i].position.x = corners[i][0] * w;
++        vertices[i].position.y = corners[i][1] * h;
++        vertices[i].color = white;
++        vertices[i].tex_coord.x = corners[i][0];
++        vertices[i].tex_coord.y = corners[i][1];
++    }
++    GX2RUnlockBufferEx(vertexBuffer, 0);
++
++    projection[0][0] = 2.0f / w;
++    projection[1][1] = -2.0f / h;
++    projection[3][0] = -1.0f;
++    projection[3][1] = 1.0f;
++    projection[3][3] = 1.0f;
++
++    /* The window's drawing has to reach memory before it's read as a texture */
++    GX2Invalidate(GX2_INVALIDATE_MODE_COLOR_BUFFER, src->cbuf.surface.image, src->cbuf.surface.imageSize);
++    GX2Invalidate(GX2_INVALIDATE_MODE_TEXTURE, src->texture.surface.image, src->texture.surface.imageSize);
++
++    GX2SetColorBuffer(&dst->cbuf, GX2_RENDER_TARGET_0);
++    GX2SetViewport(0.0f, 0.0f, w, h, 0.0f, 1.0f);
++    GX2SetScissor(0, 0, data->drcTex.w, data->drcTex.h);
++    GX2SetColorControl(GX2_LOGIC_OP_COPY, 0x00, FALSE, TRUE);
++    GX2SetAlphaTest(FALSE, GX2_COMPARE_FUNC_ALWAYS, 0.0f);
++    WIIU_SDL_SelectShader(SHADER_TEXTURE);
++    GX2SetVertexUniformReg(shaderGroup->vertexShader->uniformVars[0].offset, 16, projection);
++    GX2InitSampler(&sampler, GX2_TEX_CLAMP_MODE_CLAMP, GX2_TEX_XY_FILTER_MODE_LINEAR);
++    location = shaderGroup->pixelShader->samplerVars[0].location;
++    GX2SetPixelTexture(&src->texture, location);
++    GX2SetPixelSampler(&sampler, location);
++    GX2RSetAttributeBuffer(vertexBuffer, 0, vertexBuffer->elemSize, 0);
++    GX2DrawEx(GX2_PRIMITIVE_MODE_TRIANGLES, 6, 0, 1);
++    WIIU_TextureMarkUsed(data, src);
++    WIIU_TextureMarkUsed(data, dst);
++
++    /* SDL sets its state again for the next frame */
++    GX2SetAlphaTest(TRUE, GX2_COMPARE_FUNC_GREATER, 0.0f);
++    data->drawState.viewportDirty = SDL_TRUE;
++    data->drawState.cliprectDirty = SDL_TRUE;
++    data->drawState.blendMode = SDL_BLENDMODE_INVALID;
++    data->drawState.shader = SHADER_INVALID;
++    data->drawState.texture = NULL;
++    return SDL_TRUE;
++}
++
+ #define WIIU_FIX_SWKBD_GAMMA
+ 
+ int WIIU_SDL_RenderPresent(SDL_Renderer * renderer)
+ {
+     WIIU_RenderData *data = (WIIU_RenderData *) renderer->driverdata;
+-    WIIU_TextureData *tdata = (WIIU_TextureData *) data->windowTex.driverdata;
++    WIIU_TextureData *window = (WIIU_TextureData *) data->windowTex.driverdata;
++    WIIU_TextureData *drc = window;
++    WIIU_TextureData *tdata = window;
+     Uint32 flags = SDL_GetWindowFlags(renderer->window);
++    SDL_bool keyboard = WIIU_SWKBD_IsScreenKeyboardShown(NULL, renderer->window);
++
++    /* The GamePad gets the window's 1280x720 copy, if it has one. So does the keyboard, which
++       then shows on the TV from there too (as it does from a 1280x720 window). */
++    if (data->drcTex.driverdata && !(flags & SDL_WINDOW_WIIU_TV_ONLY) && WIIU_SDL_DrawDRCCopy(data)) {
++        drc = (WIIU_TextureData *) data->drcTex.driverdata;
++        tdata = drc;
++    }
+ 
+-    if (WIIU_SWKBD_IsScreenKeyboardShown(NULL, renderer->window)) {
++    if (keyboard) {
+         GX2SetContextState(NULL);
+ #ifdef WIIU_FIX_SWKBD_GAMMA
+         if (tdata->cbuf.surface.format == GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8) {
+@@ -92,11 +179,11 @@ int WIIU_SDL_RenderPresent(SDL_Renderer * renderer)
+ 
+     /* Only render to TV if the window is *not* drc-only */
+     if (!(flags & SDL_WINDOW_WIIU_GAMEPAD_ONLY)) {
+-        GX2CopyColorBufferToScanBuffer(&tdata->cbuf, GX2_SCAN_TARGET_TV);
++        GX2CopyColorBufferToScanBuffer(keyboard ? &tdata->cbuf : &window->cbuf, GX2_SCAN_TARGET_TV);
+     }
+ 
+     if (!(flags & SDL_WINDOW_WIIU_TV_ONLY)) {
+-        GX2CopyColorBufferToScanBuffer(&tdata->cbuf, GX2_SCAN_TARGET_DRC);
++        GX2CopyColorBufferToScanBuffer(&drc->cbuf, GX2_SCAN_TARGET_DRC);
+     }
+ 
+     /* Swap buffers if the window doesn't prevent it */

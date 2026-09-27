@@ -119,9 +119,13 @@ public:
                 if (value_row(id(g, "addr"), Rect(cx, cy + 120, cw, 64), tr("Server"), url_.empty() ? tr("Enter address") : url_.c_str(),
                               ic::DNS, g))
                     prompt_text(tr("Jellyfin server address"), url_, "192.168.1.20:8096", [this](std::string v) { url_ = v; }, false, true);
-                if (button(id(g, "continue"), Rect(cx, cy + 220, std::max(220.0f, measure_button(tr("Continue"), ic::ARROW_FORWARD)), 54), tr("Continue"), ic::ARROW_FORWARD, BTN_PRIMARY, g,
+                float bw = std::max(220.0f, measure_button(tr("Continue"), ic::ARROW_FORWARD));
+                if (button(id(g, "continue"), Rect(cx, cy + 220, bw, 54), tr("Continue"), ic::ARROW_FORWARD, BTN_PRIMARY, g,
                            url_.empty() ? 0 : F_DEFAULT) && !url_.empty())
                     check_server();
+                if (saved_ && button(id(g, "saved"), Rect(cx + bw + 16, cy + 220, std::max(200.0f, measure_button(tr("Saved accounts"), ic::PERSON)), 54),
+                                     tr("Saved accounts"), ic::PERSON, BTN_GHOST, g))
+                    jellyfin_account_menu();
                 break;
             }
             case METHOD: {
@@ -198,6 +202,21 @@ public:
     void prefill(const std::string& url) {
         if (url_.empty()) url_ = url;
     }
+
+    // Starts over at the server step, for another account.
+    void reset(const std::string& url) {
+        scope_.reset();
+        poll_.reset();
+        busy_ = polling_ = false;
+        step_ = SERVER;
+        url_ = url;
+        user_.clear();
+        pass_.clear();
+        code_.clear();
+        secret_.clear();
+    }
+
+    void set_saved(bool saved) { saved_ = saved; }  // the Wii U user has other accounts to switch to
 
 private:
     bool big_option(Id iid, const Rect& r, int icon, const char* title, const char* desc, Id g, bool def) {
@@ -289,7 +308,7 @@ private:
 
     Step step_ = SERVER;
     std::string url_, server_url_, server_name_, user_, pass_, code_, secret_;
-    bool busy_ = false, polling_ = false;
+    bool busy_ = false, polling_ = false, saved_ = false;
     std::string busy_label_;
     double next_poll_ = 0;
     tasks::Scope scope_, poll_;
@@ -300,8 +319,9 @@ private:
 
 class JellyfinScreen : public app::Screen {
 public:
-    JellyfinScreen() {
+    JellyfinScreen() : version_(jf::version()) {
         connect_.prefill(jf::account().server);
+        connect_.set_saved(!jf::others().empty());
         if (jf::account().valid()) load();
     }
 
@@ -319,11 +339,9 @@ public:
 
     void frame() override {
         float x0 = content_x();
+        if (jf::version() != version_) account_changed();
         if (!jf::account().valid()) {
-            connect_.frame(x0, [this] {
-                load();
-                reset_focus();
-            });
+            connect_.frame(x0, [this] { account_changed(); });
             return;
         }
         const Theme& t = theme();
@@ -335,7 +353,9 @@ public:
         std::string who = a.user_name + " \xC2\xB7 " + (a.server_name.empty() ? a.server : a.server_name);
         text::draw_fit(font::small, x0 + 4, y + 60, 400, who, t.text3);
         Id top = id(g, "top");
-        if (search_bar(id(top, "search"), Rect(x0 + 330, y + 4, W - x0 - 390, 56), "", tr("Search your library"), top))
+        float bx = W - 60 - 28;
+        if (icon_button(id(top, "account"), bx, y + 32, 28, ic::ACCOUNT_CIRCLE, top, 0, true)) jellyfin_account_menu();
+        if (search_bar(id(top, "search"), Rect(x0 + 330, y + 4, bx - 28 - 24 - x0 - 330, 56), "", tr("Search your library"), top))
             prompt_text(tr("Search Jellyfin"), "", tr("Movie, show or album"), [](std::string q) {
                 if (!q.empty()) app::push(make_jellyfin_search(q));
             });
@@ -392,6 +412,22 @@ private:
         return shelf(sid, x, y, s, &page_) + 14;
     }
 
+    // Signed in, switched or signed out: start over with the account now in use.
+    void account_changed() {
+        version_ = jf::version();
+        connect_.reset(jf::account().server);
+        connect_.set_saved(!jf::others().empty());
+        for (Loader* l : {&views_, &resume_, &next_up_}) {
+            l->scope.reset();
+            l->list = jf::List();
+            l->loading = l->loaded = false;
+        }
+        latest_.clear();
+        latest_ids_.clear();
+        if (jf::account().valid()) load();
+        reset_focus();
+    }
+
     void load() {
         loaded_at_ = ui::time();
         resume_.load([] { return jf::resume(); });
@@ -413,6 +449,7 @@ private:
     }
 
     ConnectView connect_;
+    int version_;
     Loader views_, resume_, next_up_;
     std::vector<std::tuple<std::string, std::unique_ptr<Loader>, bool>> latest_;
     std::vector<std::string> latest_ids_;
@@ -807,6 +844,42 @@ std::unique_ptr<app::Screen> make_detail(const jf::Item& it) { return std::make_
 std::unique_ptr<app::Screen> make_library(const jf::Item& view) { return std::make_unique<LibraryScreen>(view); }
 
 }  // namespace
+
+void jellyfin_account_menu() {
+    const jf::Account a = jf::account();
+    std::vector<jf::Account> others = jf::others();
+    if (!a.valid() && others.empty()) {
+        app::open_section(app::SEC_JELLYFIN);
+        return;
+    }
+    auto server = [](const jf::Account& o) { return o.server_name.empty() ? o.server : o.server_name; };
+    // Names alone, unless the accounts are on different servers.
+    bool servers = false;
+    for (auto& o : others) servers |= o.server != (a.valid() ? a.server : others[0].server);
+    std::vector<MenuItem> items;
+    for (size_t i = 0; i < others.size(); i++) {
+        std::string name = servers ? util::fmt(tr("%s on %s"), others[i].user_name.c_str(), server(others[i]).c_str())
+                                   : others[i].user_name;
+        items.push_back({util::fmt(tr("Switch to %s"), name.c_str()), ic::PERSON, [i] {
+                             jf::switch_to(i);
+                             toast(util::fmt(tr("Now using %s"), jf::account().user_name.c_str()), ic::ACCOUNT_CIRCLE);
+                         }});
+    }
+    items.push_back({tr("Add another account"), ic::PERSON_ADD, [n = others.size()] {
+                         if (n >= store::MAX_SAVED_ACCOUNTS) {
+                             toast(tr("You can keep up to 5 accounts. Switch to one and sign out to make room."), ic::INFO);
+                             return;
+                         }
+                         jf::add_account();
+                         app::open_section(app::SEC_JELLYFIN);
+                     }});
+    if (a.valid())
+        items.push_back({tr("Sign out"), ic::LOGOUT, [] {
+                             jf::sign_out();
+                             toast(tr("Signed out of Jellyfin"), ic::LOGOUT);
+                         }});
+    show_menu(a.valid() ? a.user_name : tr("Jellyfin accounts"), a.valid() ? server(a) : tr("Not signed in"), std::move(items));
+}
 
 std::unique_ptr<app::Screen> make_jellyfin() { return std::make_unique<JellyfinScreen>(); }
 std::unique_ptr<app::Screen> make_jellyfin_search(const std::string& q) { return std::make_unique<JellyfinSearchScreen>(q); }

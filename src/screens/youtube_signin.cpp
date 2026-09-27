@@ -4,6 +4,7 @@
 
 #include "core/i18n.hpp"
 #include "core/qr.hpp"
+#include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
 #include "gfx/images.hpp"
@@ -278,19 +279,34 @@ private:
 std::unique_ptr<app::Screen> make_sign_in() { return std::make_unique<SignInScreen>(); }
 
 void account_menu() {
-    if (!yt_account::signed_in()) {
+    const bool in = yt_account::signed_in();
+    std::vector<yt_account::Other> others = yt_account::others();
+    if (!in && others.empty()) {
         app::push(make_sign_in());
         return;
     }
     std::vector<MenuItem> items;
-    if (!local_subscriptions().empty() && !copying_subscriptions())
+    for (size_t i = 0; i < others.size(); i++)
+        items.push_back({util::fmt(tr("Switch to %s"), others[i].name.c_str()), ic::PERSON, [i] {
+                             yt_account::switch_to(i);
+                             toast(util::fmt(tr("Now using %s"), yt_account::name().c_str()), ic::ACCOUNT_CIRCLE);
+                         }});
+    items.push_back({tr("Add another account"), ic::PERSON_ADD, [n = others.size()] {
+                         if (n >= store::MAX_SAVED_ACCOUNTS)
+                             toast(tr("You can keep up to 5 accounts. Switch to one and sign out to make room."), ic::INFO);
+                         else
+                             app::push(make_sign_in());
+                     }});
+    if (in && !local_subscriptions().empty() && !copying_subscriptions())
         items.push_back({tr("Add this console's subscriptions to your account"), ic::CLOUD_UPLOAD,
                          [] { copy_subscriptions_to_account(); }});
-    items.push_back({tr("Sign out"), ic::LOGOUT, [] {
-                         yt_account::sign_out();
-                         toast(tr("Signed out of YouTube"), ic::LOGOUT);
-                     }});
-    show_menu(yt_account::name(), tr("Signed in to YouTube"), std::move(items));
+    if (in)
+        items.push_back({tr("Sign out"), ic::LOGOUT, [] {
+                             yt_account::sign_out();
+                             toast(tr("Signed out of YouTube"), ic::LOGOUT);
+                         }});
+    show_menu(in ? yt_account::name() : tr("YouTube accounts"), in ? tr("Signed in to YouTube") : tr("Not signed in"),
+              std::move(items));
 }
 
 }  // namespace yt

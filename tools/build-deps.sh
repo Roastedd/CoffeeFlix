@@ -154,7 +154,8 @@ build_libsmb2() {
     touch "$stamp"
 }
 
-# SDL2 with NV12 and IYUV textures in the Wii U renderer. The Makefile searches
+# SDL2 with NV12 and IYUV textures in the Wii U renderer, and a 1280x720 GamePad copy of a
+# window drawn at a 1080p TV's size. The Makefile searches
 # deps/install before the portlibs, so this libSDL2.a replaces the package's.
 build_sdl2() {
     [ $HOST = 1 ] && { echo "sdl2: the desktop build uses the system SDL2"; return; }

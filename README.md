@@ -36,6 +36,7 @@ For local media, put files in the `Videos`, `Music`, `Photos` and `Books` folder
 - **Jellyfin**: enter your server's address, like `http://192.168.1.20:8096`, then approve the Quick Connect code from the Jellyfin app on your phone, or type your password.
 - **Network shares**: *My Media > Network shares > Add share*. Enter the computer's IP address (or `\\host\share`), the share name and your login; leave the login empty for guest shares.
 - **DLNA servers** appear under *My Media > Media servers* once sharing is turned on in the server.
+- **Each Wii U user signs in on their own**: Jellyfin and YouTube sign-ins belong to the Wii U user who started CoffeeFlix, so everyone in the house can use their own accounts. Settings, network shares and what's saved on the SD card are shared.
 - **Your YouTube subscriptions**: get `subscriptions.csv` from [Google Takeout](https://takeout.google.com) (*YouTube and YouTube Music > subscriptions*), or a NewPipe or LibreTube export saved as `subscriptions.json`. Put it in `sd:/wiiu/apps/coffeeflix/` and choose *Settings > Import YouTube subscriptions*.
 
 ## Controls

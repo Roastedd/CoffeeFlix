@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <mutex>
 
 #include "core/json.hpp"
@@ -28,11 +29,11 @@ uint64_t g_saves = 0;    // under g_m
 uint64_t g_written = 0;  // under g_file_m
 std::atomic<bool> g_saving{false};  // a save is on its way
 
-json_t* section(const char* name) {
-    json_t* s = json_object_get(g_root, name);
+json_t* object_in(json_t* obj, const char* name) {
+    json_t* s = json_object_get(obj, name);
     if (!json_is_object(s)) {
         s = json_object();
-        json_object_set_new(g_root, name, s);
+        json_object_set_new(obj, name, s);
     }
     return s;
 }
@@ -44,6 +45,68 @@ json_t* array_in(json_t* obj, const char* name) {
         json_object_set_new(obj, name, a);
     }
     return a;
+}
+
+json_t* section(const char* name) { return object_in(g_root, name); }
+
+// Each Wii U user's own, under "users" > id: their Jellyfin and YouTube sign-ins.
+const char* const USER_SETTINGS[] = {"jf_server",        "jf_server_name",  "jf_user_id",       "jf_user_name",
+                                     "jf_token",         "jf_device_id",    "yt_account_token", "yt_account_name",
+                                     "yt_account_photo", "yt_history_sync"};
+const char* const USER_FAVORITES[] = {"yt_account_channel"};
+std::string g_user;  // empty: one set for everyone
+
+template <size_t N>
+bool listed(const char* const (&list)[N], const char* name) {
+    for (const char* l : list)
+        if (strcmp(l, name) == 0) return true;
+    return false;
+}
+
+json_t* user_section(const char* name) { return object_in(object_in(section("users"), g_user.c_str()), name); }
+
+// Where a setting or a favorite list is kept.
+json_t* settings_for(const char* key) {
+    return !g_user.empty() && listed(USER_SETTINGS, key) ? user_section("settings") : section("settings");
+}
+json_t* favorites_for(const char* service) {
+    return !g_user.empty() && listed(USER_FAVORITES, service) ? user_section("favorites") : section("favorites");
+}
+
+// The other accounts of a service, kept for switching: {"settings": {...}, "favorites": {...}}
+// each, the service's keys of the lists above (its prefix). Most recently used first.
+const char* account_prefix(const char* service) {
+    return strcmp(service, "youtube") == 0 ? "yt_" : strcmp(service, "jellyfin") == 0 ? "jf_" : nullptr;
+}
+json_t* saved_list(const char* service) {
+    return array_in(g_user.empty() ? section("accounts") : user_section("accounts"), service);
+}
+
+// The service's account in use, as one of the others; what it had in use is left empty.
+json_t* take_current(const char* prefix) {
+    json_t* o = json_object();
+    json_t* settings = object_in(o, "settings");
+    json_t* favorites = object_in(o, "favorites");
+    auto take = [&](json_t* from, json_t* to, const char* name) {
+        json_t* v = json_object_get(from, name);
+        if (!v) return;
+        json_object_set(to, name, v);
+        json_object_del(from, name);
+    };
+    for (const char* k : USER_SETTINGS)
+        if (util::starts_with(k, prefix)) take(settings_for(k), settings, k);
+    for (const char* f : USER_FAVORITES)
+        if (util::starts_with(f, prefix)) take(favorites_for(f), favorites, f);
+    return o;
+}
+
+// Moves `name` from everyone's `from` to the user's `to` (unless the user has one already).
+bool claim(json_t* from, json_t* to, const char* name) {
+    json_t* v = json_object_get(from, name);
+    if (!v) return false;
+    if (!json_object_get(to, name)) json_object_set(to, name, v);
+    json_object_del(from, name);
+    return true;
 }
 
 void mark_dirty() {
@@ -114,35 +177,126 @@ void tick() {
     });
 }
 
+void set_user(const std::string& id) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    g_user = id;
+    if (id.empty()) return;
+    log_message(LOG_OK, "Store", "Sign-ins of Wii U user %s", id.c_str());
+    bool moved = false;
+    for (const char* k : USER_SETTINGS) moved |= claim(section("settings"), user_section("settings"), k);
+    for (const char* f : USER_FAVORITES) moved |= claim(section("favorites"), user_section("favorites"), f);
+    if (!moved) return;
+    log_message(LOG_OK, "Store", "The sign-ins saved before are this user's now");
+    mark_dirty();
+}
+
 // --- settings ---
 
 bool get_bool(const char* key, bool def) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    return json::boolean(json_object_get(section("settings"), key), def);
+    return json::boolean(json_object_get(settings_for(key), key), def);
 }
 int64_t get_int(const char* key, int64_t def) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* v = json_object_get(section("settings"), key);
+    json_t* v = json_object_get(settings_for(key), key);
     return v ? json::num(v, def) : def;
 }
 std::string get_str(const char* key, const std::string& def) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* v = json_object_get(section("settings"), key);
+    json_t* v = json_object_get(settings_for(key), key);
     return json_is_string(v) ? json::str(v) : def;
 }
 void set_bool(const char* key, bool v) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_object_set_new(section("settings"), key, json_boolean(v));
+    json_object_set_new(settings_for(key), key, json_boolean(v));
     mark_dirty();
 }
 void set_int(const char* key, int64_t v) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_object_set_new(section("settings"), key, json_integer(v));
+    json_object_set_new(settings_for(key), key, json_integer(v));
     mark_dirty();
 }
 void set_str(const char* key, const std::string& v) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_object_set_new(section("settings"), key, json_string(v.c_str()));
+    json_object_set_new(settings_for(key), key, json_string(v.c_str()));
+    mark_dirty();
+}
+
+std::vector<std::string> get_str_all(const char* key) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    std::vector<std::string> out;
+    auto add = [&](json_t* settings) {
+        json_t* v = json_object_get(settings, key);
+        if (json_is_string(v) && *json_string_value(v)) out.push_back(json_string_value(v));
+    };
+    // The other accounts kept for switching too.
+    auto add_saved = [&](json_t* accounts) {
+        const char* service;
+        json_t* list;
+        json_object_foreach(accounts, service, list)
+            for (size_t i = 0; i < json_array_size(list); i++) add(json_object_get(json_array_get(list, i), "settings"));
+    };
+    add(section("settings"));
+    add_saved(json_object_get(g_root, "accounts"));
+    const char* id;
+    json_t* user;
+    json_object_foreach(json_object_get(g_root, "users"), id, user) {
+        add(json_object_get(user, "settings"));
+        add_saved(json_object_get(user, "accounts"));
+    }
+    return out;
+}
+
+// --- other accounts ---
+
+std::vector<std::map<std::string, std::string>> saved_accounts(const char* service) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    std::vector<std::map<std::string, std::string>> out;
+    if (!account_prefix(service)) return out;
+    json_t* list = saved_list(service);
+    for (size_t i = 0; i < json_array_size(list); i++) {
+        std::map<std::string, std::string> m;
+        const char* k;
+        json_t* v;
+        json_object_foreach(json_object_get(json_array_get(list, i), "settings"), k, v)
+            if (json_is_string(v)) m[k] = json_string_value(v);
+        out.push_back(std::move(m));
+    }
+    return out;
+}
+
+void save_account(const char* service) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    const char* prefix = account_prefix(service);
+    if (!prefix) return;
+    json_array_insert_new(saved_list(service), 0, take_current(prefix));
+    mark_dirty();
+}
+
+void use_account(const char* service, size_t i, bool keep) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    const char* prefix = account_prefix(service);
+    json_t* list = prefix ? saved_list(service) : nullptr;
+    json_t* chosen = json_array_get(list, i);
+    if (!chosen) return;
+    json_incref(chosen);
+    json_array_remove(list, i);
+    json_t* current = take_current(prefix);
+    if (keep) json_array_insert_new(list, 0, current);
+    else json_decref(current);
+    const char* k;
+    json_t* v;
+    json_object_foreach(json_object_get(chosen, "settings"), k, v)
+        if (listed(USER_SETTINGS, k)) json_object_set(settings_for(k), k, v);
+    json_object_foreach(json_object_get(chosen, "favorites"), k, v)
+        if (listed(USER_FAVORITES, k)) json_object_set(favorites_for(k), k, v);
+    json_decref(chosen);
+    mark_dirty();
+}
+
+void forget_saved_account(const char* service, size_t i) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    if (!account_prefix(service) || json_array_remove(saved_list(service), i) != 0) return;
     mark_dirty();
 }
 
@@ -151,7 +305,7 @@ void set_str(const char* key, const std::string& v) {
 std::vector<Fav> favs(const char* service) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
     std::vector<Fav> out;
-    json_t* a = array_in(section("favorites"), service);
+    json_t* a = array_in(favorites_for(service), service);
     for (size_t i = 0; i < json_array_size(a); i++) {
         json_t* o = json_array_get(a, i);
         out.push_back(Fav{json::str(o, {"id"}), json::str(o, {"title"}), json::str(o, {"subtitle"}),
@@ -162,7 +316,7 @@ std::vector<Fav> favs(const char* service) {
 
 bool fav_has(const char* service, const std::string& id) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* a = array_in(section("favorites"), service);
+    json_t* a = array_in(favorites_for(service), service);
     for (size_t i = 0; i < json_array_size(a); i++)
         if (json::str(json_array_get(a, i), {"id"}) == id) return true;
     return false;
@@ -170,7 +324,7 @@ bool fav_has(const char* service, const std::string& id) {
 
 void fav_set(const char* service, const Fav& f, bool on) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* a = array_in(section("favorites"), service);
+    json_t* a = array_in(favorites_for(service), service);
     for (size_t i = 0; i < json_array_size(a); i++) {
         if (json::str(json_array_get(a, i), {"id"}) == f.id) {
             json_array_remove(a, i);
@@ -197,7 +351,7 @@ bool fav_toggle(const char* service, const Fav& f) {
 
 void fav_update(const char* service, const Fav& f) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* a = array_in(section("favorites"), service);
+    json_t* a = array_in(favorites_for(service), service);
     for (size_t i = 0; i < json_array_size(a); i++) {
         json_t* o = json_array_get(a, i);
         if (json::str(o, {"id"}) != f.id) continue;
@@ -212,7 +366,7 @@ void fav_update(const char* service, const Fav& f) {
 
 void fav_trim(const char* service, size_t max) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* a = array_in(section("favorites"), service);
+    json_t* a = array_in(favorites_for(service), service);
     if (json_array_size(a) <= max) return;
     while (json_array_size(a) > max) json_array_remove(a, json_array_size(a) - 1);
     mark_dirty();
@@ -220,13 +374,13 @@ void fav_trim(const char* service, size_t max) {
 
 void fav_clear(const char* service) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_array_clear(array_in(section("favorites"), service));
+    json_array_clear(array_in(favorites_for(service), service));
     mark_dirty();
 }
 
 void fav_replace(const char* service, const std::vector<Fav>& list) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* a = array_in(section("favorites"), service);
+    json_t* a = array_in(favorites_for(service), service);
     json_array_clear(a);
     for (const Fav& f : list) {
         json_t* o = json_object();

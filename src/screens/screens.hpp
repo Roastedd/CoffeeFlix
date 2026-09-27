@@ -43,6 +43,8 @@ std::unique_ptr<app::Screen> make_radio_search(const std::string& query);
 std::unique_ptr<app::Screen> make_podcast_search(const std::string& query);
 std::unique_ptr<app::Screen> make_twitch_search(const std::string& query);
 std::unique_ptr<app::Screen> make_jellyfin_item(const jellyfin::Item& item);
+// The Jellyfin accounts menu: switch, add another, sign out (opens sign-in when there are none).
+void jellyfin_account_menu();
 std::unique_ptr<app::Screen> make_podcast_show(const std::string& feed_url, const std::string& title,
                                                const std::string& author, const std::string& artwork);
 

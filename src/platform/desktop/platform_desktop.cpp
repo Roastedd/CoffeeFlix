@@ -370,6 +370,10 @@ bool is_wiiu() { return false; }
 std::string content_dir() { return g_content; }
 std::string data_dir() { return g_data; }
 std::string media_root() { return g_data + "/media"; }
+std::string user_id() {
+    const char* u = getenv("COFFEEFLIX_USER");
+    return u ? u : "";
+}
 
 int volumes(Volume* out, int max) {
     int n = 0;
