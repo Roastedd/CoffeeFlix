@@ -151,41 +151,22 @@ private:
         }
     }
 
-    // Dark modules on a white tile at whole-pixel sizes so phones read it cleanly; returns the side.
+    // The sign-in page's QR code; returns max_side, 0 when there's none.
     float draw_qr(float x, float y, float max_side) {
         std::string text = code_.url + "?user_code=" + code_.user_code;  // Google fills the code in
         if (text != qr_text_) {
             qr_text_ = text;
             qr_ = qr::encode(text);
         }
-        if (qr_.size == 0) return 0;
-        int quiet = 3;
-        int m = std::max(2, (int)(max_side / (qr_.size + quiet * 2)));
-        float side = (float)(m * (qr_.size + quiet * 2));
-        x = std::floor(x + (max_side - side) * 0.5f);
-        y = std::floor(y);
-        gfx::fill_rrect(Rect(x, y, side, side), 14, gfx::WHITE);
-        Color ink = gfx::rgb(0x111111);
-        float ox = x + m * quiet, oy = y + m * quiet;
-        for (int r = 0; r < qr_.size; r++) {
-            for (int c = 0; c < qr_.size;) {
-                if (!qr_.at(c, r)) {
-                    c++;
-                    continue;
-                }
-                int run = c;
-                while (run < qr_.size && qr_.at(run, r)) run++;
-                gfx::fill_rect(Rect(ox + c * m, oy + r * m, (float)((run - c) * m), (float)m), ink);
-                c = run;
-            }
-        }
-        return max_side;
+        return qr_code(qr_, x, y, max_side) > 0 ? max_side : 0;
     }
 
     void draw_done(Id g, const Rect& panel) {
         const Theme& t = theme();
-        float cx = panel.cx(), top = panel.y + 56;
-        float r = 56;
+        // Channels followed on this console before signing in can go to the account too.
+        if (local_subs_ < 0) local_subs_ = (int)local_subscriptions().size();
+        float cx = panel.cx(), top = panel.y + (local_subs_ > 0 ? 36 : 56);
+        float r = local_subs_ > 0 ? 48 : 56;
         const images::Image* img = images::get(yt_account::photo(), 176, 176);
         if (img && img->ready && img->tex) {
             gfx::image(img->tex, Rect(cx - r, top, r * 2, r * 2), gfx::WHITE, r);
@@ -203,6 +184,26 @@ private:
                            t.text2, 2, text::CENTER);
         Id bg = id(g, "done");
         float bw = std::max(200.0f, measure_button(tr("Continue"), ic::ARROW_FORWARD));
+        if (local_subs_ > 0) {
+            const char* add = tr("Add my subscriptions");
+            float aw = measure_button(add, ic::CLOUD_UPLOAD), nw = std::max(160.0f, measure_button(tr("Not now"), 0));
+            float x = cx - (aw + 16 + nw) * 0.5f;
+            text::draw(font::small, cx, panel.b() - 120,
+                       util::fmt(local_subs_ == 1 ? tr("You follow 1 channel only on this console.")
+                                                  : tr("You follow %d channels only on this console."), local_subs_),
+                       t.text3, text::CENTER);
+            if (button(id(bg, "add"), Rect(x, panel.b() - 82, aw, 50), add, ic::CLOUD_UPLOAD, BTN_PRIMARY, bg, F_DEFAULT)) {
+                copy_subscriptions_to_account();
+                app::pop();
+                return;
+            }
+            if (button(id(bg, "continue"), Rect(x + aw + 16, panel.b() - 82, nw, 50), tr("Not now"), 0, BTN_NORMAL, bg)) {
+                app::pop();
+                return;
+            }
+            hint_bar({{"A", tr("Select")}, {"B", tr("Back")}});
+            return;
+        }
         if (button(id(bg, "continue"), Rect(cx - bw * 0.5f, panel.b() - 82, bw, 50), tr("Continue"), ic::ARROW_FORWARD,
                    BTN_PRIMARY, bg, F_DEFAULT)) {
             app::pop();
@@ -266,6 +267,7 @@ private:
     std::string error_, qr_text_;
     qr::Code qr_;
     int interval_ = 5;
+    int local_subs_ = -1;  // channels to offer to add to the account, counted once
     double expires_ = 0, next_poll_ = 0;
     bool polling_ = false, done_ = false;
     tasks::Scope scope_, poll_;
@@ -280,12 +282,15 @@ void account_menu() {
         app::push(make_sign_in());
         return;
     }
-    show_menu(yt_account::name(), tr("Signed in to YouTube"), {
-        {tr("Sign out"), ic::LOGOUT, [] {
-             yt_account::sign_out();
-             toast(tr("Signed out of YouTube"), ic::LOGOUT);
-         }},
-    });
+    std::vector<MenuItem> items;
+    if (!local_subscriptions().empty() && !copying_subscriptions())
+        items.push_back({tr("Add this console's subscriptions to your account"), ic::CLOUD_UPLOAD,
+                         [] { copy_subscriptions_to_account(); }});
+    items.push_back({tr("Sign out"), ic::LOGOUT, [] {
+                         yt_account::sign_out();
+                         toast(tr("Signed out of YouTube"), ic::LOGOUT);
+                     }});
+    show_menu(yt_account::name(), tr("Signed in to YouTube"), std::move(items));
 }
 
 }  // namespace yt

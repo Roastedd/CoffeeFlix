@@ -16,6 +16,9 @@ namespace twitch {
 
 namespace {
 
+// The tallest picture Auto plays: the Wii U's decoder, and all Twitch's own versions of a stream.
+constexpr int AUTO_MAX_HEIGHT = 1080;
+
 // Twitch's own web client id (public; used by every third-party player).
 const char* CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const char* STREAM_FIELDS =
@@ -134,13 +137,40 @@ bool resolve(const std::string& login, player::Source& src, std::string& error) 
         return false;
     }
     hls::Master m = hls::parse(r.body, usher);
-    int max_h = src.quality > 0 ? src.quality : (int)store::get_int("twitch_quality", 720);
-    const hls::Variant* v = hls::pick(m, max_h, true, player::max_fps);
+    // Auto (quality 0): the best the downloads carry, and after Auto stepped down for a slow
+    // connection, the best within that. A live stream can't be downloaded ahead to make up for
+    // a connection slower than it: 720p60 (3.4 Mbps, about 420 KB/s) is more than a Wii U's
+    // Wi-Fi gets, so there Auto plays 720p30 (2.4 Mbps) where there is one, or 480p30 (1.4 Mbps).
+    const bool auto_q = src.quality <= 0;
+    int budget = 0;
+    if (auto_q) {
+        const int cap = src.bitrate_cap > 0 ? src.bitrate_cap : player::auto_cap();
+        budget = player::auto_budget();
+        if (cap > 0 && (budget <= 0 || cap < budget)) budget = cap;
+    }
+    auto max_fps = [](int h) { return player::max_fps(h); };
+    const hls::Variant* v = hls::pick(m, auto_q ? AUTO_MAX_HEIGHT : src.quality, true, max_fps, budget);
     if (!v) {
         error = tr("No compatible stream quality");
         return false;
     }
-    log_message(LOG_OK, "Twitch", "%s: %dp%.0f (%d kbps)", login.c_str(), v->height, v->fps, v->bandwidth / 1000);
+    // The menu: the heights the channel has, without those only in frame rates above what the
+    // decoder manages (a 1080p60 source on the Wii U). Auto steps down to 360p at the lowest.
+    src.qualities.clear();
+    src.bitrate = src.min_bitrate = v->bandwidth;
+    for (const hls::Variant& o : m.variants) {
+        const bool video = o.height > 0 && (o.codecs.empty() || o.codecs.find("avc1") != std::string::npos);
+        if (!video || o.height < 360 || o.height > AUTO_MAX_HEIGHT) continue;
+        if (o.bandwidth > 0) src.min_bitrate = std::min(src.min_bitrate, o.bandwidth);
+        if ((o.fps == 0 || o.fps <= max_fps(o.height) + 0.5f) &&
+            std::find(src.qualities.begin(), src.qualities.end(), o.height) == src.qualities.end())
+            src.qualities.push_back(o.height);
+    }
+    std::sort(src.qualities.begin(), src.qualities.end());
+    if (!auto_q && std::find(src.qualities.begin(), src.qualities.end(), v->height) != src.qualities.end())
+        src.quality = v->height;
+    log_message(LOG_OK, "Twitch", "%s: %dp%.0f (%d kbps)%s", login.c_str(), v->height, v->fps, v->bandwidth / 1000,
+                budget ? util::fmt(" (Auto: up to %d kbps)", budget / 1000).c_str() : "");
     src.url = v->url;
     return true;
 }
@@ -259,9 +289,10 @@ player::Source make_source(const Stream& s) {
     src.service = "twitch";
     src.id = s.login;
     src.remember_position = false;
-    src.qualities = {360, 480, 720, 1080};
-    src.quality = (int)store::get_int("twitch_quality", 720);
+    src.qualities = {360, 480, 720, 1080};  // till resolve() finds what the channel has
+    src.quality = (int)store::get_int("twitch_quality", 0);
     src.quality_setting = "twitch_quality";
+    src.auto_quality = true;
     std::string login = s.login;
     src.resolve = [login](player::Source& out, std::string& err) { return resolve(login, out, err); };
     return src;

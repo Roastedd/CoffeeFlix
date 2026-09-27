@@ -5,6 +5,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "services/youtube.hpp"
 
@@ -24,5 +25,16 @@ void reset();
 
 // Builds the feed. Blocks on the network: run it on a task thread.
 youtube::Results for_you();
+
+// What Discover is built from.
+struct Profile {
+    std::vector<youtube::Video> watched;     // enjoyed lately, newest first, one per channel
+    std::vector<youtube::Channel> channels;  // the ones watched most (id and name)
+    std::vector<std::string> searches;       // newest first
+    std::vector<std::string> interests;      // the strongest words from titles and searches
+};
+Profile profile();
+// Watched already, or turned down with "Not interested".
+bool hidden(const youtube::Video& v);
 
 }  // namespace yt_recs

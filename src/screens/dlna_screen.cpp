@@ -33,6 +33,9 @@ player::Source source_for(const dlna::Server& server, const dlna::Item& it) {
     s.artwork = it.art;
     s.service = "dlna";
     s.id = it.url;  // stable on real servers; lets Continue Watching reopen it directly
+    // Downloaded ahead in parts (FFmpeg reads it as it goes if the server sends whole files).
+    s.chunked_http = !it.whole_only;
+    s.extra = it.whole_only ? "whole" : "";  // for Continue Watching
     if (it.kind == dlna::VIDEO) {
         s.start = store::resume_position("dlna", it.url);
         if (!it.subtitles.empty()) s.external_subs.push_back({tr("Subtitles"), it.subtitles});

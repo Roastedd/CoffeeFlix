@@ -80,6 +80,25 @@ int64_t age_seconds(const std::string& published);
 // Videos YouTube suggests next to this one (the watch page's sidebar).
 Results related(const std::string& video_id);
 
+struct Comment {
+    std::string id, author, author_id, avatar, text, published;
+    std::string likes, replies;  // "320K", "962" (empty when none)
+    std::string pinned;          // "Pinned by @RickAstleyYT"
+    std::string replies_token;   // continuation for its replies
+    bool creator = false, verified = false, hearted = false, reply = false;
+};
+struct Comments {
+    std::vector<Comment> items;
+    std::string continuation;    // the next page (or "Show more replies")
+    std::string count;           // "2,457,632 Comments", on the first page
+    std::string error;
+    bool ok = false;
+    bool off = false;            // comments are turned off for this video
+};
+// A video's comments, the most liked first or the newest first; `continuation` for the next
+// page or a comment's replies.
+Comments comments(const std::string& video_id, bool newest = false, const std::string& continuation = "");
+
 // --- signed in (services/yt_account); these fail when nobody is --------------------------------
 // YouTube's own recommendations and the account's subscriptions feed.
 Results account_home(const std::string& continuation = "");
@@ -91,6 +110,12 @@ struct AccountInfo {
     std::string name, photo;
 };
 bool account_info(AccountInfo& out, std::string& error);
+// Tells YouTube how much of a video was watched here, the way its apps do, so it shows in the
+// account's watch history: the first report adds it, later ones move where you stopped. `done`
+// ends the video's session.
+bool account_report_watched(const std::string& video_id, double position, bool done, std::string& error);
+// Adds a video to the account's Watch later, or takes it off.
+bool account_watch_later(const std::string& video_id, bool on, std::string& error);
 
 std::string thumbnail(const std::string& id);     // 320x180
 std::string thumbnail_hq(const std::string& id);  // 480x360 (backdrops)

@@ -4,6 +4,7 @@
 
 #include "audio/mixer.hpp"
 #include "core/i18n.hpp"
+#include "core/qr.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
@@ -349,6 +350,31 @@ void loading_indicator(float cx, float cy, const char* label) {
     const Theme& t = theme();
     spinner(cx, cy, 18, t.accent, 4);
     if (label) text::draw(font::body, cx, cy + 32, label, t.text2, text::CENTER);
+}
+
+float qr_code(const qr::Code& code, float x, float y, float max_side) {
+    if (code.size == 0) return 0;
+    int quiet = 3;
+    int m = std::max(2, (int)(max_side / (code.size + quiet * 2)));
+    float side = (float)(m * (code.size + quiet * 2));
+    x = std::floor(x + (max_side - side) * 0.5f);
+    y = std::floor(y);
+    gfx::fill_rrect(Rect(x, y, side, side), 14, gfx::WHITE);
+    Color ink = gfx::rgb(0x111111);
+    float ox = x + m * quiet, oy = y + m * quiet;
+    for (int r = 0; r < code.size; r++) {
+        for (int c = 0; c < code.size;) {
+            if (!code.at(c, r)) {
+                c++;
+                continue;
+            }
+            int run = c;
+            while (run < code.size && code.at(run, r)) run++;
+            gfx::fill_rect(Rect(ox + c * m, oy + r * m, (float)((run - c) * m), (float)m), ink);
+            c = run;
+        }
+    }
+    return side;
 }
 
 // --- keyboard prompt --------------------------------------------------------------

@@ -67,10 +67,36 @@ int sockopt_cb(void* big_buffers, curl_socket_t fd, curlsocktype) {
     return CURL_SOCKOPT_OK;
 }
 
+struct Progress {
+    const Request* req;
+    CURL* curl;
+    double started;
+    bool gave_up = false;  // keep_going said no
+};
+
 int progress_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-    auto* cancel = (const std::atomic<bool>*)clientp;
-    return (cancel && cancel->load()) ? 1 : 0;
+    auto* p = (Progress*)clientp;
+    if (p->req->cancel && p->req->cancel->load()) return 1;
+    if (p->req->keep_going) {
+        curl_off_t sent = 0;  // microseconds from the start until the request went out
+        curl_easy_getinfo(p->curl, CURLINFO_PRETRANSFER_TIME_T, &sent);
+        if (!p->req->keep_going(sent > 0 ? p->started + sent / 1e6 : 0)) {
+            p->gave_up = true;
+            return 1;
+        }
+    }
+    return 0;
 }
+
+// Looked-up addresses and TLS sessions, shared by every handle: a new connection to a server
+// another handle talked to lately skips the DNS lookup (which blocks, without a time limit, in
+// the Wii U's libcurl) and resumes the TLS session instead of a full handshake, which costs a
+// lot on Espresso.
+CURLSH* g_share = nullptr;
+std::mutex g_share_m[CURL_LOCK_DATA_LAST];
+
+void share_lock(CURL*, curl_lock_data data, curl_lock_access, void*) { g_share_m[data].lock(); }
+void share_unlock(CURL*, curl_lock_data data, void*) { g_share_m[data].unlock(); }
 
 // Pool of easy handles so keep-alive connections (and their TLS sessions) are
 // reused across requests: a TLS handshake costs a lot on Espresso. (No
@@ -90,7 +116,7 @@ CURL* acquire_handle() {
 
 void release_handle(CURL* h) {
     std::lock_guard<std::mutex> lk(g_pool_m);
-    if (g_pool.size() < 8) g_pool.push_back(h);  // the player downloads over 3 at once
+    if (g_pool.size() < 8) g_pool.push_back(h);  // images, tasks and the log fetch at once
     else curl_easy_cleanup(h);
 }
 
@@ -116,6 +142,13 @@ const char* user_agent() { return "CoffeeFlix/2.0 (Nintendo Wii U)"; }
 
 void init(const std::string& ca_bundle_path, void (*socket_setup)(int fd)) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
+    g_share = curl_share_init();
+    if (g_share) {
+        curl_share_setopt(g_share, CURLSHOPT_LOCKFUNC, share_lock);
+        curl_share_setopt(g_share, CURLSHOPT_UNLOCKFUNC, share_unlock);
+        curl_share_setopt(g_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+        curl_share_setopt(g_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+    }
     g_ca_bundle = ca_bundle_path;
     g_socket_setup = socket_setup;
     if (!util::file_exists(g_ca_bundle)) {
@@ -129,7 +162,13 @@ void shutdown() {
         for (CURL* h : g_pool) curl_easy_cleanup(h);
         g_pool.clear();
     }
+    // Still in use by a download that didn't stop in time: left to the process's end.
+    if (g_share && curl_share_cleanup(g_share) == CURLSHE_OK) g_share = nullptr;
     curl_global_cleanup();
+}
+
+Connection::~Connection() {
+    if (curl_) curl_easy_cleanup((CURL*)curl_);
 }
 void set_verify_tls(bool verify) { g_verify = verify; }
 bool verify_tls() { return g_verify; }
@@ -137,7 +176,8 @@ const std::string& ca_bundle() { return g_ca_bundle; }
 
 Response perform(const Request& req) {
     Response resp;
-    CURL* curl = acquire_handle();
+    if (req.connection && !req.connection->curl_) req.connection->curl_ = curl_easy_init();
+    CURL* curl = req.connection ? (CURL*)req.connection->curl_ : acquire_handle();
     if (!curl) {
         resp.error = "curl init failed";
         return resp;
@@ -157,13 +197,19 @@ Response perform(const Request& req) {
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_cb);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, &resp.headers);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 8L);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 12L);  // podcasts' trackers: chains of 8 seen
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, req.timeout);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, std::min(req.timeout, 12L));
+    if (req.stall_seconds > 0) {
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1024L);
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, req.stall_seconds);
+    }
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");  // gzip/deflate/brotli as built
     curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent());
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+    if (req.fresh_connection) curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);
+    if (g_share) curl_easy_setopt(curl, CURLOPT_SHARE, g_share);
     // Each pooled handle keeps its last connection only: the Wii U runs out of sockets after a
     // few dozen, and handles that talked to many hosts (logos, thumbnails) would hoard them.
     curl_easy_setopt(curl, CURLOPT_MAXCONNECTS, 1L);
@@ -182,9 +228,10 @@ Response perform(const Request& req) {
     }
     curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, req.require_tls ? "https" : "http,https");
 
-    if (req.cancel) {
+    Progress progress{&req, curl, 0};
+    if (req.cancel || req.keep_going) {
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void*)req.cancel);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void*)&progress);
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     }
 
@@ -211,20 +258,23 @@ Response perform(const Request& req) {
     }
 
     double t0 = util::now_seconds();
+    progress.started = t0;
     CURLcode rc = curl_easy_perform(curl);
     double took = util::now_seconds() - t0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp.status);
+    curl_easy_getinfo(curl, CURLINFO_NUM_CONNECTS, &resp.connects);
     char* eff = nullptr;
     if (curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &eff) == CURLE_OK && eff) resp.effective_url = eff;
     if (hdrs) curl_slist_free_all(hdrs);
     // Don't keep a dangling pointer to the stack-allocated sink/headers.
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, nullptr);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, nullptr);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, nullptr);
 
-    release_handle(curl);
+    if (!req.connection) release_handle(curl);
 
     if (rc != CURLE_OK) {
-        bool cancelled = sink.stopped || (req.cancel && req.cancel->load());
+        bool cancelled = sink.stopped || progress.gave_up || (req.cancel && req.cancel->load());
         if (sink.overflow) resp.error = tr("Response too large");
         else if (cancelled) resp.error = "Cancelled";
         else resp.error = friendly_error(rc);

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <typeinfo>
 #include <vector>
 
 namespace util {
@@ -28,6 +29,8 @@ std::string format_count(int64_t n);                  // 1.2K, 3.4M
 std::string format_bytes(uint64_t n);
 std::string format_ticks_duration(int64_t ticks);     // .NET ticks (100ns) -> "1h 42m"
 std::string fmt(const char* format, ...) __attribute__((format(printf, 1, 2)));
+// A type's name as written in the code, for the log ("screens::VideoScreen").
+std::string type_name(const std::type_info& type);
 
 uint64_t hash64(std::string_view s, uint64_t seed = 1469598103934665603ull);
 std::string random_hex(int bytes);

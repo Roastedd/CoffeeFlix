@@ -86,7 +86,8 @@ Master parse(const std::string& text, const std::string& base_url) {
     return m;
 }
 
-const Variant* pick(const Master& m, int max_height, bool avc_only, float (*max_fps)(int height)) {
+const Variant* pick(const Master& m, int max_height, bool avc_only, const std::function<float(int height)>& max_fps,
+                    int max_bandwidth) {
     const Variant* best = nullptr;
     const Variant* smallest = nullptr;
     auto rank = [&](const Variant& v) {
@@ -99,7 +100,7 @@ const Variant* pick(const Master& m, int max_height, bool avc_only, float (*max_
         if (avc_only && !avc) continue;
         if (v.height == 0 && v.codecs.find("avc1") == std::string::npos) continue;  // audio-only
         if (!smallest || v.bandwidth < smallest->bandwidth) smallest = &v;
-        if (v.height > max_height) continue;
+        if (v.height > max_height || (max_bandwidth > 0 && v.bandwidth > max_bandwidth)) continue;
         if (!best || rank(v) > rank(*best)) best = &v;
     }
     return best ? best : smallest;

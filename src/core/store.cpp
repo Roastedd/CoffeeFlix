@@ -1,6 +1,7 @@
 #include "core/store.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 
 #include "core/json.hpp"
@@ -18,11 +19,14 @@ std::string g_path;
 bool g_dirty = false;
 double g_dirty_since = 0;
 
-// Writing the file takes ~50 ms on the SD card, so tick() leaves it to a worker. Each save is
-// numbered: a write that got overtaken by a newer one is skipped.
+// Writing the file takes ~50 ms on the SD card, and turning it into text tens of ms more on the
+// Wii U, so tick() leaves both to a worker: done on the main thread, a video playing at 60 fps
+// would skip pictures at every save. Each save is numbered: a write that got overtaken by a
+// newer one is skipped.
 std::mutex g_file_m;
 uint64_t g_saves = 0;    // under g_m
 uint64_t g_written = 0;  // under g_file_m
+std::atomic<bool> g_saving{false};  // a save is on its way
 
 json_t* section(const char* name) {
     json_t* s = json_object_get(g_root, name);
@@ -99,13 +103,13 @@ void save_now() {
 }
 
 void tick() {
-    std::lock_guard<std::recursive_mutex> lk(g_m);
-    if (!g_dirty || util::now_seconds() - g_dirty_since <= 3.0) return;
-    uint64_t number = 0;
-    std::string data = dump(number);
-    if (data.empty()) return;
-    tasks::submit(tasks::API, [path = g_path, data = std::move(data), number]() -> std::function<void()> {
-        write_json(path, data, number);
+    // Without waiting: the lock is busy while a save dumps everything.
+    std::unique_lock<std::recursive_mutex> lk(g_m, std::try_to_lock);
+    if (!lk.owns_lock() || g_saving || !g_dirty || util::now_seconds() - g_dirty_since <= 3.0) return;
+    g_saving = true;
+    tasks::submit(tasks::API, []() -> std::function<void()> {
+        save_now();
+        g_saving = false;
         return nullptr;
     });
 }

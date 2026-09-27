@@ -11,6 +11,7 @@
 #include <mutex>
 #include <vector>
 
+#include "core/cpu.hpp"
 #include "logger/logger.hpp"
 
 namespace audio {
@@ -23,13 +24,14 @@ constexpr int MAX_VOICES = 8;
 constexpr float PI = 3.14159265358979f;
 
 SDL_AudioDeviceID g_dev = 0;
+std::atomic<int> g_cpu_tag{-1};  // SDL's thread that calls callback() (cpu::tag); -2 once closing
 std::mutex g_m;
 
 // ring buffer (frames of 2 x int16)
 std::vector<int16_t> g_ring;
 uint64_t g_write = 0;  // total frames written
 uint64_t g_read = 0;   // total frames consumed
-struct Marker { uint64_t frame; double pts; };
+struct Marker { uint64_t frame; double pts; float speed; };
 std::deque<Marker> g_markers;
 bool g_paused = true;
 uint32_t g_generation = 0;
@@ -52,17 +54,17 @@ std::atomic<float> g_sfx_vol{0.55f};
 float g_levels[16];
 float g_fft_in[512];
 
+// Last marker at or before `frame`.
+const Marker* marker_at(uint64_t frame) {
+    for (auto it = g_markers.rbegin(); it != g_markers.rend(); ++it)
+        if (it->frame <= frame) return &*it;
+    return nullptr;
+}
+
 double pts_at(uint64_t frame) {
-    // Last marker at or before `frame`.
-    const Marker* m = nullptr;
-    for (auto it = g_markers.rbegin(); it != g_markers.rend(); ++it) {
-        if (it->frame <= frame) {
-            m = &*it;
-            break;
-        }
-    }
+    const Marker* m = marker_at(frame);
     if (!m) return -1;
-    return m->pts + (double)(frame - m->frame) / RATE;
+    return m->pts + (double)(frame - m->frame) * m->speed / RATE;
 }
 
 void fft(std::complex<float>* a, int n) {
@@ -118,6 +120,10 @@ std::atomic<void (*)(const int16_t*, int)> g_tap{nullptr};
 void callback(void*, Uint8* out_bytes, int len) {
     int16_t* out = (int16_t*)out_bytes;
     int frames = len / (int)(sizeof(int16_t) * CHANNELS);
+    if (g_cpu_tag == -1) {
+        int id = cpu::tag("sound"), none = -1;
+        if (!g_cpu_tag.compare_exchange_strong(none, id)) cpu::untag(id);
+    }
     std::fill(out, out + frames * CHANNELS, 0);
 
     {
@@ -226,17 +232,18 @@ bool init() {
 void set_tap(void (*tap)(const int16_t* frames, int count)) { g_tap = tap; }
 
 void shutdown() {
+    cpu::untag(g_cpu_tag.exchange(-2));
     if (g_dev) SDL_CloseAudioDevice(g_dev);
     g_dev = 0;
 }
 
-size_t stream_write(const int16_t* frames, size_t count, double pts, uint32_t generation) {
+size_t stream_write(const int16_t* frames, size_t count, double pts, uint32_t generation, float speed) {
     std::lock_guard<std::mutex> lk(g_m);
     if (generation != g_generation) return count;  // stale: swallow
     size_t free_frames = RING_FRAMES - (size_t)(g_write - g_read);
     size_t n = std::min(count, free_frames);
     if (n == 0) return 0;
-    g_markers.push_back(Marker{g_write, pts});
+    g_markers.push_back(Marker{g_write, pts, speed});
     for (size_t i = 0; i < n; i++) {
         size_t idx = (size_t)((g_write + i) % RING_FRAMES) * 2;
         g_ring[idx] = frames[i * 2];
@@ -244,6 +251,26 @@ size_t stream_write(const int16_t* frames, size_t count, double pts, uint32_t ge
     }
     g_write += n;
     return n;
+}
+
+double stream_cut(uint32_t generation, double keep_seconds) {
+    std::lock_guard<std::mutex> lk(g_m);
+    if (generation != g_generation || g_markers.empty()) return -1;
+    uint64_t end = g_read + (uint64_t)(keep_seconds * RATE);
+    if (end >= g_write) return pts_at(g_write);
+    while (g_markers.size() > 1 && g_markers.back().frame >= end) g_markers.pop_back();
+    double pts = pts_at(end);
+    // A quick fade to silence where it now stops, so the join with what comes next doesn't click.
+    constexpr uint64_t FADE = RATE / 400;  // 2.5 ms
+    uint64_t from = std::max(g_read, end > FADE ? end - FADE : 0);
+    for (uint64_t f = from; f < end; f++) {
+        float gain = (float)(end - f) / (float)(end - from + 1);
+        size_t idx = (size_t)(f % RING_FRAMES) * 2;
+        g_ring[idx] = (int16_t)(g_ring[idx] * gain);
+        g_ring[idx + 1] = (int16_t)(g_ring[idx + 1] * gain);
+    }
+    g_write = end;
+    return pts;
 }
 
 size_t stream_free_frames() {
@@ -286,13 +313,14 @@ bool stream_paused() {
 double stream_clock() {
     std::lock_guard<std::mutex> lk(g_m);
     if (!g_clock_valid || g_markers.empty()) return -1;
-    double base = pts_at(g_cb_read_start);
-    if (base < 0) return -1;
+    const Marker* m = marker_at(g_cb_read_start);
+    if (!m) return -1;
+    double base = m->pts + (double)(g_cb_read_start - m->frame) * m->speed / RATE;
     double played = (double)(g_read - g_cb_read_start) / RATE;
     double since = g_paused ? 0 : (double)(SDL_GetPerformanceCounter() - g_cb_time) / SDL_GetPerformanceFrequency();
     // The buffer handed to the device in the last callback is heard after the
     // one before it, so the audible position lags by about one period.
-    return base + std::min(since, played) - (double)CALLBACK_FRAMES / RATE;
+    return base + (std::min(since, played) - (double)CALLBACK_FRAMES / RATE) * m->speed;
 }
 
 double stream_take_underrun() {

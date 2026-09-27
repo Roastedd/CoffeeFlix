@@ -3,9 +3,13 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 
+#include <algorithm>
+#include <cstring>
+#include <typeinfo>
 #include <vector>
 
 #include "audio/mixer.hpp"
+#include "core/cpu.hpp"
 #include "core/http.hpp"
 #include "core/i18n.hpp"
 #include "core/input.hpp"
@@ -22,6 +26,7 @@
 #include "screens/widgets.hpp"
 #include "ui/ui.hpp"
 #include "app/ambient.hpp"
+#include "app/dev_log.hpp"
 #include "app/mini_player.hpp"
 #include "app/updater.hpp"
 #include "player/player.hpp"
@@ -75,11 +80,13 @@ void draw_rail() {
     if (open > 0.01f) gfx::fill_rect_hgrad(Rect(0, 0, W, H), Color(5, 4, 8, (uint8_t)(200 * open)), Color(5, 4, 8, (uint8_t)(90 * open)));
     gfx::fill_rect_hgrad(Rect(0, 0, w + 60, H), Color(10, 8, 14, (uint8_t)(170 + 70 * open)), Color(10, 8, 14, 0));
 
-    // Logo
+    // Logo. Inside a page it turns into a back button for the GamePad's touch screen.
     float lx = 42, ly = 58;
+    float back = tween(id("rail_back"), g_stack.size() > 1 ? 1.0f : 0.0f, 12.0f);
     gfx::fill_circle(lx, ly, 22, t.accent);
     gfx::fill_rrect_hgrad(Rect(lx - 22, ly - 22, 44, 44), 22, t.accent, t.accent2);
-    text::icon(ic::LOCAL_CAFE, 26, lx, ly, gfx::rgb(0x1A1016));
+    if (back < 0.99f) text::icon(ic::LOCAL_CAFE, 26 * (1 - back), lx, ly, gfx::rgb(0x1A1016));
+    if (back > 0.01f) text::icon(ic::ARROW_BACK, 26 * back, lx, ly, gfx::rgb(0x1A1016));
     if (open > 0.02f) {
         gfx::push_alpha(anim::smoothstep((open - 0.3f) / 0.7f));
         text::draw(text::font(text::BOLD, 24), lx + 36, ly - 15, "CoffeeFlix", t.text);
@@ -134,7 +141,10 @@ void draw_status() {
 
 void handle_back() {
     Input& in = ui::input();
-    if (!in.pressed_(BTN_B)) return;
+    bool touch_back = in.tap && g_stack.size() > 1 && !top()->fullscreen() &&
+                      ui::Rect(0, 0, RAIL_W + 10, 116).contains(in.tx, in.ty);
+    if (touch_back) in.tap = false;
+    else if (!in.pressed_(BTN_B)) return;
     in.eat(BTN_B);
     Screen* s = top();
     if (s && s->on_back()) return;
@@ -200,10 +210,169 @@ void frame(float dt) {
     screens::draw_prompt();
     std::string skipped = player::take_skip_notice();
     if (!skipped.empty()) toast(skipped, ic::FAST_FORWARD);
+    std::string quality = player::take_quality_notice();
+    if (!quality.empty()) toast(quality, ic::HD);
     draw_overlays();
     ambient::draw();
     (void)dt;
 }
+
+// Where the main thread's time goes, for the log: each frame is timed phase by phase. With
+// developer updates on, a summary every 10 s, and the worst frame of each second that had one
+// that took long. Also each thread's CPU use every 10 s, logged while something plays (always
+// with developer updates on).
+enum Phase { PH_INPUT, PH_CALLBACKS, PH_IMAGES, PH_PLAYER, PH_SCREEN, PH_DRAWING, PH_PRESENT, PH_AFTER, PH_COUNT };
+const char* const PHASE_NAMES[PH_COUNT] = {"input", "callbacks", "images", "player", "screen", "drawing", "present", "after"};
+constexpr double SLOW_FRAME = 0.05;
+
+// A main-thread callback's name for the log. Scope::run's are named after what the code that
+// started the work runs when it's done (the third of Scope::run's template arguments).
+std::string callback_name(const std::type_info& type) {
+    std::string name = util::type_name(type);
+    const char* run = "tasks::Scope::run<";
+    size_t from = name.find(run);
+    if (from == std::string::npos) return name;
+    int depth = 0, arg = 0;
+    size_t start = from + strlen(run), i = start;
+    for (; i < name.size(); i++) {
+        char c = name[i];
+        if (c == '<' || c == '(' || c == '[' || c == '{') {
+            depth++;
+        } else if (c == '>' || c == ')' || c == ']' || c == '}') {
+            if (depth-- == 0) break;
+        } else if (c == ',' && depth == 0) {
+            if (arg == 2) break;
+            arg++;
+            start = i + 1;
+        }
+    }
+    return arg == 2 && i < name.size() ? util::trim(name.substr(start, i - start)) : name;
+}
+
+class FrameProfile {
+public:
+    // The first phase takes in the time since the last one ended too (this class's own logging,
+    // the loop around): every moment is in some frame, so a gap the frames don't explain can't
+    // hide between them.
+    void start() {
+        if (!mark_) mark_ = SDL_GetPerformanceCounter();
+    }
+
+    // Phase p just ended.
+    void mark(Phase p) {
+        Uint64 t = SDL_GetPerformanceCounter();
+        frame_.phases[p] = (double)(t - mark_) / SDL_GetPerformanceFrequency();
+        mark_ = t;
+        if (p == PH_CALLBACKS) frame_.callback = tasks::last_pump_slowest();
+    }
+
+    void end() {
+        frame_.text = text::take_work();
+        text_.glyphs += frame_.text.glyphs;
+        text_.fonts += frame_.text.fonts;
+        text_.glyph_seconds += frame_.text.glyph_seconds;
+        double total = 0;
+        for (int p = 0; p < PH_COUNT; p++) {
+            total += frame_.phases[p];
+            sum_[p] += frame_.phases[p];
+        }
+        frame_.total = total;
+        frames_++;
+        if (total > 0.025) late_++;  // missed at least one screen update
+        longest_ = std::max(longest_, total);
+        double now = util::now_seconds();
+        if (since_ == 0) reset(now);
+        if (developer_ && total > SLOW_FRAME) {
+            if (slow_count_++ == 0) slow_since_ = now;
+            if (total > worst_.total) {
+                worst_ = frame_;
+                Screen* s = top();
+                worst_.screen = s ? &typeid(*s) : nullptr;
+            }
+        }
+        if (slow_count_ && now - slow_since_ >= 1) log_worst();
+        if (now - since_ >= 10) summary(now);
+    }
+
+private:
+    struct Frame {
+        double phases[PH_COUNT] = {};
+        double total = 0;
+        tasks::Slowest callback;
+        text::Work text;
+        const std::type_info* screen = nullptr;
+    };
+
+    // "; text: 40 new glyphs in 120 ms (slowest 30 ms), 2 fonts opened in 15 ms"
+    static std::string text_work(const text::Work& w, bool slowest) {
+        if (!w.glyphs && !w.fonts) return "";
+        std::string out = util::fmt("; text: %d new glyphs in %.0f ms", w.glyphs, w.glyph_seconds * 1e3);
+        if (slowest && w.glyphs > 1) out += util::fmt(" (slowest %.1f ms)", w.slowest_glyph * 1e3);
+        if (w.fonts) out += util::fmt(", %d fonts opened in %.0f ms", w.fonts, w.font_seconds * 1e3);
+        return out;
+    }
+
+    // "screen 3.1, present 12.9 ms": the phases at least `min` long, times `scale`.
+    static std::string breakdown(const double* t, double scale, double min) {
+        std::string out;
+        for (int p = 0; p < PH_COUNT; p++) {
+            if (t[p] * scale < min) continue;
+            if (!out.empty()) out += ", ";
+            out += util::fmt("%s %.1f", PHASE_NAMES[p], t[p] * scale * 1e3);
+        }
+        return out + " ms";
+    }
+
+    static std::string screen_name(const std::type_info* type) { return type ? util::type_name(*type) : "no screen"; }
+
+    void log_worst() {
+        std::string callback, others;
+        if (worst_.callback.type && worst_.callback.seconds > 0.005)
+            callback = util::fmt("; slowest callback %.0f ms: %s", worst_.callback.seconds * 1e3,
+                                 callback_name(*worst_.callback.type).substr(0, 600).c_str());
+        if (slow_count_ > 1) others = util::fmt(" (%d slow frames in this second)", slow_count_);
+        log_message(LOG_WARNING, "Frames", "Slow frame: %.0f ms (%s) on %s%s%s%s", worst_.total * 1e3,
+                    breakdown(worst_.phases, 1, 0.001).c_str(), screen_name(worst_.screen).c_str(), callback.c_str(),
+                    text_work(worst_.text, true).c_str(), others.c_str());
+        worst_ = {};
+        slow_count_ = 0;
+    }
+
+    void summary(double now) {
+        std::string use = cpu::report();
+        player::State ps = player::state();
+        if (!use.empty() && (developer_ || ps == player::PLAYING || ps == player::BUFFERING))
+            log_message(LOG_OK, "CPU", "Share of one core by thread: %s", use.c_str());
+        if (developer_ && summaries_++ % 6 == 0)  // every minute: enough to work out the units
+            for (const std::string& line : cpu::clock_debug()) log_message(LOG_DEBUG, "Clocks", "%s", line.c_str());
+        if (developer_) {
+            Screen* s = top();
+            log_message(LOG_OK, "Frames", "%d in %.0f s, %d late (longest %.0f ms); on average %s; on %s%s", frames_,
+                        now - since_, late_, longest_ * 1e3, breakdown(sum_, 1.0 / frames_, 0.00005).c_str(),
+                        screen_name(s ? &typeid(*s) : nullptr).c_str(), text_work(text_, false).c_str());
+        }
+        reset(now);
+    }
+
+    void reset(double now) {
+        developer_ = updater::developer();
+        since_ = now;
+        std::fill(sum_, sum_ + PH_COUNT, 0.0);
+        frames_ = late_ = 0;
+        longest_ = 0;
+        text_ = {};
+    }
+
+    Uint64 mark_ = 0;
+    Frame frame_, worst_;
+    text::Work text_;  // over the 10 s
+    double sum_[PH_COUNT] = {};
+    int frames_ = 0, late_ = 0, slow_count_ = 0, summaries_ = 0;
+    double longest_ = 0, since_ = 0, slow_since_ = 0;
+    bool developer_ = false;
+};
+
+FrameProfile g_profile;
 
 }  // namespace
 
@@ -252,6 +421,7 @@ int run(int, char**) {
     if (!platform::init()) return 1;
     log_to_file(platform::data_dir());
     log_message(LOG_OK, "App", "CoffeeFlix starting on %s", platform::name());
+    cpu::ThreadTag cpu_tag("main");
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
@@ -300,11 +470,16 @@ int run(int, char**) {
         last = now;
         if (platform::fixed_dt() > 0) dt = platform::fixed_dt();
 
+        g_profile.start();
         platform::poll(raw);
         input_update(in, raw, dt);
+        g_profile.mark(PH_INPUT);
         tasks::pump();
+        g_profile.mark(PH_CALLBACKS);
         updater::tick();
+        dev_log::tick();
         images::begin_frame();
+        g_profile.mark(PH_IMAGES);
         player::update();
         {
             // Keep the screen on for videos and the console on for any playback.
@@ -314,18 +489,24 @@ int run(int, char**) {
                                  : player::has_video() ? platform::AWAKE_FULL
                                                        : platform::AWAKE_NO_POWEROFF);
         }
+        g_profile.mark(PH_PLAYER);
 
         gfx::begin_frame(gfx::BLACK);
         ui::begin_frame(in, dt);
         frame(dt);
         ui::end_frame();
+        g_profile.mark(PH_SCREEN);
         gfx::end_frame();
+        g_profile.mark(PH_DRAWING);
 
         if (const char* shot = platform::screenshot_request()) platform::save_screenshot(renderer, shot);
         platform::record_frame(renderer);
         SDL_RenderPresent(renderer);
+        g_profile.mark(PH_PRESENT);
         g_dead.clear();
         store::tick();
+        g_profile.mark(PH_AFTER);
+        g_profile.end();
     }
 
     log_message(LOG_OK, "App", "Shutting down");
@@ -341,12 +522,14 @@ int run(int, char**) {
     images::shutdown();
     text::shutdown();
     gfx::shutdown();
+    dev_log::shutdown();
     http::shutdown();
     IMG_Quit();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
     updater::finish_on_exit();  // nothing reads bundled files any more
+    log_shutdown();
     platform::shutdown();
     return 0;
 }

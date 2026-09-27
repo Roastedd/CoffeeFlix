@@ -258,6 +258,9 @@ Item parse_item(const XMLElement* e) {
         it.mime = mime;
         it.size = strtoull(attr(r, "size").c_str(), nullptr, 10);
         it.duration = parse_duration(attr(r, "duration"));
+        // "DLNA.ORG_OP=ab": a 1 for b when it sends byte ranges (a is for seeking by time).
+        size_t op = info.find("DLNA.ORG_OP=");
+        it.whole_only = op != std::string::npos && op + 13 < info.size() && info[op + 13] != '1';
     }
     // Samsung's caption extension (minidlna, Serviio, Plex).
     if (it.subtitles.empty()) it.subtitles = text(e, "CaptionInfoEx");

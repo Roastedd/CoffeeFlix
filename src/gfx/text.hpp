@@ -52,6 +52,14 @@ float draw_shadowed(Font f, float x, float y, std::string_view s, gfx::Color c, 
 // Decodes one UTF-8 code point and advances i.
 uint32_t next_codepoint(std::string_view s, size_t& i);
 
+// What the text code had to make since the last call (for the frame profiler): glyphs drawn
+// into the atlas and fonts opened, and how long that took.
+struct Work {
+    int glyphs = 0, fonts = 0;
+    double glyph_seconds = 0, slowest_glyph = 0, font_seconds = 0;  // fonts are part of glyphs
+};
+Work take_work();
+
 }  // namespace text
 
 // Material Icons code points used across the app.
@@ -87,5 +95,7 @@ constexpr int CHEVRON_RIGHT = 0xe5cc, CHEVRON_LEFT = 0xe5cb, EXPAND_MORE = 0xe5c
               SPORTS_SOCCER = 0xea2f, PERSON_ADD = 0xe7fe, ACCOUNT_CIRCLE = 0xe853, WATCH_LATER = 0xe924,
               PLAYLIST_ADD = 0xe03b, PLAYLIST_ADD_CHECK = 0xe065, THUMB_DOWN = 0xe8db, FILE_UPLOAD = 0xe2c6,
               FILE_DOWNLOAD = 0xe2c4, SYSTEM_UPDATE = 0xe62a, RESTORE = 0xe8b3, NEW_RELEASES = 0xe031,
-              VERIFIED = 0xef76, RADIO_CHECKED = 0xe837, RADIO_UNCHECKED = 0xe836;
+              VERIFIED = 0xef76, RADIO_CHECKED = 0xe837, RADIO_UNCHECKED = 0xe836, COMMENT = 0xe0b9,
+              THUMB_UP = 0xe8dc, PUSH_PIN = 0xf10d, SYNC = 0xe627, FULLSCREEN_EXIT = 0xe5d1,
+              SUBDIRECTORY_ARROW_RIGHT = 0xe5da, CLOUD_UPLOAD = 0xe2c3, CLOUD_DONE = 0xe2bf, FORUM = 0xe0bf;
 }  // namespace ic

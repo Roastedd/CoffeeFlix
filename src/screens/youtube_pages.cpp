@@ -2,12 +2,15 @@
 // playlists) and the per-video "More" menu. All of it is stored locally; a signed-in account
 // adds its own subscriptions and recommendations.
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <map>
 #include <mutex>
 #include <set>
+#include <thread>
 
 #include "core/i18n.hpp"
 #include "core/json.hpp"
@@ -249,6 +252,55 @@ std::vector<youtube::Channel> subscriptions() {
     return out;
 }
 
+std::vector<youtube::Channel> local_subscriptions() {
+    std::vector<youtube::Channel> out;
+    if (!yt_account::signed_in()) return out;
+    std::set<std::string> on_account;
+    for (const store::Fav& f : store::favs(ACCOUNT_SUBS)) on_account.insert(f.id);
+    for (const store::Fav& f : store::favs(SUBS))
+        if (!on_account.count(f.id)) out.push_back(channel_of(f));
+    return out;
+}
+
+namespace {
+std::atomic<bool> g_copying{false};
+}
+
+bool copying_subscriptions() { return g_copying; }
+
+void copy_subscriptions_to_account() {
+    std::vector<youtube::Channel> list = local_subscriptions();
+    if (list.empty() || g_copying.exchange(true)) return;
+    toast(tr("Adding your subscriptions to your account\xE2\x80\xA6"), ic::SYNC);
+    int version = yt_account::version();
+    tasks::submit(tasks::API, [list, version]() -> std::function<void()> {
+        std::vector<store::Fav> added;
+        std::string first_error;
+        for (const youtube::Channel& c : list) {
+            if (yt_account::version() != version) break;
+            std::string err;
+            if (youtube::account_subscribe(c.id, true, err)) {
+                added.push_back(store::Fav{c.id, c.name, "", c.avatar, ""});
+                yt_recs::on_subscribe(c.id, true);
+            } else {
+                log_message(LOG_WARNING, "YouTube", "Adding %s to the account failed: %s", c.id.c_str(), err.c_str());
+                if (first_error.empty()) first_error = err;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));  // one at a time, like tapping each
+        }
+        log_message(LOG_OK, "YouTube", "Copied %zu of %zu subscriptions to the account", added.size(), list.size());
+        size_t total = list.size();
+        return [added, total, first_error, version] {
+            g_copying = false;
+            if (yt_account::version() != version) return;
+            // Kept on the console too, so they're still there after signing out.
+            for (const store::Fav& f : added) store::fav_set(ACCOUNT_SUBS, f, true);
+            if (added.size() == total) toast(tr("Your subscriptions are on your YouTube account now"), ic::CLOUD_DONE);
+            else toast(util::fmt(tr("Some channels couldn't be added: %s"), first_error.c_str()), ic::ERROR_OUTLINE, theme().bad);
+        };
+    });
+}
+
 bool account_channels_fresh() {
     std::lock_guard<std::mutex> lk(g_account_m);
     return g_account_version == yt_account::version() && util::now_seconds() - g_account_loaded < 10 * 60;
@@ -435,6 +487,15 @@ bool in_watch_later(const std::string& video_id) { return store::fav_has(LATER, 
 void set_watch_later(const youtube::Video& v, bool on) {
     store::fav_set(LATER, to_fav(v), on);
     toast(on ? tr("Saved to Watch later") : tr("Removed from Watch later"), on ? ic::WATCH_LATER : ic::REMOVE);
+    // Signed in, the account's Watch later changes too (the list here stays this console's).
+    if (!yt_account::signed_in()) return;
+    std::string id = v.id;
+    tasks::submit(tasks::API, [id, on]() -> std::function<void()> {
+        std::string err;
+        if (youtube::account_watch_later(id, on, err)) return nullptr;
+        log_message(LOG_WARNING, "YouTube", "Watch later on the account: %s", err.c_str());
+        return [err] { toast(util::fmt(tr("Couldn't update Watch later on your account: %s"), err.c_str()), ic::ERROR_OUTLINE, theme().bad); };
+    });
 }
 
 std::vector<youtube::Video> watch_later() { return videos_in(LATER); }

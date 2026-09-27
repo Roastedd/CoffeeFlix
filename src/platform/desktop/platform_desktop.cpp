@@ -13,6 +13,12 @@
 #include "platform/platform.hpp"
 
 #include <SDL2/SDL_image.h>
+#include <pthread.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#else
+#include <time.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -48,7 +54,7 @@ TextInputState g_text_state = TEXT_IDLE;
 std::string g_text;
 
 // scripting
-struct Cmd { std::string op, a, b; };
+struct Cmd { std::string op, a, b; std::vector<float> n; };
 std::deque<Cmd> g_script;
 bool g_scripted = false;
 int g_wait = 0;
@@ -57,6 +63,10 @@ int g_hold_frames = 0;
 bool g_tap_pending = false;
 int g_tap_phase = 0;
 float g_tap_x = 0, g_tap_y = 0;
+struct TouchFrame { bool touch; float x, y; };
+std::deque<TouchFrame> g_touch_path;  // "drag": one entry per frame
+bool g_finger = false;                 // "down" ... "up": a finger resting on the screen
+float g_finger_x = 0, g_finger_y = 0;
 std::string g_shot;
 
 Button parse_button(const std::string& s) {
@@ -80,6 +90,9 @@ void load_script(const char* path) {
             c.a = util::trim(c.a);
         } else {
             ss >> c.a >> c.b;
+            c.n = {(float)atof(c.a.c_str()), (float)atof(c.b.c_str())};
+            float v;
+            while (ss >> v) c.n.push_back(v);
         }
         g_script.push_back(c);
     }
@@ -90,6 +103,19 @@ void load_script(const char* path) {
 void step_script(RawInput& raw) {
     raw.held |= g_script_held;
     if (g_hold_frames > 0 && --g_hold_frames == 0) g_script_held = 0;
+    if (!g_touch_path.empty()) {
+        TouchFrame f = g_touch_path.front();
+        g_touch_path.pop_front();
+        raw.touch = f.touch;
+        raw.tx = g_finger_x = f.x;
+        raw.ty = g_finger_y = f.y;
+        return;
+    }
+    if (g_finger) {
+        raw.touch = true;
+        raw.tx = g_finger_x;
+        raw.ty = g_finger_y;
+    }
     if (g_tap_pending) {
         raw.touch = g_tap_phase < 2;
         raw.tx = g_tap_x;
@@ -101,7 +127,7 @@ void step_script(RawInput& raw) {
         g_wait--;
         return;
     }
-    while (!g_script.empty() && g_wait == 0 && g_hold_frames == 0 && !g_tap_pending) {
+    while (!g_script.empty() && g_wait == 0 && g_hold_frames == 0 && !g_tap_pending && g_touch_path.empty()) {
         Cmd c = g_script.front();
         g_script.pop_front();
         if (c.op == "wait") {
@@ -117,6 +143,30 @@ void step_script(RawInput& raw) {
             g_tap_phase = 0;
             g_tap_x = (float)atof(c.a.c_str());
             g_tap_y = (float)atof(c.b.c_str());
+        } else if (c.op == "drag" && c.n.size() >= 5) {
+            // drag x0 y0 x1 y1 frames [hold_frames]: slide a finger, optionally rest, then lift.
+            int frames = std::max(1, (int)c.n[4]), hold = c.n.size() > 5 ? (int)c.n[5] : 0;
+            for (int i = 0; i <= frames; i++) {
+                float t = (float)i / frames;
+                g_touch_path.push_back({true, c.n[0] + (c.n[2] - c.n[0]) * t, c.n[1] + (c.n[3] - c.n[1]) * t});
+            }
+            for (int i = 0; i < hold; i++) g_touch_path.push_back({true, c.n[2], c.n[3]});
+            g_touch_path.push_back({false, c.n[2], c.n[3]});
+        } else if (c.op == "down") {
+            // down x y / move x y frames / up: like drag, but other commands can run in between.
+            g_finger = true;
+            g_finger_x = raw.tx = c.n[0];
+            g_finger_y = raw.ty = c.n[1];
+            raw.touch = true;
+        } else if (c.op == "move" && c.n.size() >= 3) {
+            int frames = std::max(1, (int)c.n[2]);
+            for (int i = 1; i <= frames; i++) {
+                float t = (float)i / frames;
+                g_touch_path.push_back({true, g_finger_x + (c.n[0] - g_finger_x) * t, g_finger_y + (c.n[1] - g_finger_y) * t});
+            }
+        } else if (c.op == "up") {
+            g_finger = false;
+            raw.touch = false;
         } else if (c.op == "type") {
             if (g_text_state == TEXT_ACTIVE) {
                 g_text = c.a;
@@ -129,7 +179,7 @@ void step_script(RawInput& raw) {
             g_quit = true;
         }
     }
-    if (g_script.empty() && g_wait == 0 && g_hold_frames == 0 && !g_tap_pending && g_shot.empty()) {
+    if (g_script.empty() && g_wait == 0 && g_hold_frames == 0 && !g_tap_pending && g_touch_path.empty() && g_shot.empty()) {
         // Script finished: exit on the next frame.
         static int grace = 2;
         if (--grace <= 0) g_quit = true;
@@ -432,5 +482,40 @@ void text_input_cancel() {
 }
 
 void text_input_reset() { g_text_state = TEXT_IDLE; }
+
+// --- threads ---------------------------------------------------------------
+
+#ifdef __APPLE__
+void* current_thread() { return (void*)(uintptr_t)pthread_mach_thread_np(pthread_self()); }
+
+uint64_t thread_cpu_ns(void* thread) {
+    thread_basic_info_data_t info;
+    mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+    if (thread_info((thread_act_t)(uintptr_t)thread, THREAD_BASIC_INFO, (thread_info_t)&info, &count) != KERN_SUCCESS)
+        return 0;
+    return (info.user_time.seconds + info.system_time.seconds) * 1000000000ull +
+           (info.user_time.microseconds + info.system_time.microseconds) * 1000ull;
+}
+
+void set_thread_name(const char* name) { pthread_setname_np(name); }
+#else
+void* current_thread() {
+    clockid_t id;
+    if (pthread_getcpuclockid(pthread_self(), &id) != 0) return nullptr;
+    return (void*)(intptr_t)id;
+}
+
+uint64_t thread_cpu_ns(void* thread) {
+    timespec ts;
+    if (!thread || clock_gettime((clockid_t)(intptr_t)thread, &ts) != 0) return 0;
+    return ts.tv_sec * 1000000000ull + ts.tv_nsec;
+}
+
+void set_thread_name(const char* name) { pthread_setname_np(pthread_self(), name); }
+#endif
+
+std::string thread_clock_debug(void*) { return ""; }
+std::string clock_debug() { return ""; }
+void lower_thread_priority() {}
 
 }  // namespace platform

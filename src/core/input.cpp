@@ -11,6 +11,32 @@ constexpr float FAST_AFTER = 1.4f;
 constexpr float DRAG_THRESHOLD = 14.0f;
 
 float g_hold_time[BTN_COUNT];
+
+// Recent touch samples, to measure how fast the finger was moving when it let go.
+struct TouchSample { double t; float x, y; };
+constexpr int SAMPLES = 8;
+TouchSample g_samples[SAMPLES];
+int g_sample_count = 0;
+double g_clock = 0;
+
+void add_sample(float x, float y) {
+    for (int i = SAMPLES - 1; i > 0; i--) g_samples[i] = g_samples[i - 1];
+    g_samples[0] = TouchSample{g_clock, x, y};
+    if (g_sample_count < SAMPLES) g_sample_count++;
+}
+
+// Velocity over the last ~80 ms: a finger that stopped before lifting doesn't fling.
+void touch_velocity(float& vx, float& vy) {
+    vx = vy = 0;
+    if (g_sample_count < 2) return;
+    const TouchSample& now = g_samples[0];
+    int j = 1;
+    while (j < g_sample_count - 1 && now.t - g_samples[j].t < 0.08) j++;
+    double span = now.t - g_samples[j].t;
+    if (span <= 0.001 || g_clock - now.t > 0.05) return;
+    vx = (float)((now.x - g_samples[j].x) / span);
+    vy = (float)((now.y - g_samples[j].y) / span);
+}
 float g_next_repeat[BTN_COUNT];
 uint32_t g_stick_dirs = 0;
 
@@ -64,24 +90,35 @@ void input_update(Input& in, const RawInput& raw, float dt) {
     in.lx = raw.lx; in.ly = raw.ly; in.rx = raw.rx; in.ry = raw.ry;
 
     // Touch
+    g_clock += dt;
     in.touch_began = raw.touch && !in.touching;
     in.touch_ended = !raw.touch && in.touching;
     in.tap = false;
+    in.drag_began = false;
     if (in.touch_began) {
         in.touch_start_x = in.tx = raw.tx;
         in.touch_start_y = in.ty = raw.ty;
         in.tdx = in.tdy = 0;
         in.dragging = false;
+        in.drag_axis = 0;
+        g_sample_count = 0;
+        add_sample(raw.tx, raw.ty);
     } else if (raw.touch) {
         in.tdx = raw.tx - in.tx;
         in.tdy = raw.ty - in.ty;
         in.tx = raw.tx;
         in.ty = raw.ty;
-        if (std::fabs(in.tx - in.touch_start_x) > DRAG_THRESHOLD || std::fabs(in.ty - in.touch_start_y) > DRAG_THRESHOLD)
+        add_sample(raw.tx, raw.ty);
+        float mx = std::fabs(in.tx - in.touch_start_x), my = std::fabs(in.ty - in.touch_start_y);
+        if (!in.dragging && (mx > DRAG_THRESHOLD || my > DRAG_THRESHOLD)) {
             in.dragging = true;
+            in.drag_began = true;
+            in.drag_axis = mx > my ? AXIS_X : AXIS_Y;
+        }
     } else {
         in.tdx = in.tdy = 0;
     }
+    if (raw.touch || in.touch_ended) touch_velocity(in.tvx, in.tvy);
     if (in.touch_ended && !in.dragging) in.tap = true;
     in.touching = raw.touch;
 

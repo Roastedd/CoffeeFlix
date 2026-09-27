@@ -1,6 +1,7 @@
 // Minimal HLS master playlist parsing (variant selection for Twitch/YouTube).
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -29,9 +30,11 @@ struct Master {
 
 Master parse(const std::string& text, const std::string& base_url);
 std::string resolve_url(const std::string& base, const std::string& ref);
-// Best variant not above max_height (H.264 only when avc_only). Variants above max_fps (of
-// their height) are only chosen if nothing else fits. nullptr if none.
-const Variant* pick(const Master& m, int max_height, bool avc_only = true, float (*max_fps)(int height) = nullptr);
+// Best variant not above max_height, nor above max_bandwidth (bits/s, 0: any) (H.264 only when
+// avc_only). Variants above max_fps (of their height) are only chosen if nothing else fits. The
+// lightest when none fits; nullptr if there are none.
+const Variant* pick(const Master& m, int max_height, bool avc_only = true,
+                    const std::function<float(int height)>& max_fps = nullptr, int max_bandwidth = 0);
 const Rendition* audio_for(const Master& m, const Variant& v);
 
 }  // namespace hls

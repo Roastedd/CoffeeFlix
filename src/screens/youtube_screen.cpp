@@ -1,6 +1,7 @@
 // YouTube: home shelves, recommendations (on-device, or the account's when signed in), topics,
-// subscriptions, search.
+// subscriptions, Discover, search.
 #include <algorithm>
+#include <set>
 
 #include "core/i18n.hpp"
 #include "core/store.hpp"
@@ -129,6 +130,184 @@ std::unique_ptr<app::Screen> search_results(const std::string& q) {
     }, q);
 }
 
+// A shelf of a feed's videos. Nothing when it loaded empty, a line when it failed.
+float video_shelf(Id sid, float x, float y, const std::string& title, Feed& f, Page& page) {
+    if (f.loaded && f.res.items.empty()) {
+        if (!f.res.error.empty()) {
+            text::draw(font::title, x, y, title, theme().text);
+            text::draw(font::body, x, y + 46, util::fmt(tr("Couldn't load: %s"), f.res.error.c_str()), theme().text3);
+            return 90;
+        }
+        return 0;
+    }
+    ShelfSpec s;
+    s.title_str = title;
+    s.count = (int)f.res.items.size();
+    s.loading = f.loading || !f.loaded;
+    s.item_w = 300;
+    s.item = [&f](int i) { return yt::video_card(f.res.items[i]); };
+    s.on_click = [&f](int i) { yt::play(f.res.items[i]); };
+    s.on_focus = [&f](int i) {
+        set_backdrop(youtube::thumbnail_hq(f.res.items[i].id));
+        if (i >= (int)f.res.items.size() - 4) f.more();
+    };
+    s.on_x = [&f](int i) {
+        yt::MenuOptions o;
+        std::string vid = f.res.items[i].id;
+        o.removed = [&f, vid] { f.remove(vid); };
+        yt::video_menu(f.res.items[i], o);
+    };
+    s.on_y = [&f](int i) {
+        yt_recs::not_interested(f.res.items[i]);
+        f.res.items.erase(f.res.items.begin() + i);
+        toast(tr("Got it, you'll see less like this"), ic::CHECK_CIRCLE);
+    };
+    return shelf(sid, x, y, s, &page);
+}
+
+void prompt_search() {
+    prompt_text(tr("Search YouTube"), "", tr("Search YouTube"), [](std::string q) {
+        if (q.empty()) return;
+        store::add_recent_search("youtube", q);
+        yt_recs::on_search(q);
+        app::push(search_results(q));
+    });
+}
+
+// --- discover -------------------------------------------------------------------------------
+// Shelves picked from what was watched and searched on this console: videos like the ones you
+// enjoyed, more from the channels you watch most, your searches and your interests.
+
+class DiscoverScreen : public app::Screen {
+public:
+    DiscoverScreen() {
+        yt_recs::Profile p = yt_recs::profile();
+        interests_ = p.interests;
+        // Interleaved, so the first few shelves aren't all the same kind.
+        std::vector<std::vector<std::unique_ptr<Row>>> kinds(4);
+        for (auto& v : p.watched) {
+            std::string id = v.id;
+            kinds[0].push_back(row(util::fmt(tr("Because you watched \xE2\x80\x9C%s\xE2\x80\x9D"), v.title.c_str()),
+                                   [id](const std::string& c) { return c.empty() ? youtube::related(id) : youtube::Results(); }));
+        }
+        for (auto& ch : p.channels) {
+            std::string id = ch.id;
+            kinds[1].push_back(row(util::fmt(tr("More from %s"), ch.name.c_str()),
+                                   [id](const std::string& c) { return youtube::channel_videos(id, c); }));
+        }
+        for (size_t i = 0; i < p.searches.size() && i < 2; i++) {
+            std::string q = p.searches[i];
+            kinds[2].push_back(row(util::fmt(tr("Because you searched \xE2\x80\x9C%s\xE2\x80\x9D"), q.c_str()),
+                                   [q](const std::string& c) { return youtube::search(q, youtube::PARAMS_VIDEOS, c); }));
+        }
+        for (size_t i = 0; i < p.interests.size() && kinds[3].size() < 2; i++) {
+            std::string q = p.interests[i];
+            bool searched = std::any_of(p.searches.begin(), p.searches.end(),
+                                        [&](const std::string& s) { return util::lower(s) == q; });
+            if (searched) continue;
+            kinds[3].push_back(row(util::fmt(tr("Top %s videos this week"), label(q).c_str()), [q](const std::string& c) {
+                return youtube::search(q, youtube::PARAMS_POPULAR_WEEK, c);
+            }));
+        }
+        for (size_t i = 0; i < 3; i++)
+            for (auto& k : kinds)
+                if (i < k.size()) rows_.push_back(std::move(k[i]));
+        version_ = yt_recs::version();
+    }
+
+    app::Section section() const override { return app::SEC_YOUTUBE; }
+
+    void on_enter() override {
+        // Back from a video: what was just watched (or turned down) leaves the shelves; they
+        // aren't rebuilt, so nothing moves under you.
+        if (yt_recs::version() == version_) return;
+        version_ = yt_recs::version();
+        for (auto& r : rows_) {
+            auto& v = r->feed.res.items;
+            v.erase(std::remove_if(v.begin(), v.end(), [](const youtube::Video& x) { return yt_recs::hidden(x); }), v.end());
+        }
+    }
+
+    void frame() override {
+        const Theme& t = theme();
+        float x0 = content_x();
+        Id g = id("ytdiscover");
+        page_.begin(id(g, "page"));
+        float y = page_.y(56);
+        text::draw(font::headline, x0, y, tr("Discover"), t.text);
+        text::draw(font::body, x0, y + 46, tr("Picked from what you watch and search on this console"), t.text2);
+        y += 100;
+
+        if (rows_.empty() && interests_.empty()) {
+            if (empty_state_action(id(g, "empty"), Rect(x0, y, W - x0 - 60, 300), ic::EXPLORE, tr("Nothing to discover yet"),
+                                   tr("Watch a few videos or search for something, and this fills up with picks based on them."),
+                                   tr("Search YouTube"), ic::SEARCH))
+                prompt_search();
+            page_.end(y + 340 + page_.scroll());
+            hint_bar({{"A", tr("Select")}, {"B", tr("Back")}});
+            return;
+        }
+
+        // Interests: each one opens a search.
+        Id chips = id(g, "chips");
+        if (!interests_.empty()) {
+            float cx = x0;
+            for (size_t i = 0; i < interests_.size(); i++) {
+                std::string name = label(interests_[i]);
+                float w = text::measure(font::small_bold, name) + 58;
+                if (cx + w > W - 60) break;
+                if (chip(id(chips, (int64_t)i), Rect(cx, y, w, 42), name.c_str(), false, chips, ic::SEARCH))
+                    app::push(search_results(interests_[i]));
+                cx += w + 12;
+            }
+            y += 70;
+            if (focus_in_group(chips)) page_.focus_range(0, y + page_.scroll());
+        }
+
+        for (size_t i = 0; i < rows_.size(); i++) {
+            Row& r = *rows_[i];
+            if (y < H + 300) r.feed.load();  // lazy: only when about to scroll into view
+            y += video_shelf(id(g, (int64_t)i), x0, y, text::ellipsize(font::title, r.title, W - x0 - 60), r.feed, page_);
+            if (r.feed.loaded && !r.feed.res.items.empty()) y += 12;
+        }
+        page_.end(y + page_.scroll());
+        hint_bar({{"A", tr("Play")}, {"X", tr("More")}, {"Y", tr("Not interested")}, {"B", tr("Back")}});
+    }
+
+private:
+    struct Row {
+        std::string title;
+        Feed feed;
+    };
+
+    // Without what was watched already or turned down, and without repeats (a stream's replays
+    // often come up several times under the same title).
+    static std::unique_ptr<Row> row(std::string title, std::function<youtube::Results(const std::string&)> fetch) {
+        auto r = std::make_unique<Row>();
+        r->title = std::move(title);
+        r->feed.fetch = [fetch](const std::string& c) {
+            youtube::Results res = fetch(c);
+            std::set<std::string> titles;
+            res.items.erase(std::remove_if(res.items.begin(), res.items.end(), [&](const youtube::Video& v) {
+                return !titles.insert(v.title).second || yt_recs::hidden(v);
+            }), res.items.end());
+            return res;
+        };
+        return r;
+    }
+
+    // Interests are lowercase words from titles: "minecraft" shows as "Minecraft".
+    static std::string label(std::string word) {
+        if (!word.empty() && word[0] >= 'a' && word[0] <= 'z') word[0] = (char)(word[0] - 'a' + 'A');
+        return word;
+    }
+
+    std::vector<std::string> interests_;
+    std::vector<std::unique_ptr<Row>> rows_;
+    int version_ = -1;
+    Page page_;
+};
+
 // --- home -------------------------------------------------------------------------------------
 
 class YouTubeScreen : public app::Screen {
@@ -183,15 +362,35 @@ public:
             yt::account_menu();
         if (search_bar(id(top, "search"), Rect(x0 + 300, y + 4, bx - 140 - 28 - 24 - x0 - 300, 56), "", tr("Search YouTube"),
                        top, F_DEFAULT))
-            open_search();
+            prompt_search();
         y += 84;
 
-        // Topic chips
-        float cx = x0;
+        // Discover, then the topics. The row slides sideways when it doesn't fit.
         auto& tps = youtube::topics();
+        std::vector<float> cw{text::measure(font::small_bold, tr("Discover")) + 58};
+        for (auto& tp : tps) cw.push_back(text::measure(font::small_bold, tr(tp.name)) + 58);
+        Id discover = id(top, "discover");
+        float row_w = 0, fx0 = 0, fx1 = 0;
+        bool chip_focused = false;
+        for (size_t i = 0; i < cw.size(); i++) {
+            if (focused() == (i == 0 ? discover : id(top, (int64_t)(i - 1)))) {
+                fx0 = row_w;
+                fx1 = row_w + cw[i];
+                chip_focused = true;
+            }
+            row_w += cw[i] + 12;
+        }
+        float view_w = W - x0 - 30;
+        Id sid = id(top, "chips");
+        scroll_drag(sid, Rect(x0, y - 6, view_w, 54), false, row_w, view_w);
+        float cx = x0 - scroll_follow(sid, fx0, fx1, view_w, row_w, 80, chip_focused);
+        gfx::push_clip(Rect(x0 - 12, y - 12, W - x0 + 12, 66));  // not under the rail
+        if (chip(discover, Rect(cx, y, cw[0], 42), tr("Discover"), true, top, ic::EXPLORE))
+            app::push(std::make_unique<DiscoverScreen>());
+        cx += cw[0] + 12;
         for (size_t i = 0; i < tps.size(); i++) {
             const char* name = tr(tps[i].name);
-            float w = text::measure(font::small_bold, name) + 58;
+            float w = cw[i + 1];
             if (chip(id(top, (int64_t)i), Rect(cx, y, w, 42), name, false, top, tps[i].icon)) {
                 std::string q = tps[i].query;
                 app::push(std::make_unique<VideoGridScreen>(name, tr("Popular this week"), [q](const std::string& c) {
@@ -200,6 +399,7 @@ public:
             }
             cx += w + 12;
         }
+        gfx::pop_clip();
         y += 70;
         if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
@@ -243,10 +443,10 @@ public:
             hint_bar({{"A", tr("Select")}});
             return;
         }
-        if (personal_) y += video_shelf(id(g, "foryou"), x0, y, tr("For you"), foryou_) + 12;
+        if (personal_) y += video_shelf(id(g, "foryou"), x0, y, tr("For you"), foryou_, page_) + 12;
 
         if (!subs_.res.items.empty() || subs_.loading) {
-            y += video_shelf(id(g, "subs"), x0, y, tr("From your subscriptions"), subs_) + 12;
+            y += video_shelf(id(g, "subs"), x0, y, tr("From your subscriptions"), subs_, page_) + 12;
             ShelfSpec s;
             s.title = tr("Channels");
             s.count = (int)chans_.size();
@@ -275,12 +475,12 @@ public:
             y += shelf(id(g, "later"), x0, y, s, &page_) + 12;
         }
 
-        y += video_shelf(id(g, "trending"), x0, y, tr("Popular this week"), trending_) + 12;
+        y += video_shelf(id(g, "trending"), x0, y, tr("Popular this week"), trending_, page_) + 12;
 
         for (size_t i = 0; i < topic_feeds_.size(); i++) {
             Feed& f = *topic_feeds_[i];
             if (y < H + 300) f.load();  // lazy: only when about to scroll into view
-            y += video_shelf(id(g, (int64_t)(100 + i)), x0, y, tr(tps[i].name), f) + 12;
+            y += video_shelf(id(g, (int64_t)(100 + i)), x0, y, tr(tps[i].name), f, page_) + 12;
         }
         page_.end(y + page_.scroll());
         hint_bar({{"A", tr("Play")}, {"X", tr("More")}, {"Y", tr("Not interested")}});
@@ -305,49 +505,6 @@ private:
         foryou_version_ = yt_recs::version();
         account_version_ = yt_account::version();
         if (personal_) foryou_.reload();
-    }
-
-    float video_shelf(Id sid, float x, float y, const char* title, Feed& f) {
-        if (f.loaded && f.res.items.empty()) {
-            if (!f.res.error.empty()) {
-                text::draw(font::title, x, y, title, theme().text);
-                text::draw(font::body, x, y + 46, util::fmt(tr("Couldn't load: %s"), f.res.error.c_str()), theme().text3);
-                return 90;
-            }
-            return 0;
-        }
-        ShelfSpec s;
-        s.title = title;
-        s.count = (int)f.res.items.size();
-        s.loading = f.loading || !f.loaded;
-        s.item_w = 300;
-        s.item = [&f](int i) { return yt::video_card(f.res.items[i]); };
-        s.on_click = [&f](int i) { yt::play(f.res.items[i]); };
-        s.on_focus = [&f](int i) {
-            set_backdrop(youtube::thumbnail_hq(f.res.items[i].id));
-            if (i >= (int)f.res.items.size() - 4) f.more();
-        };
-        s.on_x = [&f](int i) {
-            yt::MenuOptions o;
-            std::string vid = f.res.items[i].id;
-            o.removed = [&f, vid] { f.remove(vid); };
-            yt::video_menu(f.res.items[i], o);
-        };
-        s.on_y = [&f](int i) {
-            yt_recs::not_interested(f.res.items[i]);
-            f.res.items.erase(f.res.items.begin() + i);
-            toast(tr("Got it, you'll see less like this"), ic::CHECK_CIRCLE);
-        };
-        return shelf(sid, x, y, s, &page_);
-    }
-
-    void open_search() {
-        prompt_text(tr("Search YouTube"), "", tr("Search YouTube"), [](std::string q) {
-            if (q.empty()) return;
-            store::add_recent_search("youtube", q);
-            yt_recs::on_search(q);
-            app::push(search_results(q));
-        });
     }
 
     static std::string subs_key() {

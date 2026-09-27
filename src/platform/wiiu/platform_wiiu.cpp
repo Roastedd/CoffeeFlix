@@ -4,6 +4,9 @@
 #include <coreinit/dynload.h>
 #include <coreinit/energysaver.h>
 #include <coreinit/memory.h>
+#include <coreinit/core.h>
+#include <coreinit/thread.h>
+#include <coreinit/time.h>
 #include <coreinit/userconfig.h>
 #include <nn/ac.h>
 #include <nn/nets2/somemopt.h>
@@ -47,6 +50,7 @@ uint8_t g_rumble_pattern[15];
 TextInputState g_text_state = TEXT_IDLE;
 std::string g_text;
 bool g_collecting = false;
+int g_main_priority = 16;
 
 // Socket receive buffers come from a pool that is small by default, which holds each
 // connection to about 64 KB per round trip (100-200 KB/s from YouTube). somemopt() donates
@@ -178,6 +182,8 @@ uint32_t map_wiimote(uint32_t h) {
 }  // namespace
 
 bool init() {
+    g_main_priority = OSGetThreadPriority(OSGetCurrentThread());
+    log_message(LOG_OK, "Platform", "Main thread: priority %d on core %u", g_main_priority, OSGetCoreId());
     nn::ac::ConfigIdNum config_id;
     nn::ac::Initialize();
     nn::ac::GetStartupId(&config_id);
@@ -276,38 +282,68 @@ bool release_app_bundle() {
     return rc == 0;
 }
 
+// The last reading of each controller. A read can find no new sample since the one before (the
+// controllers report on their own clock, not the screen's); then the last one still holds.
+// Treating it as nothing held would let go of every button and the touch for a frame, and the
+// next frame would press them again: a second A press, or a second tap.
+VPADStatus g_vpad{};
+bool g_vpad_ok = false;
+KPADStatus g_kpad[4]{};
+bool g_kpad_ok[4] = {};
+
 void poll(RawInput& raw) {
     raw = RawInput();
     const bool keyboard_open = g_text_state == TEXT_ACTIVE;
 
-    VPADStatus vpad{};
+    VPADStatus fresh{};
     VPADReadError verr;
-    if (VPADRead(VPAD_CHAN_0, &vpad, 1, &verr) > 0 && verr == VPAD_READ_SUCCESS) {
+    if (VPADRead(VPAD_CHAN_0, &fresh, 1, &verr) > 0 && verr == VPAD_READ_SUCCESS) {
+        g_vpad = fresh;
+        g_vpad_ok = true;
         if (keyboard_open) {
-            VPADStatus kb = vpad;
-            VPADGetTPCalibratedPoint(VPAD_CHAN_0, &kb.tpNormal, &vpad.tpNormal);
+            VPADStatus kb = fresh;
+            VPADGetTPCalibratedPoint(VPAD_CHAN_0, &kb.tpNormal, &fresh.tpNormal);
             SDL_WiiUSetSWKBDVPAD(&kb);
         }
+    } else if (verr != VPAD_READ_NO_SAMPLES) {
+        g_vpad_ok = false;
+    }
+    if (g_vpad_ok) {
+        VPADStatus& vpad = g_vpad;
         raw.held |= map_vpad(vpad.hold);
         raw.lx = axis(vpad.leftStick.x);
         raw.ly = axis(vpad.leftStick.y);
         raw.rx = axis(vpad.rightStick.x);
         raw.ry = axis(vpad.rightStick.y);
 
+        // Near the screen's edges a touch can come with an unusable x or y for a moment: it's
+        // still the same touch, where it last was.
+        static float last_tx = 0, last_ty = 0;
+        static bool was_touched = false;
         VPADTouchData tp{};
         VPADGetTPCalibratedPoint(VPAD_CHAN_0, &tp, &vpad.tpNormal);
-        if (tp.touched && tp.validity == VPAD_VALID) {
+        if (tp.touched && (tp.validity == VPAD_VALID || was_touched)) {
             raw.touch = true;
-            raw.tx = tp.x;  // calibrated to 1280x720
-            raw.ty = tp.y;
+            if (!(tp.validity & VPAD_INVALID_X)) last_tx = tp.x;  // calibrated to 1280x720
+            if (!(tp.validity & VPAD_INVALID_Y)) last_ty = tp.y;
+            raw.tx = last_tx;
+            raw.ty = last_ty;
         }
+        was_touched = raw.touch;
     }
 
     for (int ch = 0; ch < 4; ch++) {
-        KPADStatus k{};
+        KPADStatus fresh_k{};
         KPADError kerr;
-        if (KPADReadEx((KPADChan)ch, &k, 1, &kerr) == 0 || kerr != KPAD_ERROR_OK) continue;
-        if (keyboard_open) SDL_WiiUSetSWKBDKPAD(ch, &k);
+        if (KPADReadEx((KPADChan)ch, &fresh_k, 1, &kerr) > 0 && kerr == KPAD_ERROR_OK) {
+            g_kpad[ch] = fresh_k;
+            g_kpad_ok[ch] = true;
+            if (keyboard_open) SDL_WiiUSetSWKBDKPAD(ch, &fresh_k);
+        } else if (kerr != KPAD_ERROR_NO_SAMPLES) {
+            g_kpad_ok[ch] = false;
+        }
+        if (!g_kpad_ok[ch]) continue;
+        const KPADStatus& k = g_kpad[ch];
         switch (k.extensionType) {
             case WPAD_EXT_PRO_CONTROLLER:
                 raw.held |= map_pro(k.pro.hold);
@@ -416,12 +452,17 @@ void tune_socket(int fd) {
     if (g_pool_ready) set(SO_RUSRBUF, 1);  // before SO_RCVBUF, which then draws from the pool
     set(SO_RCVBUF, SOCKET_RCVBUF);
 
-    static std::atomic<bool> logged{false};
-    if (!logged.exchange(true)) {
-        int got = 0;
-        socklen_t len = sizeof(got);
-        getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &got, &len);
-        log_message(LOG_OK, "Platform", "Socket receive buffer %d KB (memory pool %d KB)", got / 1024, g_pool_bytes / 1024);
+    // Logged for the first socket, and again whenever one gets less than any before (the pool
+    // used up by the sockets open at the time: slower downloads).
+    static std::atomic<int> least{-1};
+    int got = 0;
+    socklen_t len = sizeof(got);
+    getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &got, &len);
+    const int was = least.load();
+    if (was < 0 || got < was) {
+        least = got;
+        log_message(was < 0 ? LOG_OK : LOG_WARNING, "Platform", "Socket receive buffer %d KB (memory pool %d KB)",
+                    got / 1024, g_pool_bytes / 1024);
     }
 }
 
@@ -465,6 +506,41 @@ void text_input_cancel() {
 }
 
 void text_input_reset() { g_text_state = TEXT_IDLE; }
+
+void* current_thread() { return OSGetCurrentThread(); }
+
+// The scheduler's count of the ticks the thread ran on each core, up to when it last stopped
+// running (OSThread::coreTimeConsumedNs barely moves: a log showed 0-4% for everything).
+uint64_t thread_cpu_ns(void* thread) {
+    if (!thread) return 0;
+    const OSContext& c = ((OSThread*)thread)->context;
+    return OSTicksToNanoseconds(c.coretime[0] + c.coretime[1] + c.coretime[2]);
+}
+
+std::string thread_clock_debug(void* thread) {
+    if (!thread) return "";
+    const OSThread* t = (const OSThread*)thread;
+    const OSContext& c = t->context;
+    return util::fmt("core %u [%llu %llu %llu] start %llu consumed %llu wakes %llu quantum %lld prio %d/%d aff %x "
+                     "610 %lld 618 %lld 620 %lld 628 %lld",
+                     c.upir, (unsigned long long)c.coretime[0], (unsigned long long)c.coretime[1],
+                     (unsigned long long)c.coretime[2], (unsigned long long)c.starttime,
+                     (unsigned long long)t->coreTimeConsumedNs, (unsigned long long)t->wakeCount,
+                     (long long)t->runQuantumTicks, t->priority, t->basePriority, (unsigned)t->attr,
+                     (long long)t->unk0x610, (long long)t->unk0x618, (long long)t->unk0x620, (long long)t->unk0x628);
+}
+
+std::string clock_debug() {
+    return util::fmt("time %lld, system time %lld, %u ticks/s", (long long)OSGetTime(), (long long)OSGetSystemTime(),
+                     (unsigned)OSTimerClockSpeed);
+}
+
+void set_thread_name(const char* name) { OSSetThreadName(OSGetCurrentThread(), name); }
+
+void lower_thread_priority() {
+    // 0 is the highest, 31 the lowest.
+    OSSetThreadPriority(OSGetCurrentThread(), std::min(31, g_main_priority + 4));
+}
 
 bool scripted() { return false; }
 float fixed_dt() { return 0; }

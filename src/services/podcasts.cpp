@@ -2,11 +2,14 @@
 
 #include <tinyxml2.h>
 
+#include <algorithm>
+
 #include "core/http.hpp"
 #include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
 #include "core/util.hpp"
+#include "logger/logger.hpp"
 #include "player/player.hpp"
 
 namespace podcasts {
@@ -73,31 +76,91 @@ Shows search(const std::string& query) {
     return out;
 }
 
-Shows top(const std::string& country) {
-    Shows out;
-    http::Response r = http::get(util::env_or("COFFEEFLIX_CHARTS_API", "https://rss.applemarketingtools.com") + "/api/v2/" +
-                                 country + "/podcasts/top/40/podcasts.json", {}, 15);
+namespace {
+
+// Apple's lookups, once more after a timeout or a server error.
+http::Response get_apple(const std::string& url) {
+    http::Response r = http::get(url, {}, 12);
+    if (!r.ok() && (r.status == 0 || r.status >= 500)) r = http::get(url, {}, 12);
+    return r;
+}
+
+// The chart's show IDs, comma-separated ("": it didn't load, `error` says why). iTunes' own chart
+// first: it's on the server the lookup goes to next (one connection on the Wii U), and it answered
+// at once while the newer one hung (a 504 now and then, or nothing for 20 s: for a country's top
+// 40 one minute and its top 25 the next, September 2026). Both list the same shows.
+std::string chart_ids(const std::string& country, std::string& error) {
+    std::string ids;
+    auto add = [&](const std::string& id) {
+        if (id.empty()) return;
+        if (!ids.empty()) ids += ",";
+        ids += id;
+    };
+    http::Response r = http::get(util::env_or("COFFEEFLIX_ITUNES_API", "https://itunes.apple.com") + "/" + country +
+                                 "/rss/toppodcasts/limit=40/json", {}, 10);
+    if (r.ok()) {
+        json::Doc doc = json::Doc::parse(r.body);
+        json_t* entries = json::at(doc.get(), {"feed", "entry"});
+        if (json_is_object(entries)) add(json::str(entries, {"id", "attributes", "im:id"}));  // a chart of one
+        for (size_t i = 0; i < json::size(entries); i++)
+            add(json::str(json_array_get(entries, i), {"id", "attributes", "im:id"}));
+    }
+    if (!ids.empty()) return ids;
+    log_message(LOG_WARNING, "Podcasts", "iTunes' chart for %s: %s", country.c_str(),
+                r.ok() ? "no shows" : r.error.c_str());
+    // rss.applemarketingtools.com redirects here: a second connection on the Wii U.
+    r = http::get(util::env_or("COFFEEFLIX_CHARTS_API", "https://rss.marketingtools.apple.com") + "/api/v2/" + country +
+                  "/podcasts/top/40/podcasts.json", {}, 10);
     if (!r.ok()) {
-        out.error = r.error;
-        return out;
+        error = r.error;
+        return "";
     }
     json::Doc doc = json::Doc::parse(r.body);
     json_t* results = json::at(doc.get(), {"feed", "results"});
-    std::string ids;
-    for (size_t i = 0; i < json::size(results); i++) {
-        if (!ids.empty()) ids += ",";
-        ids += json::str(json_array_get(results, i), {"id"});
+    for (size_t i = 0; i < json::size(results); i++) add(json::str(json_array_get(results, i), {"id"}));
+    if (ids.empty()) error = tr("No podcasts found");
+    return ids;
+}
+
+// The last chart that loaded, shown when Apple's doesn't.
+constexpr const char* TOP_KEPT = "podcast_top";
+
+void keep_top(const std::string& country, const std::vector<Show>& shows) {
+    std::vector<store::Fav> list;
+    for (const Show& s : shows) list.push_back({s.feed_url, s.title, s.author, s.artwork, s.genre});
+    const std::vector<store::Fav> was = store::favs(TOP_KEPT);
+    const bool same = was.size() == list.size() && std::equal(was.begin(), was.end(), list.begin(), [](auto& a, auto& b) {
+        return a.id == b.id && a.title == b.title && a.subtitle == b.subtitle && a.image == b.image && a.extra == b.extra;
+    });
+    if (same && store::get_str("podcast_top_country") == country) return;  // no write to the SD card
+    store::fav_replace(TOP_KEPT, list);
+    store::set_str("podcast_top_country", country);
+}
+
+// `out` with the kept chart for `country` instead of an error, when there is one.
+Shows kept_top(const std::string& country, Shows out) {
+    if (store::get_str("podcast_top_country") != country) return out;
+    for (const store::Fav& f : store::favs(TOP_KEPT)) out.items.push_back({f.title, f.subtitle, f.image, f.id, f.extra});
+    if (!out.items.empty()) {
+        out.ok = true;
+        out.error.clear();
     }
-    if (ids.empty()) {
-        out.error = tr("No podcasts found");
-        return out;
-    }
-    // The chart doesn't include feed URLs: look them up in one batch.
-    http::Response lr = http::get(util::env_or("COFFEEFLIX_ITUNES_API", "https://itunes.apple.com") +
-                                  "/lookup?entity=podcast&id=" + ids, {}, 15);
+    return out;
+}
+
+}  // namespace
+
+Shows top(const std::string& country) {
+    Shows out;
+    const std::string ids = chart_ids(country, out.error);
+    if (ids.empty()) return kept_top(country, out);
+    // The chart doesn't include feed URLs: look them up in one batch, in the chart's store (the US
+    // one, the default, doesn't have some of another country's shows).
+    http::Response lr = get_apple(util::env_or("COFFEEFLIX_ITUNES_API", "https://itunes.apple.com") +
+                                  "/lookup?entity=podcast&country=" + country + "&id=" + ids);
     if (!lr.ok()) {
         out.error = lr.error;
-        return out;
+        return kept_top(country, out);
     }
     json::Doc ld = json::Doc::parse(lr.body);
     json_t* res = json_object_get(ld.get(), "results");
@@ -106,6 +169,7 @@ Shows top(const std::string& country) {
         if (!s.feed_url.empty()) out.items.push_back(std::move(s));
     }
     out.ok = true;
+    if (!out.items.empty()) keep_top(country, out.items);
     return out;
 }
 
@@ -187,6 +251,7 @@ player::Source make_source(const Show& show, const Episode& ep) {
     s.artwork = ep.image.empty() ? upsize_artwork(show.artwork) : ep.image;
     s.service = "podcast";
     s.id = ep.guid;
+    s.chunked_http = true;  // the redirects through the trackers once, not for every read (http_io.hpp)
     s.extra = show.feed_url + "\x1f" + ep.url;  // lets "Continue listening" resume directly
     s.start = store::resume_position("podcast", ep.guid);
     return s;
@@ -202,6 +267,7 @@ player::Source source_from_resume(const std::string& guid, const std::string& ti
     s.artwork = image;
     s.service = "podcast";
     s.id = guid;
+    s.chunked_http = true;
     s.extra = extra;
     s.start = store::resume_position("podcast", guid);
     return s;

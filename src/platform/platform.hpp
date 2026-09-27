@@ -80,6 +80,23 @@ void video_frame_cpu_read(const AVFrame* f);
 // (Wii U: mbedtls, desktop: OpenSSL).
 bool verify_signature(const std::string& public_key_pem, const uint8_t digest[32], const std::vector<uint8_t>& sig);
 
+// For the developer log's CPU use by thread. current_thread() stands for the calling thread;
+// thread_cpu_ns tells how much CPU time it has used so far (0 where unknown), and may be asked
+// from any thread while it lives. set_thread_name names the calling thread for the system's own
+// tools; the name must stay valid (a string literal).
+void* current_thread();
+uint64_t thread_cpu_ns(void* thread);
+void set_thread_name(const char* name);
+// Wii U, developer log: the scheduler's raw counters for a thread and the clocks, to check what
+// thread_cpu_ns reads against. Empty elsewhere.
+std::string thread_clock_debug(void* thread);
+std::string clock_debug();
+
+// For threads doing background work (thumbnails, parsing, writing the log): on the Wii U they
+// get a lower priority than the main thread's, so they only take its core while it waits for
+// the screen. Playback's threads keep the normal one. Nothing on a desktop, with cores to spare.
+void lower_thread_priority();
+
 // Rumble the GamePad briefly (no-op elsewhere).
 void rumble(float seconds);
 

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "app/updater.hpp"
 #include "audio/mixer.hpp"
 #include "core/i18n.hpp"
 #include "core/store.hpp"
@@ -32,9 +33,9 @@ void draw_time_row(float x, float y, float w, double pos, double dur, bool live)
     if (dur > 0) text::draw(font::small_bold, x + w, y, "-" + util::format_duration(std::max(0.0, dur - pos)), t.text2, text::RIGHT);
 }
 
-// Picker for the audio track, subtitles or stream quality, shown as a side panel.
+// Picker for the audio track, subtitles, stream quality or playback speed, shown as a side panel.
 struct TrackMenu {
-    enum Kind { AUDIO, SUBTITLES, QUALITY };
+    enum Kind { AUDIO, SUBTITLES, QUALITY, SPEED };
     bool open = false;
     Kind kind = AUDIO;
     std::vector<player::Track> tracks;
@@ -48,9 +49,21 @@ struct TrackMenu {
         tracks.clear();
         if (k == QUALITY) {
             const player::Source& src = player::source();
+            // Auto first, with what it picked: 0 as the value, as in the setting.
+            if (src.auto_quality) {
+                std::string label = tr("Auto");
+                int h = player::video_height();
+                if (src.quality == 0 && h > 0)
+                    label += util::fmt(" (%dp%s)", h, player::video_fps() > 31 ? "60" : "");
+                tracks.push_back(player::Track{0, label});
+            }
             for (auto it = src.qualities.rbegin(); it != src.qualities.rend(); ++it)
-                tracks.push_back(player::Track{*it, util::fmt("%dp", *it)});
+                tracks.push_back(player::Track{*it, player::quality_label(*it, src.hfr)});
             current = src.quality;
+        } else if (k == SPEED) {  // in hundredths
+            for (int v : {50, 75, 100, 125, 150, 175, 200})
+                tracks.push_back(player::Track{v, v == 100 ? tr("Normal") : util::fmt("%g\xC3\x97", v / 100.0)});
+            current = (int)std::lround(player::speed() * 100);
         } else {
             bool subs = k == SUBTITLES;
             tracks = subs ? player::subtitle_tracks() : player::audio_tracks();
@@ -76,8 +89,11 @@ struct TrackMenu {
         float pw = 400, x = W - pw * a;
         gfx::fill_rect_hgrad(Rect(x - 80, 0, 80, H), Color(8, 6, 12, 0), Color(8, 6, 12, 230));
         gfx::fill_rect(Rect(x, 0, pw, H), Color(12, 10, 16, 238));
-        text::draw(font::title, x + 36, 60, kind == SUBTITLES ? tr("Subtitles") : kind == QUALITY ? tr("Quality") : tr("Audio"),
-                   t.text);
+        const char* title = kind == SUBTITLES ? tr("Subtitles")
+                            : kind == QUALITY ? tr("Quality")
+                            : kind == SPEED   ? tr("Playback speed")
+                                              : tr("Audio");
+        text::draw(font::title, x + 36, 60, title, t.text);
         Id g = id("trackmenu");
         const float top = 120, row = 64, view = H - 30 - top;
         float max_scroll = std::max(0.0f, tracks.size() * row - 6 - view);
@@ -105,6 +121,8 @@ struct TrackMenu {
                     player::set_subtitle_track(tracks[i].index);
                 } else if (kind == AUDIO) {
                     player::set_audio_track(tracks[i].index);
+                } else if (kind == SPEED) {
+                    player::set_speed(tracks[i].index / 100.0f);
                 } else {
                     // Kept as the default for this service too (the same setting as in Settings).
                     const player::Source& src = player::source();
@@ -118,7 +136,9 @@ struct TrackMenu {
         }
         gfx::pop_clip();
         pop_layer();
-        if (input().pressed_(BTN_B)) {
+        bool tap_outside = in.tap && in.tx < x;  // tapping the video closes the panel
+        if (tap_outside) in.tap = false;
+        if (input().pressed_(BTN_B) || tap_outside) {
             input().eat(BTN_B);
             open = false;
             reset_focus();
@@ -141,6 +161,10 @@ public:
 
     bool on_back() override {
         if (menu_.open) return true;
+        if (comments_open_) {
+            if (!comments_.back()) close_comments();
+            return true;
+        }
         return false;  // app pops us; destructor closes the player
     }
 
@@ -149,74 +173,211 @@ public:
         const Theme& t = theme();
         player::State st = player::state();
 
+        // With the comments open, the video "zooms out" to the top left, like YouTube's watch page.
+        float ce = tween(id("vp_comments"), comments_open_ ? 1.0f : 0.0f, 9.0f);
+        if (ce < 0.002f) ce = 0;
+        SDL_Rect fr = player::fit_rect((int)W, (int)H);
+        Rect vfull((float)fr.x, (float)fr.y, (float)fr.w, (float)fr.h);
+        if (fr.w <= 0 || fr.h <= 0) vfull = Rect(0, 0, W, H);
+        Rect area(36, 36, SMALL_W, SMALL_W * 9 / 16);
+        float aspect = vfull.w / vfull.h;
+        Rect vsmall = aspect > area.w / area.h ? Rect(area.x, area.cy() - area.w / aspect * 0.5f, area.w, area.w / aspect)
+                                               : Rect(area.cx() - area.h * aspect * 0.5f, area.y, area.h * aspect, area.h);
+        vr_ = Rect(anim::lerp(vfull.x, vsmall.x, ce), anim::lerp(vfull.y, vsmall.y, ce), anim::lerp(vfull.w, vsmall.w, ce),
+                   anim::lerp(vfull.h, vsmall.h, ce));
+
         gfx::fill_rect(Rect(0, 0, W, H), gfx::BLACK);
+        if (ce > 0) {
+            gfx::fill_rect_vgrad(Rect(0, 0, W, H), t.bg_top.alpha(ce), t.bg_bottom.alpha(ce));
+            gfx::fill_rrect(Rect(area.x, area.y, area.w, area.h), 14 * ce, Color(0, 0, 0, (uint8_t)(255 * ce)));
+        }
         if (SDL_Texture* tex = player::video_texture()) {
-            SDL_Rect fr = player::fit_rect((int)W, (int)H);
-            gfx::image(tex, Rect((float)fr.x, (float)fr.y, (float)fr.w, (float)fr.h));
+            gfx::image(tex, vr_, gfx::WHITE, 14 * ce);
         } else if (st == player::OPENING || st == player::BUFFERING) {
             // Artwork placeholder while the first frame loads.
             std::string art = player::source().artwork;
             if (const images::Image* img = images::get(art, 0, 0, images::BLUR); img && img->ready)
-                gfx::image_cover(img->tex, img->w, img->h, Rect(0, 0, W, H), 0, Color(255, 255, 255, 120));
+                gfx::image_cover(img->tex, img->w, img->h, ce > 0 ? area : Rect(0, 0, W, H), 14 * ce, Color(255, 255, 255, 120));
         }
 
         // Subtitles
         std::string sub = player::subtitle_text();
         if (!sub.empty()) {
-            float base = overlay_a_ > 0.5f ? H - 190 : H - 70;
-            auto lines = text::wrap(font::title, sub, W * 0.8f, 3);
-            float lh = text::line_height(font::title) * 1.1f;
+            text::Font sf = ce > 0.5f ? font::body_bold : font::title;
+            float base = ce > 0.5f ? vr_.b() - 14 : overlay_a_ > 0.5f ? H - 190 : H - 70;
+            auto lines = text::wrap(sf, sub, vr_.w * 0.8f, 3);
+            float lh = text::line_height(sf) * 1.1f;
             float y = base - lines.size() * lh;
             for (auto& l : lines) {
-                float lw = text::measure(font::title, l);
-                gfx::fill_rrect(Rect(W * 0.5f - lw * 0.5f - 12, y - 2, lw + 24, lh), 8, Color(0, 0, 0, 150));
-                text::draw(font::title, W * 0.5f, y, l, gfx::WHITE, text::CENTER);
+                float lw = text::measure(sf, l);
+                gfx::fill_rrect(Rect(vr_.cx() - lw * 0.5f - 12, y - 2, lw + 24, lh), 8, Color(0, 0, 0, 150));
+                text::draw(sf, vr_.cx(), y, l, gfx::WHITE, text::CENTER);
                 y += lh;
             }
         }
 
         bool menu_open = menu_.frame();
         if (!menu_open) handle_input(in, st);
+        if (ce > 0) {
+            draw_watch_info(st, ce);
+            comments_.frame(Rect(W - PANEL_W * ce, 0, PANEL_W, H), ce);
+        }
 
-        bool force = st != player::PLAYING || focused_bar_;
-        float target = (force || in.idle_time < 3.5 || ui::time() - shown_at_ < 3.5) ? 1.0f : 0.0f;
+        // The controls hide after a few seconds without input, wherever the focus is. They stay
+        // up while paused (unless tapped away), while scrubbing, and on the error/finished card.
+        if (hud_ && ui::time() - shown_at_ > HUD_SECONDS) hud_ = false;
+        bool force = st == player::FAILED || st == player::ENDED || scrubbing_ || (st == player::PAUSED && !user_hid_);
+        float target = force || hud_ ? 1.0f : 0.0f;
         if (menu_open) target = 0.4f;
+        if (comments_open_) target = 0;
+        hud_up_ = target > 0.5f;
         overlay_a_ = tween(id("vp_overlay"), target, 9.0f);
         draw_overlay(st);
+        if (!menu_open) touch_video(in);
 
         // Seek ripple (YouTube-style) when seeking with the overlay hidden.
         float ra = 1.0f - (float)(ui::time() - ripple_t_) / 0.7f;
+        float vs = vr_.w / W;  // the ripple and pulse shrink with the video
         if (ra > 0) {
-            float cx = ripple_dir_ > 0 ? W * 0.82f : W * 0.18f;
-            float grow = anim::ease_out_cubic(1 - ra);
-            gfx::glow(Rect(cx - 220 - grow * 60, H * 0.5f - 220 - grow * 60, 440 + grow * 120, 440 + grow * 120),
-                      Color(255, 255, 255, (uint8_t)(50 * ra)));
+            float cx = vr_.x + vr_.w * (ripple_dir_ > 0 ? 0.82f : 0.18f), cy = vr_.cy();
+            float grow = anim::ease_out_cubic(1 - ra), gr = (220 + grow * 60) * vs;
+            gfx::push_clip(vr_);
+            gfx::glow(Rect(cx - gr, cy - gr, gr * 2, gr * 2), Color(255, 255, 255, (uint8_t)(50 * ra)));
+            gfx::pop_clip();
             gfx::push_alpha(std::min(1.0f, ra * 2));
-            text::icon(ripple_dir_ > 0 ? ic::FAST_FORWARD : ic::FAST_REWIND, 56, cx, H * 0.5f - 16, gfx::WHITE);
-            text::draw(font::body_bold, cx, H * 0.5f + 22, util::fmt(tr("%+d seconds"), ripple_amount_), gfx::WHITE, text::CENTER);
+            text::icon(ripple_dir_ > 0 ? ic::FAST_FORWARD : ic::FAST_REWIND, 56 * std::max(vs, 0.7f), cx, cy - 16, gfx::WHITE);
+            text::draw(font::body_bold, cx, cy + 22, util::fmt(tr("%+d seconds"), ripple_amount_), gfx::WHITE, text::CENTER);
             gfx::pop_alpha();
         }
 
         // Play/pause pulse
         float pa = 1.0f - (float)(ui::time() - pulse_t_) / 0.6f;
         if (pa > 0) {
-            float s = 1 + (1 - pa) * 0.5f;
+            float s = (1 + (1 - pa) * 0.5f) * std::max(vs, 0.7f);
             gfx::push_alpha(pa);
-            gfx::fill_circle(W * 0.5f, H * 0.5f, 56 * s, Color(0, 0, 0, 110));
-            text::icon(pulse_play_ ? ic::PLAY : ic::PAUSE, 64 * s, W * 0.5f, H * 0.5f, gfx::WHITE);
+            gfx::fill_circle(vr_.cx(), vr_.cy(), 56 * s, Color(0, 0, 0, 110));
+            text::icon(pulse_play_ ? ic::PLAY : ic::PAUSE, 64 * s, vr_.cx(), vr_.cy(), gfx::WHITE);
             gfx::pop_alpha();
         }
 
         if (st == player::OPENING || st == player::BUFFERING) {
-            spinner(W * 0.5f, H * 0.5f, 34, t.accent, 5);
+            const float r = 34 * std::max(vs, 0.7f);
+            spinner(vr_.cx(), vr_.cy(), r, t.accent, 5);
+            // A wait of more than a moment (after the picture ran out it can be a long one, for the
+            // rest to play through): how far along it is.
+            const double at = util::now_seconds();
+            if (st != player::BUFFERING) waiting_since_ = -1;
+            else if (waiting_since_ < 0) waiting_since_ = at;
+            else if (at - waiting_since_ > 2) {
+                std::string pct = util::fmt("%d%%", (int)(player::buffering_progress() * 100));
+                float y = vr_.cy() + r + 18;
+                gfx::fill_rrect(Rect(vr_.cx() - 34, y - 5, 68, 32), 16, Color(0, 0, 0, 120));
+                text::draw(font::small_bold, vr_.cx(), y, pct, gfx::WHITE, text::CENTER);
+            }
+        } else {
+            waiting_since_ = -1;
         }
+        if (updater::developer()) draw_stats(st, ce);
     }
 
 private:
-    void show_overlay() { shown_at_ = ui::time(); }
+    static constexpr double HUD_SECONDS = 3.5;
+    double waiting_since_ = -1;  // when it began buffering (-1: it isn't)
+
+    // Developers: what the network and the decoder are doing, under the codec badge with the
+    // controls (not over a menu) and while it loads. Not translated.
+    void draw_stats(player::State st, float ce) {
+        const bool loading = st == player::OPENING || st == player::BUFFERING;
+        const float a = tween(id("vp_stats"), menu_.open ? 0.0f : loading ? 1.0f : overlay_a_, 9.0f) * (1 - ce);
+        player::Stats p;
+        if (a <= 0.01f || !player::stats(p)) return;
+        const Theme& t = theme();
+        struct Line {
+            const char* label;
+            std::string value;
+            bool warn;
+        };
+        auto kbs = [](float v) { return v > 0 ? util::fmt("%.0f KB/s", v) : std::string("-"); };
+        std::vector<Line> lines = {
+            {"Download", kbs(p.download) + (p.average > 0 ? util::fmt(" (avg %.0f)", p.average) : ""),
+             p.stream > 0 && p.average > 0 && p.average < p.stream},
+            {"Stream needs", kbs(p.stream), false},
+            {"Video in", util::fmt("%.1f s", p.video_ahead), p.video_ahead < 3},
+            {"Sound in", util::fmt("%.1f s", p.audio_ahead), p.audio_ahead < 2},
+            {"Downloads", util::fmt("%d at once, %d requests", p.connections, p.requests), false},
+            {"Redone", util::fmt("%d quiet, %d failed, %d reconnects", p.gone_quiet, p.failed, p.new_connections),
+             p.failed > 0},
+            {"Waited", util::fmt("%d times, %.1f s", p.waits, p.waited), p.waits > 0},
+            {"Shown", util::fmt("%.0f fps, %d left out, %d dropped, %d late", p.shown_fps, p.left_out, p.dropped, p.late),
+             p.dropped + p.late > 5},
+            {"Decoding", p.decode_ms > 0 ? util::fmt("%.1f ms a picture", p.decode_ms) : std::string("-"), false},
+        };
+        const float lh = 22, w = 400, x = W - 64 - w, y0 = 90;
+        gfx::push_alpha(a);
+        gfx::fill_rrect(Rect(x, y0, w, lines.size() * lh + 20), 12, Color(0, 0, 0, 170));
+        float y = y0 + 10;
+        for (const Line& l : lines) {
+            text::draw(font::caption, x + 14, y + 2, l.label, t.text3);
+            text::draw_fit(font::caption, x + 118, y + 2, w - 132, l.value, l.warn ? t.warn : t.text);
+            y += lh;
+        }
+        gfx::pop_alpha();
+    }
+
+    void show_overlay() {
+        shown_at_ = ui::time();
+        hud_ = true;
+        user_hid_ = false;
+    }
+
+    void hide_overlay() {
+        hud_ = false;
+        user_hid_ = true;
+    }
+
+    // Taps on the video itself (not on a control): a tap shows or hides the controls, and a
+    // double tap on the left or right side skips back or ahead 10 seconds, like YouTube's app.
+    void touch_video(Input& in) {
+        double now = ui::time();
+        if (comments_open_) {
+            // Tapping the small video brings it back to full screen.
+            bool on_video = in.tap && vr_.contains(in.tx, in.ty);
+            in.tap = false;
+            if (on_video) close_comments();
+            return;
+        }
+        if (in.tap) {
+            in.tap = false;
+            int side = in.tx < W * 0.35f ? -1 : in.tx > W * 0.65f ? 1 : 0;
+            bool can_skip = player::seekable() && !player::live();
+            if (side && can_skip && side == tap_side_ && now - tap_t_ < 0.4) {
+                seek_by(side * 10);
+                pending_tap_ = false;
+                tap_t_ = now;  // a third tap adds another 10
+                return;
+            }
+            tap_side_ = side;
+            tap_t_ = now;
+            // On the sides, wait a moment to see if it's a double tap before toggling.
+            if (side && can_skip) pending_tap_ = true;
+            else toggle_overlay();
+        }
+        if (pending_tap_ && now - tap_t_ >= 0.3) {
+            pending_tap_ = false;
+            if (!in.touching) toggle_overlay();
+        }
+        // A finger working the controls keeps them up.
+        if (in.touching && hud_up_) shown_at_ = now;
+    }
+
+    void toggle_overlay() {
+        if (hud_up_) hide_overlay();
+        else show_overlay();
+    }
 
     void handle_input(Input& in, player::State st) {
-        if (in.any()) show_overlay();
+        bool stick = std::fabs(in.lx) > 0.3f || std::fabs(in.ly) > 0.3f || std::fabs(in.rx) > 0.3f || std::fabs(in.ry) > 0.3f;
+        if (in.pressed || in.pointer_moved || stick) show_overlay();
         if (st == player::FAILED || st == player::ENDED) return;
         bool overlay_visible = overlay_a_ > 0.6f;
 
@@ -225,6 +386,7 @@ private:
         if (in.pressed_(BTN_ZL) || in.pressed_(BTN_L)) seek_by(-30);
         if (in.pressed_(BTN_Y) && !player::subtitle_tracks().empty()) menu_.show(TrackMenu::SUBTITLES);
         if (in.pressed_(BTN_X) && player::audio_tracks().size() > 1) menu_.show(TrackMenu::AUDIO);
+        if (comments_open_) return;  // the D-pad moves around the comments
 
         if (!overlay_visible) {
             suspend_nav();
@@ -242,6 +404,12 @@ private:
     }
 
     void toggle() {
+        // Not while the video is still loading: a stray press then (like the one that opened it)
+        // would have it start paused, with nothing on screen saying so.
+        if (!player::started()) {
+            show_overlay();
+            return;
+        }
         player::toggle_pause();
         pulse_t_ = ui::time();
         pulse_play_ = player::state() != player::PAUSED;
@@ -259,19 +427,17 @@ private:
     void draw_overlay(player::State st) {
         const Theme& t = theme();
         float a = overlay_a_;
-        if (a <= 0.01f) {
-            focused_bar_ = false;
-            return;
-        }
+        if (a <= 0.01f) return;
         gfx::push_alpha(a);
         float slide = (1 - a) * 30;
 
-        // Top: title
+        // Top: back (for the touch screen) and title
         gfx::fill_rect_vgrad(Rect(0, 0, W, 200), Color(0, 0, 0, 200), Color(0, 0, 0, 0));
         const player::Source& src = player::source();
-        text::draw_fit(font::headline, 64, 40 - slide, W - 360, src.title, t.text);
-        if (!src.subtitle.empty()) text::draw_fit(font::body, 64, 88 - slide, W - 360, src.subtitle, t.text2);
-        std::string codec = player::codec_info();
+        if (icon_button(id(id("vp_top"), "back"), 64, 62 - slide, 24, ic::ARROW_BACK, id("vp_top"))) app::pop();
+        text::draw_fit(font::headline, 108, 40 - slide, W - 400, src.title, t.text);
+        if (!src.subtitle.empty()) text::draw_fit(font::body, 108, 88 - slide, W - 400, src.subtitle, t.text2);
+        std::string codec = player::codec_info(updater::developer());  // the frame rate for the developer
         if (!codec.empty()) {
             float cw = text::measure(font::caption, codec) + 24;
             Rect cr(W - 64 - cw, 50 - slide, cw, 28);
@@ -287,26 +453,30 @@ private:
         Id bar_id = id("vp_bar");
         Rect bar_hit(64, by - 20, W - 128, 40);
         bool live = player::live();
+        bool can_seek = !live && player::seekable() && dur > 0;
+
+        Input& in = input();
+        if (!comments_open_) touch_scrub(Rect(40, by - 46, W - 80, 84), Rect(64, by, W - 128, 0), dur, pos, can_seek && a > 0.6f);
+
         Item bar{};
-        if (!live && player::seekable()) bar = focusable(bar_id, bar_hit, id("vp_controls"), F_SILENT);
-        focused_bar_ = bar.focused;
+        if (can_seek) bar = focusable(bar_id, bar_hit, id("vp_controls"), F_SILENT);
         if (bar.focused) {
-            Input& in = input();
             if (in.rep(BTN_LEFT)) { seek_by(-10); in.eat(BTN_LEFT); }
             if (in.rep(BTN_RIGHT)) { seek_by(10); in.eat(BTN_RIGHT); }
             if (bar.clicked) toggle();
         }
+        float grow = std::max(bar.f, tween(id("vp_scrub"), scrubbing_ ? 1.0f : 0.0f, 18.0f));
         float prog = dur > 0 ? (float)(pos / dur) : 0;
         float buf = dur > 0 ? (float)(player::buffered_until() / dur) : 0;
-        float bh = 6 + 4 * bar.f;
-        if (!live) progress_bar(Rect(64, by - bh * 0.5f, W - 128, bh), prog, buf, true, 1 + bar.f * 0.5f);
-        if (bar.f > 0.05f && dur > 0) {
+        float bh = 6 + 4 * grow;
+        if (!live) progress_bar(Rect(64, by - bh * 0.5f, W - 128, bh), prog, buf, true, 1 + grow * 0.5f);
+        if (grow > 0.05f && dur > 0) {
             // Time bubble above the knob
             float kx = 64 + (W - 128) * prog;
             std::string ts = util::format_duration(pos);
             float tw = text::measure(font::small_bold, ts) + 20;
-            Rect b(kx - tw * 0.5f, by - 52, tw, 30);
-            gfx::push_alpha(bar.f);
+            Rect b(std::clamp(kx - tw * 0.5f, 20.0f, W - 20 - tw), by - 52, tw, 30);
+            gfx::push_alpha(grow);
             gfx::fill_rrect(b, 10, gfx::WHITE);
             text::draw(font::small_bold, b.cx(), b.y + 5, ts, gfx::rgb(0x15121A), text::CENTER);
             gfx::pop_alpha();
@@ -330,6 +500,10 @@ private:
             if (icon_button(id(g, "quality"), rx, cy, 26, ic::HD, g)) menu_.show(TrackMenu::QUALITY);
             rx -= 70;
         }
+        if (!live) {  // lit up while not at normal speed
+            if (icon_button(id(g, "speed"), rx, cy, 26, ic::SPEED, g, 0, player::speed() != 1.0f)) menu_.show(TrackMenu::SPEED);
+            rx -= 70;
+        }
         if (!player::subtitle_tracks().empty()) {
             if (icon_button(id(g, "subs"), rx, cy, 26, ic::SUBTITLES, g, 0, player::subtitle_track() >= 0))
                 menu_.show(TrackMenu::SUBTITLES);
@@ -339,18 +513,111 @@ private:
             if (icon_button(id(g, "audio"), rx, cy, 26, ic::AUDIOTRACK, g)) menu_.show(TrackMenu::AUDIO);
         }
 
-        // YouTube: subscribe to the uploader without leaving the video.
-        if (src.service == "youtube" && !src.channel_id.empty()) {
-            bool on = yt::subscribed(src.channel_id);
-            const char* label = on ? tr("Subscribed") : tr("Subscribe");
-            int icon = on ? ic::CHECK : ic::SUBSCRIPTIONS;
-            if (button(id(g, "subscribe"), Rect(64, cy - 23, std::max(on ? 190.0f : 170.0f, measure_button(label, icon)), 46), label,
-                       icon, on ? BTN_NORMAL : BTN_PRIMARY, g))
-                yt::set_subscribed(src.channel_id, src.subtitle, "", !on);
+        // YouTube: subscribe to the uploader without leaving the video, and the comments.
+        if (src.service == "youtube") {
+            float lx = 64;
+            if (!src.channel_id.empty()) lx += subscribe_button(id(g, "subscribe"), src, lx, cy, g) + 20;
+            if (!live && icon_button(id(g, "comments"), lx + 26, cy, 26, ic::COMMENT, g)) open_comments();
         }
 
         if (st == player::FAILED) draw_message(ic::ERROR_OUTLINE, tr("Playback failed"), player::error().c_str(), true);
         else if (st == player::ENDED) draw_message(ic::REFRESH, tr("Finished"), "", false);
+        gfx::pop_alpha();
+    }
+
+    // Subscribe/Subscribed; returns its width. The lists are looked through about once a
+    // second, not every frame: signed in, they can hold hundreds of channels.
+    float subscribe_button(Id bid, const player::Source& src, float x, float cy, Id g) {
+        if (src.channel_id != sub_channel_ || ui::time() - sub_checked_ > 1) {
+            sub_channel_ = src.channel_id;
+            sub_on_ = yt::subscribed(src.channel_id);
+            sub_checked_ = ui::time();
+        }
+        bool on = sub_on_;
+        const char* label = on ? tr("Subscribed") : tr("Subscribe");
+        int icon = on ? ic::CHECK : ic::SUBSCRIPTIONS;
+        float w = std::max(on ? 190.0f : 170.0f, measure_button(label, icon));
+        if (button(bid, Rect(x, cy - 23, w, 46), label, icon, on ? BTN_NORMAL : BTN_PRIMARY, g)) {
+            yt::set_subscribed(src.channel_id, src.subtitle, "", !on);
+            sub_checked_ = -1;
+        }
+        return w;
+    }
+
+    // Touch scrubbing on a seek bar: put a finger anywhere on it and slide; the video jumps
+    // there when it's lifted. Meanwhile `pos` is the time under the finger.
+    void touch_scrub(const Rect& touch_area, const Rect& bar, double dur, double& pos, bool enabled) {
+        Input& in = input();
+        if (enabled && in.touch_began && touch_area.contains(in.tx, in.ty)) scrubbing_ = true;
+        if (!scrubbing_) return;
+        scrub_to_ = std::clamp((in.tx - bar.x) / bar.w, 0.0f, 1.0f) * dur;
+        shown_at_ = ui::time();
+        if (!in.touching) {
+            scrubbing_ = false;
+            in.tap = false;  // not a tap on the bar or the video
+            player::seek(scrub_to_);
+            audio::play(audio::SFX_MOVE, 0.6f);
+        } else {
+            pos = scrub_to_;
+        }
+    }
+
+    void open_comments() {
+        comments_open_ = true;
+        comments_video_ = player::source().id;
+        comments_.show(comments_video_);
+        audio::play(audio::SFX_OPEN, 0.6f);
+    }
+
+    void close_comments() {
+        comments_open_ = false;
+        show_overlay();
+        set_focus(id(id("vp_controls"), "comments"));
+        audio::play(audio::SFX_BACK);
+    }
+
+    // Under the small video: title, channel, playback controls and the seek bar.
+    void draw_watch_info(player::State st, float ce) {
+        const Theme& t = theme();
+        const player::Source src = player::source();
+        if (comments_open_ && src.id != comments_video_) {
+            comments_video_ = src.id;  // the next video started
+            comments_.show(src.id);
+        }
+        gfx::push_alpha(ce);
+        float x = 36, w = SMALL_W;
+        float y = 36 + SMALL_W * 9 / 16 + 20 + (1 - ce) * 40;
+        text::draw_wrapped(font::title, Rect(x, y, w, 80), src.title, t.text, 2);
+        y += text::measure_wrapped(font::title, w, src.title, 2) + 14;
+
+        Id g = id("vp_watch");
+        float cy = y + 23;
+        float nw = std::min(text::measure(font::body_bold, src.subtitle), 250.0f);
+        text::draw_fit(font::body_bold, x, cy - text::line_height(font::body_bold) * 0.5f, nw, src.subtitle, t.text2);
+        if (src.service == "youtube" && !src.channel_id.empty()) subscribe_button(id(g, "subscribe"), src, x + nw + 18, cy, g);
+        bool live = player::live();
+        float rx = x + w - 24;
+        if (icon_button(id(g, "full"), rx, cy, 23, ic::FULLSCREEN, g)) close_comments();
+        rx -= 62;
+        if (!live && icon_button(id(g, "fwd10"), rx, cy, 23, ic::FORWARD_10, g)) seek_by(10);
+        if (!live) rx -= 62;
+        bool paused = st == player::PAUSED;
+        if (icon_button(id(g, "play"), rx, cy, 26, paused || st == player::ENDED ? ic::PLAY : ic::PAUSE, g, 0, true)) toggle();
+        rx -= 62;
+        if (!live && icon_button(id(g, "back10"), rx, cy, 23, ic::REPLAY_10, g)) seek_by(-10);
+
+        // Seek bar
+        y += 66;
+        double pos = player::position(), dur = player::duration();
+        bool can_seek = !live && player::seekable() && dur > 0;
+        if (comments_open_) touch_scrub(Rect(x - 10, y - 26, w + 20, 52), Rect(x, y, w, 0), dur, pos, can_seek);
+        float grow = tween(id("vp_watch_scrub"), scrubbing_ ? 1.0f : 0.0f, 18.0f);
+        float bh = 5 + 4 * grow;
+        if (!live) {
+            float prog = dur > 0 ? (float)(pos / dur) : 0, buf = dur > 0 ? (float)(player::buffered_until() / dur) : 0;
+            progress_bar(Rect(x, y - bh * 0.5f, w, bh), prog, buf, true, 0.8f + grow * 0.6f);
+        }
+        draw_time_row(x, y + 12, w, pos, dur, live);
         gfx::pop_alpha();
     }
 
@@ -376,10 +643,26 @@ private:
         pop_layer();
     }
 
+    static constexpr float SMALL_W = 780, PANEL_W = 440;
+
     TrackMenu menu_;
+    yt::CommentsPanel comments_;
+    bool comments_open_ = false;
+    std::string comments_video_;
+    Rect vr_{0, 0, W, H};  // where the video is drawn
     float overlay_a_ = 1;
     double shown_at_ = 0;
-    bool focused_bar_ = false;
+    bool hud_ = true;        // controls wanted (until HUD_SECONDS pass without input)
+    bool hud_up_ = true;     // controls showing this frame
+    bool user_hid_ = false;  // tapped away, so they stay hidden even while paused
+    std::string sub_channel_;  // subscribe_button's last look
+    bool sub_on_ = false;
+    double sub_checked_ = -1;
+    bool scrubbing_ = false;
+    double scrub_to_ = 0;
+    double tap_t_ = -10;
+    int tap_side_ = 0;
+    bool pending_tap_ = false;
     double ripple_t_ = -10;
     int ripple_dir_ = 1, ripple_amount_ = 0;
     double pulse_t_ = -10;
@@ -392,6 +675,7 @@ class NowPlayingScreen : public app::Screen {
 public:
     bool fullscreen() const override { return true; }
     bool draws_background() const override { return true; }
+    bool on_back() override { return menu_.open; }
 
     void frame() override {
         const Theme& t = theme();
@@ -480,7 +764,8 @@ public:
             if (icon_button(id(g, "prev"), cx, cy, 28, ic::SKIP_PREV, g)) player::previous();
             cx += 84;
         }
-        if (icon_button(id(g, "play"), cx + 8, cy, 38, paused ? ic::PLAY : ic::PAUSE, g, F_DEFAULT, true)) player::toggle_pause();
+        if (icon_button(id(g, "play"), cx + 8, cy, 38, paused ? ic::PLAY : ic::PAUSE, g, F_DEFAULT, true) && player::started())
+            player::toggle_pause();
         cx += 100;
         if (player::has_next()) {
             if (icon_button(id(g, "next"), cx, cy, 28, ic::SKIP_NEXT, g)) player::next();
@@ -491,17 +776,27 @@ public:
             app::pop();
             return;
         }
+        cx += 84;
+        if (player::seekable()) {  // podcasts, audiobooks
+            if (icon_button(id(g, "speed"), cx, cy, 28, ic::SPEED, g, 0, player::speed() != 1.0f))
+                menu_.show(TrackMenu::SPEED);
+        }
         if (st == player::OPENING || st == player::BUFFERING) spinner(sr.cx(), sr.cy(), 30, gfx::WHITE, 5);
         if (st == player::FAILED) {
             text::icon(ic::ERROR_OUTLINE, 22, x + 11, 600 - 60, t.bad);
             text::draw_fit(font::body_bold, x + 30, 600 - 72, w, player::error(), t.bad);
         }
 
-        Input& in = input();
-        if (in.pressed_(BTN_ZR) || in.pressed_(BTN_R)) player::seek_relative(30);
-        if (in.pressed_(BTN_ZL) || in.pressed_(BTN_L)) player::seek_relative(-15);
         hint_bar({{"B", tr("Back")}, {"L", "-15s"}, {"R", "+30s"}});
+        Input& in = input();
+        if (!menu_.frame()) {  // on top of everything
+            if (in.pressed_(BTN_ZR) || in.pressed_(BTN_R)) player::seek_relative(30);
+            if (in.pressed_(BTN_ZL) || in.pressed_(BTN_L)) player::seek_relative(-15);
+        }
     }
+
+private:
+    TrackMenu menu_;
 };
 
 }  // namespace

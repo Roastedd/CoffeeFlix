@@ -5,6 +5,10 @@ Run through tools/dev-update.sh. The Wii U asks for a server with a UDP broadcas
 this answers with the port of its web server, and the Wii U reads dev.json (version, size,
 SHA-256, signature, notes) and downloads coffeeflix.wuhb. Only builds signed with the key
 matching the one built into the app install.
+
+While this runs, a Wii U with developer updates on also sends its log here as it goes (POST
+/log): each run of the app gets its own file in logs/, and logs/wiiu-latest.log is the newest.
+Warnings, errors and the performance lines are shown here too.
 """
 
 import argparse
@@ -12,16 +16,64 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 DISCOVERY_PORT = 47291
 ASK = b"COFFEEFLIX-DEV?"
 ANSWER = "COFFEEFLIX-DEV {}\n"
+MAX_LOG_POST = 1 << 20
+# Log lines worth showing as they come: problems, and the performance summaries.
+SHOWN = re.compile(r"\[(WARNING|ERROR)\]|\[(CPU|Frames)\]|Playback:")
+CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def printable(text):
+    """What a Wii U sent, safe to print: no terminal control sequences."""
+    return CONTROL.sub("?", text)
+
+
+class Logs:
+    """Each run's log as the Wii U sends it, in a file of its own."""
+
+    def __init__(self, folder):
+        self.folder = folder
+        self.lock = threading.Lock()
+        self.files = {}  # client address -> (run, file)
+
+    def add(self, ip, run, version, text):
+        with self.lock:
+            run_now, f = self.files.get(ip, (None, None))
+            if run_now != run:
+                if f:
+                    f.close()
+                os.makedirs(self.folder, exist_ok=True)
+                stamp = time.strftime("%Y%m%d-%H%M%S")
+                path = os.path.join(self.folder, f"wiiu-{stamp}.log")
+                n = 2
+                while os.path.exists(path):
+                    path = os.path.join(self.folder, f"wiiu-{stamp}-{n}.log")
+                    n += 1
+                f = open(path, "a", encoding="utf-8")
+                self.files[ip] = (run, f)
+                latest = os.path.join(self.folder, "wiiu-latest.log")
+                link = latest + ".new"
+                if os.path.lexists(link):
+                    os.remove(link)
+                os.symlink(os.path.basename(path), link)
+                os.replace(link, latest)
+                print(f"  {ip} is sending its log (CoffeeFlix {printable(version)}) to {path}", flush=True)
+            f.write(text)
+            f.flush()
+        for line in text.splitlines():
+            if SHOWN.search(line):
+                print("  | " + printable(line), flush=True)
 
 
 def sign(path, key):
@@ -70,7 +122,9 @@ def main():
     ap.add_argument("--notes", default="")
     ap.add_argument("--key", required=True)
     ap.add_argument("--port", type=int, default=47292)
+    ap.add_argument("--logs", default="logs", help="where the Wii U's logs go")
     args = ap.parse_args()
+    logs = Logs(args.logs)
 
     # A copy, so building again doesn't change the file while a Wii U downloads it.
     serve_dir = tempfile.mkdtemp(prefix="coffeeflix-dev-")
@@ -92,6 +146,23 @@ def main():
     }).encode()
 
     class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"  # the log comes every second: one connection for all of it
+
+        def do_POST(self):
+            try:
+                size = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                size = -1
+            if self.path != "/log" or not 0 <= size <= MAX_LOG_POST:
+                self.close_connection = True
+                self.send_error(404 if self.path != "/log" else 413)
+                return
+            text = self.rfile.read(size).decode("utf-8", "replace")
+            logs.add(self.client_address[0], self.headers.get("X-CoffeeFlix-Run", ""),
+                     self.headers.get("X-CoffeeFlix-Version", "?")[:64], text)
+            self.send_response(204)
+            self.end_headers()
+
         def do_GET(self):
             if self.path == "/dev.json":
                 body, kind = manifest, "application/json"

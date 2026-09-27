@@ -8,6 +8,8 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include "core/cpu.hpp"
+
 namespace player {
 
 namespace {
@@ -95,6 +97,7 @@ FrameConverter::~FrameConverter() {
 }
 
 void FrameConverter::helper_loop() {
+    cpu::ThreadTag tag("convert");
     for (;;) {
         std::function<void()> job;
         {

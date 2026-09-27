@@ -13,7 +13,11 @@ deps/
 # Desktop preview settings and test media
 data/
 
+# Wii U logs sent to tools/dev_server.py
+logs/
+
 # Editors and tools
 .clangd
 .vscode/
 .idea/
+__pycache__/

@@ -2,6 +2,7 @@
 # Developer updates: builds CoffeeFlix, signs it with your developer key and offers it to your
 # Wii U on this network, which installs it from Settings > Updates once developer updates are on
 # (Up Up Down Down Left Right Left Right B A on that screen). Ctrl-C stops offering it.
+# While it runs, the Wii U sends its log here too: logs/wiiu-latest.log is the newest run's.
 #   tools/dev-update.sh              # build, then offer it
 #   tools/dev-update.sh --no-build   # offer the coffeeflix.wuhb built last
 # The app only installs builds signed with ~/.coffeeflix/dev-key.pem (keep a copy of it safe:

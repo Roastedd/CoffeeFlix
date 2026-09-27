@@ -9,6 +9,10 @@
 #include "app/app.hpp"
 #include "ui/ui.hpp"
 
+namespace qr {
+struct Code;
+}
+
 namespace screens {
 
 using ui::Id;
@@ -92,6 +96,9 @@ void section_title(float x, float y, const char* title, const char* subtitle = n
 // Pill-shaped fake text field that opens the keyboard when activated.
 bool search_bar(Id id, const Rect& r, const std::string& query, const char* placeholder, Id group = 0, int flags = 0);
 void loading_indicator(float cx, float cy, const char* label = nullptr);
+// Dark modules on a white tile at whole-pixel sizes, so phones read it cleanly: centred across
+// max_side, from y down. Returns the tile's side, 0 when there's no code.
+float qr_code(const qr::Code& code, float x, float y, float max_side);
 
 // Opens the system keyboard; `done` receives the text (not called on cancel).
 void prompt_text(const std::string& title, const std::string& initial, const std::string& hint,

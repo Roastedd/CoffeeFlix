@@ -1,10 +1,14 @@
 #include "core/tasks.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
 #include <vector>
+
+#include "core/cpu.hpp"
+#include "platform/platform.hpp"
 
 namespace tasks {
 
@@ -23,8 +27,11 @@ WorkerPool g_pools[2];
 std::mutex g_main_m;
 std::vector<std::function<void()>> g_main;
 std::atomic<bool> g_running{false};
+Slowest g_slowest;  // main thread
 
 void worker_loop(WorkerPool* pool) {
+    cpu::ThreadTag tag(pool == &g_pools[IMAGES] ? "images" : "tasks");
+    platform::lower_thread_priority();  // decoding and parsing wait while the main thread draws
     for (;;) {
         std::function<std::function<void()>()> job;
         {
@@ -104,7 +111,15 @@ void pump() {
         std::lock_guard<std::mutex> lk(g_main_m);
         todo.swap(g_main);
     }
-    for (auto& fn : todo) fn();
+    g_slowest = {};
+    for (auto& fn : todo) {
+        auto start = std::chrono::steady_clock::now();
+        fn();
+        double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        if (took > g_slowest.seconds) g_slowest = {&fn.target_type(), took};
+    }
 }
+
+Slowest last_pump_slowest() { return g_slowest; }
 
 }  // namespace tasks

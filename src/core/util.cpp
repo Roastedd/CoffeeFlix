@@ -9,6 +9,7 @@
 #include <ctime>
 #include <random>
 #include <cerrno>
+#include <cxxabi.h>
 #include <cstdlib>
 
 #include "core/i18n.hpp"
@@ -322,6 +323,15 @@ std::string clock_hhmm() {
     char buf[16];
     strftime(buf, sizeof(buf), "%H:%M", &lt);
     return buf;
+}
+
+std::string type_name(const std::type_info& type) {
+    int status = 0;
+    char* d = abi::__cxa_demangle(type.name(), nullptr, nullptr, &status);
+    std::string out = d && status == 0 ? d : type.name();
+    free(d);
+    for (const char* noise : {"(anonymous namespace)::", "std::__cxx11::", "std::__1::"}) out = replace_all(out, noise, "");
+    return out;
 }
 
 std::string env_or(const char* name, const std::string& def) {

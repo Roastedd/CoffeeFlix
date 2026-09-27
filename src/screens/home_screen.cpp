@@ -87,6 +87,8 @@ HomeItem from_resume(const store::Resume& r) {
             s.subtitle = r.subtitle;
             s.service = r.service;
             s.id = r.id;
+            s.extra = r.extra;
+            s.chunked_http = r.service == "dlna" && r.extra != "whole";  // as dlna_screen's source_for
             s.start = r.position;
             if (r.video) play_video(s);
             else play_audio(s);

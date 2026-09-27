@@ -5,6 +5,8 @@
 
 #include <cstdint>
 
+enum { AXIS_X = 1, AXIS_Y = 2 };
+
 enum Button : uint32_t {
     BTN_A, BTN_B, BTN_X, BTN_Y,
     BTN_PLUS, BTN_MINUS,
@@ -34,7 +36,10 @@ struct Input {
     bool touching = false, touch_began = false, touch_ended = false;
     bool tap = false;           // released without dragging
     bool dragging = false;
+    bool drag_began = false;    // dragging became true this frame
+    int drag_axis = 0;          // AXIS_X or AXIS_Y, whichever the drag started along
     float tx = 0, ty = 0, tdx = 0, tdy = 0, touch_start_x = 0, touch_start_y = 0;
+    float tvx = 0, tvy = 0;     // finger velocity in px/s over the last moments (for flings)
 
     bool pointer = false;       // pointer visible
     bool pointer_moved = false;

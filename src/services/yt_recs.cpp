@@ -482,6 +482,66 @@ static youtube::Results build_feed() {
     return out;
 }
 
+Profile profile() {
+    Brain b;
+    {
+        std::lock_guard<std::mutex> lk(g_m);
+        load_locked();
+        b = g_b;
+    }
+    Profile p;
+    std::map<std::string, std::string> names;  // channel id -> name
+    for (auto& f : store::favs("yt_channel")) names[f.id] = f.title;
+    std::set<std::string> used;
+    for (auto& w : b.history) {
+        if (!w.channel_id.empty() && names.find(w.channel_id) == names.end()) names[w.channel_id] = w.channel;
+        if (p.watched.size() >= 3 || !used.insert(w.channel_id.empty() ? w.channel : w.channel_id).second) continue;
+        youtube::Video v;
+        v.id = w.id;
+        v.title = w.title;
+        v.channel = w.channel;
+        v.channel_id = w.channel_id;
+        p.watched.push_back(v);
+    }
+
+    std::vector<std::pair<double, std::string>> chans;
+    for (auto& [id, a] : b.channels)
+        if (a >= 0.25 && !names[id].empty()) chans.push_back({a, id});
+    std::sort(chans.rbegin(), chans.rend());
+    for (size_t i = 0; i < chans.size() && p.channels.size() < 3; i++) {
+        youtube::Channel c;
+        c.id = chans[i].second;
+        c.name = names[c.id];
+        p.channels.push_back(c);
+    }
+
+    p.searches = b.searches;
+    // Channel names aren't interests ("rick" and "astley" from Rick Astley's videos): the channel
+    // gets its own shelf.
+    std::set<std::string> channel_words;
+    for (auto& [id, name] : names)
+        for (auto& w : tokens(name)) channel_words.insert(w);
+    std::vector<std::pair<double, std::string>> words;
+    for (auto& [k, w] : b.topics)
+        if (w >= 0.1 && !channel_words.count(k)) words.push_back({w, k});
+    std::sort(words.rbegin(), words.rend());
+    for (size_t i = 0; i < words.size() && p.interests.size() < 8; i++) p.interests.push_back(words[i].second);
+    return p;
+}
+
+bool hidden(const youtube::Video& v) {
+    std::lock_guard<std::mutex> lk(g_m);
+    load_locked();
+    for (auto& w : g_b.history)
+        if (w.id == v.id) return true;
+    int64_t t = now();
+    for (const std::string& key : {v.id, "c:" + v.channel_id}) {
+        auto it = g_b.blocked.find(key);
+        if (it != g_b.blocked.end() && it->second > t) return true;
+    }
+    return false;
+}
+
 // Home and the YouTube page ask for the feed at the same time; building it takes several
 // searches (slow on a Wii U), so it is built once and shared for 10 minutes. A second caller
 // waits for the first one's result.

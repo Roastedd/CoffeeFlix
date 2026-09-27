@@ -21,7 +21,14 @@ void set_tap(void (*tap)(const int16_t* frames, int count));
 // frame. Returns the number of frames accepted (ring may be full).
 // Writes tagged with an old generation are dropped, so a decoder thread that
 // is still finishing after a seek/stop can't leak stale audio.
-size_t stream_write(const int16_t* frames, size_t count, double pts, uint32_t generation);
+// `speed` is how many frames of media each frame written stands for: the playback speed
+// the sound was sped up or slowed down to before it got here.
+size_t stream_write(const int16_t* frames, size_t count, double pts, uint32_t generation, float speed = 1);
+// Takes back what was written beyond the next `keep_seconds` to play (fading out where it
+// now ends), so it can be written again differently. Returns the media time of the first
+// frame taken back (or of the end, if there was nothing to take), or -1 when nothing of
+// `generation` was written.
+double stream_cut(uint32_t generation, double keep_seconds);
 size_t stream_free_frames();
 double stream_buffered_seconds();
 void stream_reset(uint32_t generation);  // drop everything and accept only `generation`

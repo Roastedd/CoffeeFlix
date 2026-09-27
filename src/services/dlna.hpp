@@ -43,6 +43,7 @@ struct Item {
     std::string subtitles;     // .srt URL when the server offers one
     uint64_t size = 0;
     double duration = 0;       // seconds
+    bool whole_only = false;   // the server says it can't send parts of the file (DLNA.ORG_OP)
     int child_count = -1;      // containers, when the server says
 };
 

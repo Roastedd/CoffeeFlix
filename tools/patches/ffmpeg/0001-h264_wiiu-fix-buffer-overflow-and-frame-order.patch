@@ -19,15 +19,16 @@ h264_wiiu: fix the frame buffer overflow, decode every picture, return them in o
 - Warnings explain what the decoder did: its first picture, error statuses, no pictures.
 - With a custom get_buffer2 (AV_CODEC_CAP_DR1), pictures are decoded straight into the caller's
   frames when those have the decoder's layout (pitch, padded height, 1 KB alignment): no flush
-  and no copy. Packets that can change the size (IDR pictures, SPS) still go through the
-  decoder's own buffer, which holds any size, and are copied; copies into the caller's frames
+  and no copy. So are IDR pictures that come with the same SPS as before (the SPS sets the
+  size). Packets that can change the size (another SPS, an IDR picture without one) go through
+  the decoder's own buffer, which holds any size, and are copied; copies into the caller's frames
   are flushed out of the CPU cache so they can go to the GPU as well. A picture reported in a
   frame that was already given back (its packet brought no picture) is dropped, not read.
 - Every 10 seconds a warning tells how many pictures were decoded, how many without a copy,
   and the time spent decoding (average, longest, CPU, waits) and copying.
 
 diff --git a/libavcodec/h264_wiiu.c b/libavcodec/h264_wiiu.c
-index bd41335..3bba287 100644
+index bd41335..facd613 100644
 --- a/libavcodec/h264_wiiu.c
 +++ b/libavcodec/h264_wiiu.c
 @@ -1,73 +1,162 @@
@@ -229,7 +230,7 @@ index bd41335..3bba287 100644
      // Wii U decoder only outputs NV12
      avctx->pix_fmt = AV_PIX_FMT_NV12;
  
-@@ -75,81 +164,436 @@ static int h264_wiiu_decode_init(AVCodecContext *avctx)
+@@ -75,81 +164,453 @@ static int h264_wiiu_decode_init(AVCodecContext *avctx)
  }
  
  static int h264_wiiu_decode_close(AVCodecContext *avctx)
@@ -244,17 +245,14 @@ index bd41335..3bba287 100644
 -    void* decoder = ctx->decoder;
 -    void* framebuffer = ctx->framebuffer;
 +    int i;
- 
--    free(framebuffer);
++
 +    for (i = 0; i < ctx->queue_count; i++)
 +        av_frame_free(&ctx->queue[i]);
 +    ctx->queue_count = 0;
 +    ctx->last_pts = AV_NOPTS_VALUE;
 +}
  
--    H264DECFlush(decoder);
--    H264DECEnd(decoder);
--    H264DECClose(decoder);
+-    free(framebuffer);
 +// Seconds between two timestamps of the stream.
 +static double h264_wiiu_seconds(AVCodecContext *avctx, int64_t a, int64_t b)
 +{
@@ -264,33 +262,52 @@ index bd41335..3bba287 100644
 +    return (a - b) * av_q2d(tb);
 +}
  
--    free(decoder);
-+// Whether the packet holds an IDR picture or a sequence parameter set, the only places the
-+// picture size can change. The NAL units are read up to the first slice; a packet that can't be
-+// read counts as one.
-+static int h264_wiiu_new_sequence(const uint8_t* p, int size)
+-    H264DECFlush(decoder);
+-    H264DECEnd(decoder);
+-    H264DECClose(decoder);
++// Whether the packet can change the picture size, which only a sequence parameter set sets: it
++// holds one other than the last one (kept, and no picture goes straight into a caller's frame
++// until one of the new size came out), or an IDR picture without one (it could switch to one
++// sent before). The NAL units are read up to the first slice; a packet without one counts.
++static int h264_wiiu_new_sequence(WIIUContext* ctx, const uint8_t* p, int size)
 +{
-+    const uint8_t* end = p + size - 3;
++    const uint8_t* end = p + size;
++    const uint8_t* sps = NULL;
++    int sps_size = -1, idr = -1;
+ 
+-    free(decoder);
++    for (; end - p > 3; p++)
++    {
++        int type;
++        if (p[0] != 0 || p[1] != 0 || p[2] != 1)
++            continue;
++        if (sps && sps_size < 0)
++            sps_size = (int) (p - sps);
++        type = p[3] & 0x1f;
++        if (type == 1 || type == 5)
++        {
++            idr = type == 5;
++            break;
++        }
++        if (type == 7)
++            sps = p + 3;
++        p += 2;
++    }
++    if (idr < 0 || (sps && sps_size < 0))
++        return 1;
++    if (!sps)
++        return idr;
++    while (sps_size > 0 && sps[sps_size - 1] == 0)  // the start code's leading zero
++        sps_size--;
++    if (sps_size == ctx->sps_size && !memcmp(sps, ctx->sps, sps_size))
++        return 0;
++    ctx->sps_size = sps_size <= (int) sizeof(ctx->sps) ? sps_size : 0;
++    memcpy(ctx->sps, sps, ctx->sps_size);
++    ctx->seq_pitch = 0;
++    return 1;
++}
  
 -    return 0;
-+    while (p < end)
-+    {
-+        if (p[0] == 0 && p[1] == 0 && p[2] == 1)
-+        {
-+            int type = p[3] & 0x1f;
-+            if (type == 1)
-+                return 0;
-+            if (type == 5 || type == 7)
-+                return 1;
-+            p += 3;
-+        }
-+        else
-+            p++;
-+    }
-+    return 1;
- }
- 
--static int h264_wiiu_decode_frame(AVCodecContext *avctx, void *data, int *got_frame, AVPacket *avpkt)
 +// A frame from the caller's allocator for the decoder to write into, when its buffer is laid out
 +// the way the decoder writes the current pictures (pitch, padded height, alignment), else null.
 +// The default allocator's frames never are.
@@ -320,8 +337,9 @@ index bd41335..3bba287 100644
 +        av_frame_free(&frame);
 +    }
 +    return frame;
-+}
-+
+ }
+ 
+-static int h264_wiiu_decode_frame(AVCodecContext *avctx, void *data, int *got_frame, AVPacket *avpkt)
 +// Puts a decoded picture into the reorder queue: the caller's frame it was decoded into when that
 +// has the picture's layout (the frame is taken from *direct), else a copy out of the decoder's
 +// buffer.
@@ -637,7 +655,7 @@ index bd41335..3bba287 100644
 -    if (res != 0xE4)
 +    // A picture of the current size goes straight into a frame of the caller's; one that can
 +    // change the size into the decoder's own buffer, which holds any size.
-+    if (!h264_wiiu_new_sequence(avpkt->data, size))
++    if (!h264_wiiu_new_sequence(ctx, avpkt->data, size))
 +        direct = h264_wiiu_direct_frame(avctx, ctx);
 +    target = direct ? direct->data[0] : NULL;
 +    res = h264_wiiu_execute(avctx, avpkt, skippable, &direct);
@@ -709,7 +727,7 @@ index bd41335..3bba287 100644
  }
  
  AVCodec ff_h264_wiiu_decoder =
-@@ -162,5 +606,7 @@ AVCodec ff_h264_wiiu_decoder =
+@@ -162,5 +623,7 @@ AVCodec ff_h264_wiiu_decoder =
      .init           = h264_wiiu_decode_init,
      .close          = h264_wiiu_decode_close,
      .decode         = h264_wiiu_decode_frame,
@@ -720,7 +738,7 @@ index bd41335..3bba287 100644
 \ No newline at end of file
 +};
 diff --git a/libavcodec/h264_wiiu.h b/libavcodec/h264_wiiu.h
-index 925c2a0..62af6c9 100644
+index 925c2a0..bbbcd40 100644
 --- a/libavcodec/h264_wiiu.h
 +++ b/libavcodec/h264_wiiu.h
 @@ -1,7 +1,9 @@
@@ -734,7 +752,7 @@ index 925c2a0..62af6c9 100644
  
  #ifndef H264_WIIU_H
  #define H264_WIIU_H
-@@ -9,17 +11,87 @@
+@@ -9,17 +11,90 @@
  #include <wut.h>
  #include <h264/decode.h>
  
@@ -807,6 +825,9 @@ index 925c2a0..62af6c9 100644
 +    int seq_height;  // padded
 +    int seq_x, seq_y, seq_width, seq_height_visible;
 +    int direct_reported;
++    // The last sequence parameter set (IDR pictures with the same one keep the size).
++    uint8_t sps[256];
++    int sps_size;
 +    // Frames of the caller's decoded into lately, given back unless their picture came out.
 +    void* recent_targets[8];
 +    int recent_index;

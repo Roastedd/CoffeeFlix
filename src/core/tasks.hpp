@@ -11,6 +11,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <typeinfo>
 
 namespace tasks {
 
@@ -19,6 +20,12 @@ enum Pool { API, IMAGES };
 void init();
 void shutdown();
 void pump();  // main thread, once per frame
+// The slowest callback the last pump() ran, for the log: what it was and how long it took.
+struct Slowest {
+    const std::type_info* type = nullptr;
+    double seconds = 0;
+};
+Slowest last_pump_slowest();
 
 // Low-level: run `work` on a worker, then `done` on the main thread.
 void submit(Pool pool, std::function<std::function<void()>()> work);

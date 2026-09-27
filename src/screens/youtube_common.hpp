@@ -49,6 +49,11 @@ youtube::ChannelResults load_account_channels();
 bool account_channels_fresh();  // loaded in the last few minutes
 // Refreshes stored names and avatars from channel headers.
 void update_channels(const std::vector<youtube::Channel>& channels);
+// Signed in: channels followed only on this console (from before signing in, or imported).
+std::vector<youtube::Channel> local_subscriptions();
+// Subscribes the account to them in the background, with a toast when it's done.
+void copy_subscriptions_to_account();
+bool copying_subscriptions();
 
 // Imports subscriptions from a Google Takeout CSV or NewPipe/LibreTube JSON export in the app's
 // folder; returns a message for a toast.
@@ -83,6 +88,24 @@ struct MenuOptions {
     std::vector<MenuItem> extra;
 };
 void video_menu(const youtube::Video& v, MenuOptions opts = MenuOptions());
+
+// --- comments -------------------------------------------------------------------------------
+// The comments beside a playing video (the player shrinks the video to make room).
+class CommentsPanel {
+public:
+    CommentsPanel();
+    ~CommentsPanel();
+    // Loads the video's comments (kept when it's the same video) and focuses the panel.
+    void show(const std::string& video_id);
+    // Draws the panel in `r` and handles its input.
+    void frame(const Rect& r, float alpha);
+    // B: from a comment's replies back to the list. False when there's nothing to go back to.
+    bool back();
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> p_;
+};
 
 // --- screens -------------------------------------------------------------------------------
 std::unique_ptr<app::Screen> make_channel(const std::string& id, const std::string& name, const std::string& avatar = "");

@@ -10,6 +10,7 @@
 #include "platform/platform.hpp"
 #include "player/player.hpp"
 #include "screens/screens.hpp"
+#include "screens/send_logs.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
 #include "services/yt_account.hpp"
@@ -30,13 +31,22 @@ struct Choice {
     int def;
 };
 
-const Choice YT_QUALITY{"yt_quality", {360, 480, 720, 1080}, {"360p", "480p", "720p", "1080p"}, 720};
-const Choice JF_QUALITY{"jf_quality", {480, 720, 1080}, {"480p", "720p", "1080p"}, 1080};
-const Choice TW_QUALITY{"twitch_quality", {360, 480, 720, 1080}, {"360p", "480p", "720p", "1080p"}, 720};
+// 0: Auto, up to 1080p as the downloads allow (player::auto_budget, auto_cap). 720p and 1080p
+// with the most pictures a second to show (player::quality_fps): on the Wii U 1080p60 at about 45-48
+// (its decoder can't show them all) or at 30, every other picture.
+const Choice YT_QUALITY{"yt_quality",
+                        {0, 360, 480, 72030, 72060, 108030, 108060},
+                        {N_("Auto"), "360p", "480p", "720p 30 fps", "720p 60 fps", "1080p 30 fps", "1080p 60 fps"},
+                        0};
+// Auto: as much as the downloads carry (the Jellyfin server converts heavier files down to it).
+const Choice JF_QUALITY{"jf_quality", {0, 480, 720, 1080}, {N_("Auto"), "480p", "720p", "1080p"}, 0};
+const Choice TW_QUALITY{"twitch_quality", {0, 360, 480, 720, 1080}, {N_("Auto"), "360p", "480p", "720p", "1080p"}, 0};
 // Wii U hardware H.264 decoding: 0 every picture, 1 without pictures nothing refers to (most
 // B-frames; fewer frames per second but what the original FFmpeg-wiiu did), 2 software only. The
 // player steps down by itself when the hardware decoder gives no pictures.
 const Choice VIDEO_DECODING{"video_decoding", {0, 1, 2}, {N_("Hardware"), N_("Hardware, fewer frames"), N_("Software")}, 0};
+// Developers: video downloads at once (player/http_io.cpp; 0: its default).
+const Choice DEV_CONNECTIONS{"dev_connections", {0, 2, 4, 6}, {"Default (3)", "2", "4", "6"}, 0};
 const Choice SCREENSAVER{"screensaver", {0, 120, 300, 600, 1200}, {N_("Off"), N_("After 2 min"), N_("After 5 min"), N_("After 10 min"), N_("After 20 min")}, 300};
 const char* COUNTRIES[] = {"US", "GB", "CA", "AU", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "PL", "BR", "MX", "JP", "KR", "IN"};
 
@@ -155,8 +165,9 @@ public:
         choice_row(g, "yt_q", YT_QUALITY, tr("YouTube quality"), ic::SMART_DISPLAY, x0, w, y);
         choice_row(g, "jf_q", JF_QUALITY, tr("Jellyfin quality"), ic::VIDEO_LIBRARY, x0, w, y);
         choice_row(g, "tw_q", TW_QUALITY, tr("Twitch quality"), ic::LIVE_TV, x0, w, y);
-        bool_row(g, "60fps", "allow_60fps", true, tr("Allow 60 fps streams"), tr("Up to 720p; 1080p stays at 30 fps"), x0, w, y);
         if (platform::is_wiiu()) choice_row(g, "vdec", VIDEO_DECODING, tr("Video decoding"), ic::TUNE, x0, w, y);
+        if (updater::developer())  // not translated: developers only
+            choice_row(g, "conns", DEV_CONNECTIONS, "Video downloads at once", ic::TUNE, x0, w, y);
         bool_row(g, "subs", "subs_default_on", true, tr("Subtitles on by default"), tr("When a video comes with subtitles"), x0, w, y);
         bool_row(g, "ytcc", "yt_captions", false, tr("YouTube captions"), tr("Turn captions on automatically (your language first)"), x0, w, y);
         bool_row(g, "ytsb", "yt_sponsorblock", true, tr("Skip sponsors on YouTube"),
@@ -229,6 +240,19 @@ public:
                     app::push(yt::make_sign_in());
                 }
             }
+            track(iid, top, 64);
+        }
+        if (yt_account::signed_in()) {
+            bool_row(g, "ythist", "yt_history_sync", true, tr("Save watch history to your account"),
+                     tr("Videos you watch here show in your YouTube history, with how far you got"), x0, w, y);
+            Id iid = id(g, "ytcopy");
+            float top = row_h(64);
+            size_t n = yt::local_subscriptions().size();
+            bool copying = yt::copying_subscriptions();
+            std::string v = copying ? tr("Adding\xE2\x80\xA6") : n ? util::fmt(tr("%zu channels"), n) : tr("All on your account");
+            if (value_row(iid, Rect(x0, top, w, 64), tr("Add this console's subscriptions to your account"), v.c_str(),
+                          ic::CLOUD_UPLOAD, g) && n && !copying)
+                yt::copy_subscriptions_to_account();
             track(iid, top, 64);
         }
         {
@@ -350,6 +374,13 @@ public:
             Item it = focusable(iid, r, g);
             focus_ring(r, 16, it.f);
             track(iid, top, 150);
+        }
+        {
+            Id iid = id(g, "sendlogs");
+            float top = row_h(64);
+            if (value_row(iid, Rect(x0, top, w, 64), tr("Send logs"), tr("To report a problem on GitHub"), ic::FORUM, g))
+                app::push(make_send_logs());
+            track(iid, top, 64);
         }
         {
             Id iid = id(g, "licenses");

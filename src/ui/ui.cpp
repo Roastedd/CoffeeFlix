@@ -37,8 +37,10 @@ struct ScrollState {
     float target = 0;
     anim::Spring s;
     bool init = false;
-    float drag_velocity = 0;
     bool dragging = false;
+    float fling = 0;     // momentum after a swipe, px/s
+    bool free = false;   // swiped by touch: stop following the focused item until the D-pad is used
+    bool caught = false; // a touch stopped a fling; its release isn't a tap
 };
 
 struct Toast {
@@ -65,6 +67,8 @@ std::unordered_map<Id, Id> g_group_entry;
 std::unordered_map<Id, AnimState> g_anim;
 std::unordered_map<Id, ScrollState> g_scroll;
 std::unordered_map<Id, float> g_press;
+bool g_touch_scrolled = false;  // a list was swiped since the D-pad was last used
+Id g_tap_target = 0;            // what this frame's tap lands on (see pick_tap_target)
 
 // bump feedback when navigation hits an edge
 Id g_bump_id = 0;
@@ -159,6 +163,34 @@ const Reg* pick(const std::vector<Reg>& v, const Reg& from, int dx, int dy, int 
     return best;
 }
 
+// How much of a registered rect is on screen and inside its clip.
+float visible_fraction(const Reg& r) {
+    float x0 = std::max({r.r.x, r.clip.x, 0.0f}), x1 = std::min({r.r.r(), r.clip.r(), (float)W});
+    float y0 = std::max({r.r.y, r.clip.y, 0.0f}), y1 = std::min({r.r.b(), r.clip.b(), (float)H});
+    if (x1 <= x0 || y1 <= y0 || r.r.w <= 0 || r.r.h <= 0) return 0;
+    return (x1 - x0) * (y1 - y0) / (r.r.w * r.r.h);
+}
+
+// A GamePad tap lands on what's under the finger, or failing that on the nearest thing within
+// a finger's width, so small buttons don't need a precise tap.
+Id pick_tap_target(float x, float y) {
+    constexpr float SLOP = 22.0f;
+    int top = top_layer(g_prev);
+    const Reg* best = nullptr;
+    float best_d = SLOP;
+    for (auto& r : g_prev) {
+        if (r.layer != top || !r.r.intersects(r.clip) || !r.clip.contains(x, y)) continue;
+        if (r.r.contains(x, y)) return r.id;  // an exact hit; the first one drawn wins, as before
+        float dx = std::max({r.r.x - x, 0.0f, x - r.r.r()}), dy = std::max({r.r.y - y, 0.0f, y - r.r.b()});
+        float d = std::sqrt(dx * dx + dy * dy);
+        if (d < best_d) {
+            best_d = d;
+            best = &r;
+        }
+    }
+    return best ? best->id : 0;
+}
+
 void do_navigation() {
     if (!g_in) return;
     int top = top_layer(g_cur);
@@ -199,6 +231,38 @@ void do_navigation() {
     else if (g_in->rep(BTN_UP)) dy = -1;
     else if (g_in->rep(BTN_DOWN)) dy = 1;
     if (!dx && !dy) return;
+
+    if (g_touch_scrolled) {
+        // The D-pad takes over from a swipe: lists follow the focus again, and if the focused
+        // item was swiped off screen, the first press picks the nearest item that's in view.
+        g_touch_scrolled = false;
+        for (auto& kv : g_scroll) kv.second.free = false;
+        if (visible_fraction(*cur) < 0.5f) {
+            float px = std::clamp(cur->r.cx(), 0.0f, (float)W), py = std::clamp(cur->r.cy(), 0.0f, (float)H);
+            // Preferably in the same list (the swiped one), else anywhere.
+            const Reg* best = nullptr;
+            for (int pass = 0; pass < 2 && !best; pass++) {
+                float best_d = 1e30f;
+                for (auto& r : g_cur) {
+                    if (r.layer != top || visible_fraction(r) < 0.6f) continue;
+                    if (pass == 0 && (!cur->group || r.group != cur->group)) continue;
+                    float ddx = r.r.cx() - px, ddy = r.r.cy() - py;
+                    float d = ddx * ddx + ddy * ddy;
+                    if (d < best_d) {
+                        best_d = d;
+                        best = &r;
+                    }
+                }
+            }
+            if (best) {
+                g_focus = best->id;
+                g_last_focus_group = best->group;
+                if (best->group && !(best->flags & F_NO_MEMORY)) g_group_memory[best->group] = best->id;
+                audio::play(audio::SFX_MOVE);
+                return;
+            }
+        }
+    }
 
     const Reg* next = pick(g_cur, *cur, dx, dy, top);
     if (next && next->group != cur->group && next->group && g_group_entry.count(next->group)) {
@@ -273,6 +337,7 @@ void begin_frame(Input& in, float dt) {
     g_frame++;
     g_prev.swap(g_cur);
     g_cur.clear();
+    g_tap_target = in.tap ? pick_tap_target(in.tx, in.ty) : 0;
     g_layer = 0;
     g_layer_stack.clear();
     g_nav_suspended = false;
@@ -318,7 +383,7 @@ Item focusable(Id id, const Rect& r, Id group, int flags) {
             g_last_focus_group = group;
             if (group && !(flags & F_NO_MEMORY)) g_group_memory[group] = id;
         }
-        if (g_in->tap && hit(g_in->tx, g_in->ty)) {
+        if (g_in->tap && (g_tap_target ? g_tap_target == id : hit(g_in->tx, g_in->ty))) {
             g_focus = id;
             g_last_focus_group = group;
             if (group && !(flags & F_NO_MEMORY)) g_group_memory[group] = id;
@@ -428,7 +493,8 @@ void set_value(Id id, float v) {
 float scroll_follow(Id id, float a, float b, float view, float content, float margin, bool active) {
     ScrollState& s = g_scroll[id];
     float max_off = std::max(0.0f, content - view);
-    if (active && !s.dragging) {
+    bool moving = s.dragging || s.fling != 0;
+    if (active && !moving && !s.free) {
         if (a - margin < s.target) s.target = a - margin;
         if (b + margin > s.target + view) s.target = b + margin - view;
     }
@@ -437,8 +503,12 @@ float scroll_follow(Id id, float a, float b, float view, float content, float ma
         s.s.x = s.target;
         s.init = true;
     }
-    if (s.dragging) s.s.x = s.target;
-    else s.s.update(s.target, g_dt, 170.0f, 26.0f);
+    if (moving) {
+        s.s.x = s.target;
+        s.s.v = 0;
+    } else {
+        s.s.update(s.target, g_dt, 170.0f, 26.0f);
+    }
     return s.s.x;
 }
 
@@ -447,16 +517,40 @@ float scroll_drag(Id id, const Rect& area, bool vertical, float content, float v
     float max_off = std::max(0.0f, content - view);
     if (g_in) {
         Rect sa = gfx::to_screen(area);
-        if (g_in->touching && g_in->dragging && sa.contains(g_in->touch_start_x, g_in->touch_start_y)) {
-            float d = vertical ? g_in->tdy : g_in->tdx;
+        if (g_in->touch_began && sa.contains(g_in->tx, g_in->ty) && s.init) {
+            // Touching a moving list stops it, like on a phone; that touch doesn't open what's under it.
+            if (std::fabs(s.fling) > 250.0f || std::fabs(s.s.v) > 250.0f) s.caught = true;
+            s.fling = 0;
+            s.target = s.s.x;
+            s.s.v = 0;
+        }
+        bool axis = g_in->drag_axis == (vertical ? AXIS_Y : AXIS_X);
+        if (g_in->touching && g_in->dragging && axis && sa.contains(g_in->touch_start_x, g_in->touch_start_y)) {
+            // The first dragging frame catches up with the distance moved before it counted as a drag.
+            float d = g_in->drag_began ? (vertical ? g_in->ty - g_in->touch_start_y : g_in->tx - g_in->touch_start_x)
+                                       : (vertical ? g_in->tdy : g_in->tdx);
+            if (!s.dragging && s.init) s.target = s.s.x;
             s.target -= d;
-            s.drag_velocity = -d / std::max(g_dt, 0.001f);
             s.dragging = true;
+            s.free = true;
+            g_touch_scrolled = true;
         } else if (s.dragging) {
             s.dragging = false;
-            s.target += s.drag_velocity * 0.18f;  // fling
+            s.fling = -(vertical ? g_in->tvy : g_in->tvx);
+            if (std::fabs(s.fling) < 120.0f) s.fling = 0;
+            s.fling = std::clamp(s.fling, -6000.0f, 6000.0f);
+        }
+        if (g_in->touch_ended) {
+            if (s.caught) g_in->tap = false;
+            s.caught = false;
         }
         if (g_in->wheel != 0 && g_in->pointer && sa.contains(g_in->px, g_in->py)) s.target -= g_in->wheel * 90.0f;
+    }
+    if (s.fling != 0 && !s.dragging) {
+        // Momentum that slows down smoothly; it travels about fling / 3.2 pixels in all.
+        s.target += s.fling * g_dt;
+        s.fling *= std::exp(-3.2f * g_dt);
+        if (std::fabs(s.fling) < 25.0f || s.target <= 0 || s.target >= max_off) s.fling = 0;
     }
     s.target = std::clamp(s.target, 0.0f, max_off);
     return s.target;

@@ -1,5 +1,8 @@
 #include "services/jellyfin.hpp"
 
+#include <algorithm>
+#include <cstdlib>
+#include <iterator>
 #include <mutex>
 
 #include "core/http.hpp"
@@ -177,12 +180,32 @@ AuthResult finish_auth(const std::string& url, const http::Response& r) {
     return res;
 }
 
+// A quality: the most bits a second (video + audio) and picture height the server sends. A file
+// within both plays as it is; the server converts others down.
+struct Limit {
+    int bitrate, height;
+};
+
+Limit fixed_limit(int height) {
+    return height >= 1080 ? Limit{10000000, 1080} : height >= 720 ? Limit{5000000, 720} : Limit{2500000, 480};
+}
+
+// Auto's steps, as Jellyfin's own apps offer them: the first within the downloads' budget, and a
+// step down each time Auto steps down (player::auto_step_down).
+constexpr Limit AUTO_STEPS[] = {{10000000, 1080}, {8000000, 1080}, {6000000, 1080}, {4000000, 720}, {3000000, 720},
+                                {2000000, 720},   {1500000, 480},  {1000000, 480},  {720000, 480}};
+
+Limit auto_limit(int budget) {
+    for (const Limit& l : AUTO_STEPS)
+        if (budget <= 0 || l.bitrate <= budget) return l;
+    return AUTO_STEPS[std::size(AUTO_STEPS) - 1];
+}
+
 // Above 720p the Wii U's hardware decoder manages about 50 pictures a second: faster video is
 // sent at 30 fps (see player::max_fps).
-std::string profile_json(int max_height) {
-    int max_width = max_height >= 1080 ? 1920 : max_height >= 720 ? 1280 : 854;
-    int bitrate = max_height >= 1080 ? 10000000 : max_height >= 720 ? 5000000 : 2500000;
-    return util::fmt(R"({"DeviceProfile":{
+std::string profile_json(Limit limit) {
+    int max_width = limit.height >= 1080 ? 1920 : limit.height >= 720 ? 1280 : 854;
+    return util::fmt(R"({"MaxStreamingBitrate":%d,"DeviceProfile":{
 "Name":"CoffeeFlix Wii U","MaxStreamingBitrate":%d,"MaxStaticBitrate":40000000,"MusicStreamingTranscodingBitrate":256000,
 "DirectPlayProfiles":[
  {"Container":"mp4,m4v,mkv,mov","Type":"Video","VideoCodec":"h264","AudioCodec":"aac,mp3,ac3,eac3,flac,opus,vorbis,alac"},
@@ -202,7 +225,15 @@ std::string profile_json(int max_height) {
  {"Format":"srt","Method":"External"},{"Format":"subrip","Method":"External"},{"Format":"ass","Method":"External"},
  {"Format":"ssa","Method":"External"},{"Format":"vtt","Method":"External"},{"Format":"webvtt","Method":"External"}],
 "ContainerProfiles":[],"ResponseProfiles":[]}})",
-                     bitrate, max_width);
+                     limit.bitrate, limit.bitrate, max_width);
+}
+
+// A number in a URL's query ("VideoBitrate" in "...&VideoBitrate=1808000&..."), or 0.
+long long query_number(const std::string& url, const char* name) {
+    const std::string key = std::string(name) + "=";
+    for (size_t p = url.find(key); p != std::string::npos; p = url.find(key, p + 1))
+        if (p > 0 && (url[p - 1] == '?' || url[p - 1] == '&')) return atoll(url.c_str() + p + key.size());
+    return 0;
 }
 
 void post_async(const std::string& path, const std::string& body) {
@@ -213,12 +244,22 @@ void post_async(const std::string& path, const std::string& body) {
     });
 }
 
-bool resolve_video(const Item& it, double start, player::Source& src, std::string& error) {
+bool resolve_video(const Item& it, player::Source& src, std::string& error) {
     Account a = snapshot();
-    int max_h = (int)store::get_int("jf_quality", 1080);
+    const double start = src.start;  // later than the item's when reopened (another quality)
+    // Auto (quality 0): the step the downloads carry, or after Auto stepped down for a slow
+    // connection (or a server converting slower than it plays), the one below.
+    const bool auto_q = src.quality <= 0;
+    int budget = 0;
+    if (auto_q) {
+        const int cap = src.bitrate_cap > 0 ? src.bitrate_cap : player::auto_cap();
+        budget = player::auto_budget();
+        if (cap > 0 && (budget <= 0 || cap < budget)) budget = cap;
+    }
+    const Limit limit = auto_q ? auto_limit(budget) : fixed_limit(src.quality);
     std::string path = util::fmt("/Items/%s/PlaybackInfo?UserId=%s&StartTimeTicks=%lld&IsPlayback=true&AutoOpenLiveStream=true",
                                  it.id.c_str(), a.user_id.c_str(), (long long)(start * 1e7));
-    http::Response r = request(a.server, a.token, "POST", path, profile_json(max_h));
+    http::Response r = request(a.server, a.token, "POST", path, profile_json(limit));
     if (!r.ok()) {
         error = util::fmt(tr("Server refused playback: %s"), r.error.c_str());
         return false;
@@ -238,15 +279,23 @@ bool resolve_video(const Item& it, double start, player::Source& src, std::strin
         src.url = util::fmt("%s/Videos/%s/stream?static=true&mediaSourceId=%s&deviceId=%s&api_key=%s&PlaySessionId=%s",
                             a.server.c_str(), it.id.c_str(), msid.c_str(), device_id().c_str(), a.token.c_str(),
                             psid.c_str());
+        src.chunked_http = true;  // the file as it is: downloaded ahead in parts
+        src.bitrate = (int)json::num(ms, {"Bitrate"});
         method = "DirectPlay";
     } else if (!transcode.empty()) {
         src.url = a.server + transcode;
+        src.chunked_http = false;  // HLS, as the server converts it
+        const long long rate = query_number(transcode, "VideoBitrate") + query_number(transcode, "AudioBitrate");
+        src.bitrate = rate > 0 ? (int)std::min<long long>(rate, limit.bitrate) : limit.bitrate;
         method = "Transcode";
     } else {
         error = tr("The server can't stream this file");
         return false;
     }
-    log_message(LOG_OK, "Jellyfin", "%s via %s", it.name.c_str(), method.c_str());
+    // Auto steps down as long as there is a step below.
+    src.min_bitrate = auto_q ? AUTO_STEPS[std::size(AUTO_STEPS) - 1].bitrate : src.bitrate;
+    log_message(LOG_OK, "Jellyfin", "%s via %s (%d kbps; up to %dp, %d kbps%s)", it.name.c_str(), method.c_str(),
+                src.bitrate / 1000, limit.height, limit.bitrate / 1000, auto_q ? ", Auto" : "");
 
     // Text subtitles are fetched as SRT (the server converts).
     json_t* streams = json_object_get(ms, "MediaStreams");
@@ -524,9 +573,12 @@ player::Source make_source(const Item& it, bool from_start) {
                           a.server.c_str(), it.id.c_str(), a.user_id.c_str(), device_id().c_str(), a.token.c_str());
         return s;
     }
+    s.qualities = {480, 720, 1080};
+    s.quality = (int)store::get_int("jf_quality", 0);
+    s.quality_setting = "jf_quality";
+    s.auto_quality = true;
     Item copy = it;
-    double start = s.start;
-    s.resolve = [copy, start](player::Source& src, std::string& err) { return resolve_video(copy, start, src, err); };
+    s.resolve = [copy](player::Source& src, std::string& err) { return resolve_video(copy, src, err); };
     return s;
 }
 

@@ -229,7 +229,14 @@ void begin(bool video_foreground) {
         return;
     }
 
-    int after = (int)store::get_int("screensaver", 300);
+    // Read once a second: a background save holds the settings for a moment.
+    static int after = 300;
+    static float read_ago = 1e9f;
+    read_ago += dt;
+    if (read_ago >= 1.0f) {
+        after = (int)store::get_int("screensaver", 300);
+        read_ago = 0;
+    }
     bool want = after > 0 && in.idle_time > after && !video_foreground && !screens::prompt_active();
     if (g_saver_on && (in.any() || in.idle_time < 0.5)) want = false;  // any input wakes
     if (want && !g_saver_on) g_saver_t = 0;

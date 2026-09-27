@@ -1,16 +1,23 @@
 #include "services/youtube.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <cmath>
+#include <cstring>
 #include <functional>
 #include <future>
+#include <map>
+#include <memory>
 #include <mutex>
+#include <random>
 #include <set>
 
 #include "core/http.hpp"
 #include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
+#include "core/tasks.hpp"
 #include "core/util.hpp"
 #include "gfx/text.hpp"
 #include "logger/logger.hpp"
@@ -98,8 +105,10 @@ json_t* context(const Client& c) {
 }
 
 // `token`: an access token of the signed-in account (services/yt_account).
+// `fields` (an X-Goog-FieldMask) trims the answer to what's needed: a whole player response
+// is a lot of JSON for the Wii U to parse.
 json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string& error, const std::string& token = "",
-               long* status = nullptr) {
+               long* status = nullptr, const char* fields = nullptr) {
     json_object_set_new(body, "context", context(c));
     std::string payload = json::dump(body);
     json_decref(body);
@@ -112,6 +121,7 @@ json::Doc call(const char* endpoint, const Client& c, json_t* body, std::string&
     std::string vd = visitor();
     if (!vd.empty()) headers.emplace_back("X-Goog-Visitor-Id", vd);
     if (!token.empty()) headers.emplace_back("Authorization", "Bearer " + token);
+    if (fields) headers.emplace_back("X-Goog-FieldMask", fields);
     http::Response r = http::post_json(api_base() + endpoint + "?prettyPrint=false", payload, headers, 20);
     if (status) *status = r.status;
     if (!r.ok()) {
@@ -371,12 +381,13 @@ json::Doc browse(const std::string& browse_id, const char* params, const std::st
 
 // A request as the signed-in account. Its token works with the VR client, not WEB; its pages
 // are the older "compactVideoRenderer" lists. `make_body` runs once per attempt (call() takes it).
-json::Doc account_call(const char* endpoint, const std::function<json_t*()>& make_body, std::string& err) {
+json::Doc account_call(const char* endpoint, const std::function<json_t*()>& make_body, std::string& err,
+                       const char* fields = nullptr) {
     for (int attempt = 0; attempt < 2; attempt++) {
         std::string token = yt_account::access_token(attempt > 0, err);  // again once when turned down
         if (token.empty()) return json::Doc();
         long status = 0;
-        json::Doc doc = call(endpoint, ANDROID_VR, make_body(), err, token, &status);
+        json::Doc doc = call(endpoint, ANDROID_VR, make_body(), err, token, &status, fields);
         if (doc || status != 401) return doc;
     }
     return json::Doc();
@@ -421,10 +432,51 @@ const char* const PARAMS_CHANNELS = "EgIQAg==";
 struct Format {
     std::string url, mime;
     int itag = 0, width = 0, height = 0, bitrate = 0, fps = 0;
+    int average_bitrate = 0;  // over the whole file (`bitrate` is its peak): what Auto budgets with
     // Audio: videos with dubs have one set of formats per language.
     std::string audio_id, audio_label;  // "en-US.4", "English (US) original"
     bool audio_original = false, audio_dubbed = false, drc = false;
 };
+
+// Auto: up to 1080p for a video (within player::auto_budget above 720p), 720p for HLS (live
+// streams), which has no bitrates to budget with.
+constexpr int AUTO_MAX_HEIGHT = 1080, AUTO_HLS_HEIGHT = 720;
+
+// A format's quality as YouTube names it, by the shorter side: a vertical video's 480p is 480×854.
+int lines(const Format& f) { return f.width > 0 ? std::min(f.width, f.height) : f.height; }
+
+// The qualities a video has, as player::Source::qualities, from its H.264 streams' {height, fps}
+// (up to 1080p: the Wii U's decoder): 720p and 1080p at 60 and 30 fps when it's 60 fps (on the Wii U
+// as far as player::max_fps allows). Sets src.qualities and src.hfr.
+void set_qualities(const std::vector<std::pair<int, int>>& streams, player::Source& src) {
+    src.hfr = false;
+    for (auto [h, fps] : streams)
+        if (h >= 720 && h <= 1080 && fps > 31) src.hfr = true;
+    std::vector<int> q;
+    for (auto [h, fps] : streams) {
+        if (h <= 0 || h > 1080) continue;
+        if (h == 720) {
+            q.push_back(72060);
+            if (src.hfr) q.push_back(72030);
+        } else if (h == 1080) {
+            if (fps > 31 && player::max_fps(1080, 108060) > 31) q.push_back(108060);
+            if (fps <= 31 || player::max_fps(1080, 108030) > 31) q.push_back(108030);
+        } else {
+            q.push_back(h);
+        }
+    }
+    auto key = [](int v) { return std::make_pair(player::quality_height(v), v); };
+    std::sort(q.begin(), q.end(), [&](int a, int b) { return key(a) < key(b); });
+    q.erase(std::unique(q.begin(), q.end()), q.end());
+    if (!q.empty()) src.qualities = std::move(q);
+}
+
+// Which of set_qualities()'s a stream of `height` and `fps` is, asked for as `quality`.
+int quality_of(int height, int fps, int quality, bool hfr) {
+    if (height == 1080) return hfr && fps > 31 && quality != 108030 ? 108060 : 108030;
+    if (height == 720) return hfr && fps > 31 && quality == 72030 ? 72030 : 72060;
+    return height;
+}
 
 // Decodes URL-safe base64 (padding optional); stops at the first character outside it.
 std::string base64url_decode(const std::string& in) {
@@ -461,6 +513,8 @@ std::vector<Format> formats(json_t* arr) {
         fm.width = (int)json::num(f, {"width"});
         fm.height = (int)json::num(f, {"height"});
         fm.bitrate = (int)json::num(f, {"bitrate"});
+        fm.average_bitrate = (int)json::num(f, {"averageBitrate"});
+        if (fm.average_bitrate <= 0) fm.average_bitrate = fm.bitrate;
         fm.fps = (int)json::num(f, {"fps"});
         json_t* track = json_object_get(f, "audioTrack");
         fm.audio_id = json::str(track, {"id"});
@@ -519,7 +573,8 @@ const Format* pick_audio(const std::vector<Format>& formats, player::Source& src
     return a;
 }
 
-bool from_hls(const std::string& manifest, int max_height, const Client& c, player::Source& src, std::string& error) {
+// `quality`: as in player::Source (a height, perhaps with a frame rate).
+bool from_hls(const std::string& manifest, int quality, const Client& c, player::Source& src, std::string& error) {
     http::Response r = http::get(manifest, {{"User-Agent", c.user_agent}}, 15);
     if (!r.ok()) {
         error = tr("Couldn't load the stream playlist");
@@ -530,11 +585,18 @@ bool from_hls(const std::string& manifest, int max_height, const Client& c, play
         src.url = manifest;
         return true;
     }
-    const hls::Variant* v = hls::pick(m, max_height, true, player::max_fps);
+    const hls::Variant* v = hls::pick(m, player::quality_height(quality), true,
+                                      [quality](int h) { return player::max_fps(h, quality); });
     if (!v) {
         error = tr("No compatible stream (H.264) found");
         return false;
     }
+    std::vector<std::pair<int, int>> streams;
+    for (const hls::Variant& o : m.variants)
+        if (o.height > 0 && (o.codecs.empty() || o.codecs.find("avc1") != std::string::npos))
+            streams.emplace_back(o.height, (int)std::lround(o.fps));
+    set_qualities(streams, src);
+    if (src.quality != 0) src.quality = quality_of(v->height, (int)std::lround(v->fps), quality, src.hfr);
     src.url = v->url;
     if (const hls::Rendition* a = hls::audio_for(m, *v)) src.audio_url = a->url;
     return true;
@@ -572,8 +634,9 @@ void add_captions(json_t* tracks, player::Source& src) {
 }
 
 // `token`: as the signed-in account (services/yt_account), for what guests don't get to see.
-bool try_client(const Client& c, const std::string& id, int max_height, player::Source& src, std::string& error,
+bool try_client(const Client& c, const std::string& id, int quality, player::Source& src, std::string& error,
                 const std::string& token = "") {
+    const int max_height = player::quality_height(quality);
     json_t* body = json_object();
     json_object_set_new(body, "videoId", json_string(id.c_str()));
     json_object_set_new(body, "contentCheckOk", json_true());
@@ -605,12 +668,14 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
 
     json_t* sd = json_object_get(root, "streamingData");
     std::string hls_url = json::str(sd, {"hlsManifestUrl"});
+    // Auto (max_height 0): the best that fits the budget.
+    const bool auto_q = max_height <= 0;
     if (live) {
         if (hls_url.empty()) {
             error = tr("Live stream isn't available");
             return false;
         }
-        return from_hls(hls_url, max_height, c, src, error);
+        return from_hls(hls_url, auto_q ? AUTO_HLS_HEIGHT : quality, c, src, error);
     }
     if (&c == &ANDROID_VR && token.empty()) {
         error = tr("This video can't be played right now");
@@ -618,29 +683,55 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
     }
 
     std::vector<Format> adaptive = formats(json_object_get(sd, "adaptiveFormats"));
+    const Format* best_a = pick_audio(adaptive, src);
+    const int audio_rate = best_a ? best_a->average_bitrate : 0;
+    const int budget = !auto_q ? 0 : src.bitrate_cap > 0 ? src.bitrate_cap : player::auto_cap();
+    const int hd_budget = auto_q ? player::auto_budget() : 0;
+    // Pass 0: within the budget (Auto after a slow connection). Pass 1: the lightest there is (Auto;
+    // the budget is too small for all of them) or the same as pass 0. 60 fps doubles the decoding
+    // work: only as far as player::max_fps allows, unless there is nothing else (pass 2).
+    // Up to 1080 pixels high whatever the shape: the Wii U's decoder.
+    auto h264 = [](const Format& f) {
+        return util::starts_with(f.mime, "video/mp4") && f.mime.find("avc1") != std::string::npos && f.height > 0 &&
+               f.height <= 1080;
+    };
+    auto usable = [&](const Format& f, int pass) {
+        return h264(f) && lines(f) <= (auto_q ? AUTO_MAX_HEIGHT : max_height) &&
+               (lines(f) <= 720 || !hd_budget || f.average_bitrate + audio_rate <= hd_budget) &&
+               (pass == 2 || f.fps <= player::max_fps(lines(f), quality)) &&
+               (pass != 0 || !budget || f.average_bitrate + audio_rate <= budget);
+    };
     const Format* best_v = nullptr;
-    const Format* best_a = nullptr;
-    // 60 fps doubles the decoding work: only as far as player::max_fps allows, or when there
-    // is nothing else.
-    for (int pass = 0; pass < 2 && !best_v; pass++) {
+    for (int pass = 0; pass < 3 && !best_v; pass++) {
         for (const Format& f : adaptive) {
-            if (!util::starts_with(f.mime, "video/mp4") || f.mime.find("avc1") == std::string::npos || f.height <= 0 ||
-                f.height > max_height || (pass == 0 && f.fps > player::max_fps(f.height)))
-                continue;
-            bool better = !best_v || f.height > best_v->height ||
-                          (f.height == best_v->height && f.fps <= 30 && best_v->fps > 30) ||
-                          (f.height == best_v->height && f.fps == best_v->fps && f.bitrate > best_v->bitrate);
+            if (!usable(f, pass)) continue;
+            bool better = pass == 1 && budget
+                              ? !best_v || f.average_bitrate < best_v->average_bitrate
+                              : !best_v || lines(f) > lines(*best_v) ||
+                                    (lines(f) == lines(*best_v) && f.fps <= 30 && best_v->fps > 30) ||
+                                    (lines(f) == lines(*best_v) && f.fps == best_v->fps && f.bitrate > best_v->bitrate);
             if (better) best_v = &f;
         }
     }
-    best_a = pick_audio(adaptive, src);
     if (best_v && best_a) {
+        std::vector<std::pair<int, int>> streams;
+        for (const Format& f : adaptive)
+            if (h264(f)) streams.emplace_back(lines(f), f.fps);
+        set_qualities(streams, src);
+        if (!auto_q) src.quality = quality_of(lines(*best_v), best_v->fps, quality, src.hfr);
         src.url = best_v->url;
         src.audio_url = best_a->url;
         src.chunked_http = true;
-        log_message(LOG_OK, "YouTube", "%s: itag %d (%dp%d) + itag %d%s%s via %s", id.c_str(), best_v->itag,
-                    best_v->height, best_v->fps, best_a->itag, best_a->audio_label.empty() ? "" : ", ",
-                    best_a->audio_label.c_str(), c.name);
+        src.bitrate = best_v->average_bitrate + audio_rate;
+        src.min_bitrate = src.bitrate;
+        for (const Format& f : adaptive)
+            if (usable(f, 1)) src.min_bitrate = std::min(src.min_bitrate, f.average_bitrate + audio_rate);
+        log_message(LOG_OK, "YouTube", "%s: itag %d (%dp%d, %d kbps) + itag %d%s%s via %s%s", id.c_str(), best_v->itag,
+                    lines(*best_v), best_v->fps, best_v->average_bitrate / 1000, best_a->itag,
+                    best_a->audio_label.empty() ? "" : ", ", best_a->audio_label.c_str(), c.name,
+                    budget      ? util::fmt(" (Auto: up to %d kbps)", budget / 1000).c_str()
+                    : hd_budget ? util::fmt(" (Auto: above 720p up to %d kbps)", hd_budget / 1000).c_str()
+                                : "");
         return true;
     }
     // Progressive (video+audio in one file) fallback: usually 360p.
@@ -654,7 +745,7 @@ bool try_client(const Client& c, const std::string& id, int max_height, player::
         log_message(LOG_OK, "YouTube", "%s: progressive itag %d via %s", id.c_str(), best_m->itag, c.name);
         return true;
     }
-    if (!hls_url.empty()) return from_hls(hls_url, max_height, c, src, error);
+    if (!hls_url.empty()) return from_hls(hls_url, auto_q ? AUTO_HLS_HEIGHT : quality, c, src, error);
     error = tr("No playable H.264 streams");
     return false;
 }
@@ -675,22 +766,92 @@ const std::vector<Topic>& topics() {
     return t;
 }
 
+// X-Goog-FieldMask for searches: only what parse_renderer and parse_lockup read, in the places
+// YouTube puts results. A whole answer is 300 KB to 1.5 MB of JSON; this keeps about 5% of it.
+// Every path has to exist in YouTube's schema (gridVideoRenderer has no ownerText, say), or the
+// whole request fails with 400.
+const std::string& search_fields() {
+    static const std::string mask = [] {
+        static const char* const VIDEO[] = {"videoId", "title", "ownerText", "shortBylineText", "lengthText",
+                                            "shortViewCountText", "viewCountText", "publishedTimeText",
+                                            "thumbnailOverlays.thumbnailOverlayTimeStatusRenderer",
+                                            "badges.metadataBadgeRenderer.style"};
+        static const char* const LOCKUP[] = {"contentType", "contentId", "metadata.lockupMetadataViewModel.title",
+                                             "metadata.lockupMetadataViewModel.metadata",
+                                             "contentImage.thumbnailViewModel.overlays"};
+        enum Kind { V, G, L };
+        struct Place {
+            const char* path;
+            Kind kind;
+        };
+        static const Place FIRST[] = {
+            {"videoRenderer", V},
+            {"shelfRenderer.content.verticalListRenderer.items.videoRenderer", V},
+            {"shelfRenderer.content.horizontalListRenderer.items.gridVideoRenderer", G},
+            {"lockupViewModel", L},
+            {"shelfRenderer.content.verticalListRenderer.items.lockupViewModel", L},
+            {"officialCardViewModel.contents.horizontalShelfViewModel.items.lockupViewModel", L},
+        };
+        static const Place MORE[] = {{"videoRenderer", V}, {"lockupViewModel", L}};
+        std::string out;
+        auto add = [&](const std::string& path) {
+            if (!out.empty()) out += ',';
+            out += path;
+        };
+        auto section = [&](const std::string& root, const Place* places, size_t n) {
+            for (size_t i = 0; i < n; i++) {
+                std::string base = root + ".itemSectionRenderer.contents." + places[i].path + ".";
+                if (places[i].kind == L) {
+                    for (const char* f : LOCKUP) add(base + f);
+                } else {
+                    for (const char* f : VIDEO)
+                        if (places[i].kind == V || strcmp(f, "ownerText") != 0) add(base + f);
+                }
+            }
+            add(root + ".continuationItemRenderer.continuationEndpoint.continuationCommand.token");
+        };
+        section("contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents", FIRST,
+                sizeof(FIRST) / sizeof(FIRST[0]));
+        section("onResponseReceivedCommands.appendContinuationItemsAction.continuationItems", MORE,
+                sizeof(MORE) / sizeof(MORE[0]));
+        return out;
+    }();
+    return mask;
+}
+
 Results search(const std::string& query, const std::string& params, const std::string& continuation) {
-    Results res;
-    json_t* body = json_object();
-    if (!continuation.empty()) {
-        json_object_set_new(body, "continuation", json_string(continuation.c_str()));
-    } else {
-        json_object_set_new(body, "query", json_string(query.c_str()));
-        if (!params.empty()) json_object_set_new(body, "params", json_string(util::url_decode(params).c_str()));
+    auto run = [&](bool mask, long& status) {
+        json_t* body = json_object();
+        if (!continuation.empty()) {
+            json_object_set_new(body, "continuation", json_string(continuation.c_str()));
+        } else {
+            json_object_set_new(body, "query", json_string(query.c_str()));
+            if (!params.empty()) json_object_set_new(body, "params", json_string(util::url_decode(params).c_str()));
+        }
+        std::string err;
+        json::Doc doc = call("search", WEB, body, err, "", &status, mask ? search_fields().c_str() : nullptr);
+        if (!doc) {
+            Results res;
+            res.error = err;
+            return res;
+        }
+        return parse_results(doc.get());
+    };
+    // Should YouTube turn the mask down, or move results out of it, the rest of the session asks
+    // for whole answers.
+    static std::atomic<bool> masked{true};
+    long status = 0;
+    if (!masked) return run(false, status);
+    Results res = run(true, status);
+    if (status != 400 && (!res.ok || !res.items.empty())) return res;
+    long whole_status = 0;
+    Results whole = run(false, whole_status);
+    if (status == 400 || !whole.items.empty()) {
+        log_message(LOG_WARNING, "YouTube", "Trimmed search came back %s, asking for whole answers from now on",
+                    status == 400 ? "refused" : "empty");
+        masked = false;
     }
-    std::string err;
-    json::Doc doc = call("search", WEB, body, err);
-    if (!doc) {
-        res.error = err;
-        return res;
-    }
-    return parse_results(doc.get());
+    return whole;
 }
 
 Results trending() {
@@ -897,6 +1058,131 @@ bool account_info(AccountInfo& out, std::string& error) {
     return !out.name.empty();
 }
 
+// --- watch history and Watch later (signed in) --------------------------------------------------
+
+namespace {
+
+// YouTube's apps report playback as they go: a "playback" ping puts the video in the history,
+// "watchtime" pings say how much of it was watched. The addresses come with the player response;
+// asked for as the account, they count for it.
+struct Tracking {
+    std::string playback, watchtime, cpn;
+    double reported = 0;
+};
+std::mutex g_track_m, g_report_m;
+std::map<std::string, Tracking> g_tracking;  // by video id, while it plays
+
+// `url` with `params` set, replacing any it had.
+std::string with_params(const std::string& url, const std::vector<std::pair<std::string, std::string>>& params) {
+    size_t q = url.find('?');
+    std::string query;
+    if (q != std::string::npos) {
+        std::string old = url.substr(q + 1);
+        for (size_t i = 0; i <= old.size();) {
+            size_t amp = std::min(old.find('&', i), old.size());
+            std::string kv = old.substr(i, amp - i);
+            std::string key = kv.substr(0, kv.find('='));
+            bool replaced = std::any_of(params.begin(), params.end(), [&](const auto& p) { return p.first == key; });
+            if (!kv.empty() && !replaced) query += (query.empty() ? "" : "&") + kv;
+            i = amp + 1;
+        }
+    }
+    for (const auto& [k, v] : params) query += (query.empty() ? "" : "&") + k + "=" + v;
+    return url.substr(0, q) + "?" + query;
+}
+
+// A client playback nonce: 16 random characters naming this viewing.
+std::string new_cpn() {
+    static const char* A = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+    static std::mt19937 rng((unsigned)(util::now_seconds() * 1000));
+    std::string out;
+    for (int i = 0; i < 16; i++) out += A[rng() & 63];
+    return out;
+}
+
+bool ping(const std::string& url, std::string& error) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+        std::string token = yt_account::access_token(attempt > 0, error);  // again once when turned down
+        if (token.empty()) return false;
+        http::Response r = http::get(url, {{"User-Agent", ANDROID_VR.user_agent}, {"Authorization", "Bearer " + token}}, 15);
+        if (r.ok()) return true;
+        error = !r.error.empty() ? r.error : util::fmt(tr("YouTube answered %ld"), r.status);
+        if (r.status != 401) return false;
+    }
+    return false;
+}
+
+std::string seconds(double s) { return util::fmt("%.3f", std::max(0.0, s)); }
+
+}  // namespace
+
+bool account_report_watched(const std::string& id, double position, bool done, std::string& error) {
+    // One report at a time: a slow first one (it loads the player response) mustn't be overtaken.
+    std::lock_guard<std::mutex> busy(g_report_m);
+    Tracking t;
+    bool started;
+    {
+        std::lock_guard<std::mutex> lk(g_track_m);
+        auto it = g_tracking.find(id);
+        started = it != g_tracking.end();
+        if (started) t = it->second;
+    }
+    if (!started) {
+        json::Doc doc = account_call("player", [&] {
+            json_t* body = json_object();
+            json_object_set_new(body, "videoId", json_string(id.c_str()));
+            json_object_set_new(body, "contentCheckOk", json_true());
+            json_object_set_new(body, "racyCheckOk", json_true());
+            return body;
+        }, error, "playbackTracking.videostatsPlaybackUrl.baseUrl,playbackTracking.videostatsWatchtimeUrl.baseUrl");
+        if (!doc) return false;
+        t.playback = json::str(doc.get(), {"playbackTracking", "videostatsPlaybackUrl", "baseUrl"});
+        t.watchtime = json::str(doc.get(), {"playbackTracking", "videostatsWatchtimeUrl", "baseUrl"});
+        if (t.playback.empty()) {
+            error = tr("Unexpected response from YouTube");
+            return false;
+        }
+        t.cpn = new_cpn();
+        if (!ping(with_params(t.playback, {{"ver", "2"}, {"cpn", t.cpn}, {"cmt", seconds(position)}, {"el", "detailpage"}}),
+                  error))
+            return false;
+        log_message(LOG_OK, "YouTube", "%s: added to the account's history", id.c_str());
+    }
+    if (!t.watchtime.empty() && position > t.reported + 1) {
+        std::string st = seconds(t.reported), et = seconds(position);
+        if (!ping(with_params(t.watchtime, {{"ver", "2"}, {"cpn", t.cpn}, {"cmt", et}, {"st", st}, {"et", et},
+                                            {"el", "detailpage"}}),
+                  error))
+            return false;
+    }
+    t.reported = std::max(t.reported, position);
+    std::lock_guard<std::mutex> lk(g_track_m);
+    if (done) g_tracking.erase(id);
+    else g_tracking[id] = t;
+    return true;
+}
+
+bool account_watch_later(const std::string& id, bool on, std::string& error) {
+    json::Doc doc = account_call("browse/edit_playlist", [&] {
+        json_t* action = json_object();
+        json_object_set_new(action, "action", json_string(on ? "ACTION_ADD_VIDEO" : "ACTION_REMOVE_VIDEO_BY_VIDEO_ID"));
+        json_object_set_new(action, on ? "addedVideoId" : "removedVideoId", json_string(id.c_str()));
+        json_t* actions = json_array();
+        json_array_append_new(actions, action);
+        json_t* body = json_object();
+        json_object_set_new(body, "playlistId", json_string("WL"));
+        json_object_set_new(body, "actions", actions);
+        return body;
+    }, error);
+    if (!doc) return false;
+    std::string status = json::str(doc.get(), {"status"});
+    if (!status.empty() && status != "STATUS_SUCCEEDED") {
+        error = status;
+        return false;
+    }
+    return true;
+}
+
 int64_t age_seconds(const std::string& published) {
     static const std::pair<const char*, int64_t> UNITS[] = {
         {"second", 1}, {"minute", 60}, {"hour", 3600}, {"day", 86400},
@@ -989,12 +1275,139 @@ Results related(const std::string& video_id) {
     return r;
 }
 
+namespace {
+
+void put_varint(std::string& out, uint64_t n) {
+    while (n >= 0x80) {
+        out += (char)((n & 0x7f) | 0x80);
+        n >>= 7;
+    }
+    out += (char)n;
+}
+
+void put_bytes(std::string& out, int field, const std::string& data) {
+    put_varint(out, (uint64_t)field << 3 | 2);
+    put_varint(out, data.size());
+    out += data;
+}
+
+void put_number(std::string& out, int field, uint64_t n) {
+    put_varint(out, (uint64_t)field << 3);
+    put_varint(out, n);
+}
+
+std::string base64url_encode(const std::string& in) {
+    static const char* A = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    std::string out;
+    size_t i = 0;
+    for (; i + 2 < in.size(); i += 3) {
+        uint32_t n = (uint8_t)in[i] << 16 | (uint8_t)in[i + 1] << 8 | (uint8_t)in[i + 2];
+        out += A[n >> 18 & 63], out += A[n >> 12 & 63], out += A[n >> 6 & 63], out += A[n & 63];
+    }
+    if (i + 1 == in.size()) {
+        uint32_t n = (uint8_t)in[i] << 16;
+        out += A[n >> 18 & 63], out += A[n >> 12 & 63], out += "==";
+    } else if (i + 2 == in.size()) {
+        uint32_t n = (uint8_t)in[i] << 16 | (uint8_t)in[i + 1] << 8;
+        out += A[n >> 18 & 63], out += A[n >> 12 & 63], out += A[n >> 6 & 63], out += "=";
+    }
+    return out;
+}
+
+// The continuation the watch page's comments section starts from, built the same way the page
+// builds it (a small protobuf), so the whole 400 KB watch page needn't be loaded first.
+std::string comments_token(const std::string& video_id, bool newest) {
+    std::string inner, section, video, token;
+    put_bytes(inner, 4, video_id);
+    put_number(inner, 6, newest ? 1 : 0);
+    put_number(inner, 15, 2);
+    put_bytes(section, 4, inner);
+    put_bytes(section, 8, "comments-section");
+    put_bytes(video, 2, video_id);
+    put_bytes(token, 2, video);
+    put_number(token, 3, 6);
+    put_bytes(token, 6, section);
+    return base64url_encode(token);
+}
+
+std::string continuation_token(json_t* item) {
+    return json::str(json::find_key(item, "continuationCommand", 8), {"token"});
+}
+
+}  // namespace
+
+Comments comments(const std::string& video_id, bool newest, const std::string& continuation) {
+    Comments out;
+    json_t* body = json_object();
+    std::string token = continuation.empty() ? comments_token(video_id, newest) : continuation;
+    json_object_set_new(body, "continuation", json_string(token.c_str()));
+    json::Doc doc = call("next", WEB, body, out.error);
+    if (!doc) return out;
+    json_t* root = doc.get();
+
+    // The text, author and counts are "entities" stored beside the list, by key.
+    std::map<std::string, json_t*> entities;
+    std::set<std::string> hearted;
+    json_t* muts = json::at(root, {"frameworkUpdates", "entityBatchUpdate", "mutations"});
+    for (size_t i = 0; i < json::size(muts); i++) {
+        json_t* p = json::at(json_array_get(muts, i), {"payload"});
+        if (json_t* c = json_object_get(p, "commentEntityPayload")) entities[json::str(c, {"key"})] = c;
+        if (json_t* t = json_object_get(p, "engagementToolbarStateEntityPayload"))
+            if (json::str(t, {"heartState"}) == "TOOLBAR_HEART_STATE_HEARTED") hearted.insert(json::str(t, {"key"}));
+    }
+    auto add = [&](json_t* view, json_t* thread) {
+        json_t* e = entities[json::str(view, {"commentKey"})];
+        if (!e) return;
+        Comment c;
+        c.id = json::str(view, {"commentId"});
+        c.text = json::str(e, {"properties", "content", "content"});
+        c.published = json::str(e, {"properties", "publishedTime"});
+        c.reply = json::num(e, {"properties", "replyLevel"}) > 0;
+        c.author = json::str(e, {"author", "displayName"});
+        c.author_id = json::str(e, {"author", "channelId"});
+        c.avatar = json::str(e, {"author", "avatarThumbnailUrl"});
+        c.verified = json::boolean(e, {"author", "isVerified"});
+        c.creator = json::boolean(e, {"author", "isCreator"});
+        c.likes = json::str(e, {"toolbar", "likeCountNotliked"});
+        c.replies = json::str(e, {"toolbar", "replyCount"});
+        c.pinned = json::str(view, {"pinnedText"});
+        c.hearted = hearted.count(json::str(view, {"toolbarStateKey"})) > 0;
+        if (thread) c.replies_token = continuation_token(json::at(thread, {"replies"}));
+        if (c.likes == "0") c.likes.clear();
+        if (c.replies == "0") c.replies.clear();
+        out.items.push_back(std::move(c));
+    };
+
+    json_t* eps = json_object_get(root, "onResponseReceivedEndpoints");
+    for (size_t i = 0; i < json::size(eps); i++) {
+        json_t* ep = json_array_get(eps, i);
+        json_t* list = json::at(ep, {"reloadContinuationItemsCommand", "continuationItems"});
+        if (!list) list = json::at(ep, {"appendContinuationItemsAction", "continuationItems"});
+        for (size_t k = 0; k < json::size(list); k++) {
+            json_t* item = json_array_get(list, k);
+            if (json_t* h = json_object_get(item, "commentsHeaderRenderer")) {
+                out.count = json::yt_text(json_object_get(h, "countText"));
+            } else if (json_t* t = json_object_get(item, "commentThreadRenderer")) {
+                add(json::at(t, {"commentViewModel", "commentViewModel"}), t);
+            } else if (json_t* v = json_object_get(item, "commentViewModel")) {
+                add(v, nullptr);  // a reply
+            } else if (json_t* more = json_object_get(item, "continuationItemRenderer")) {
+                out.continuation = continuation_token(more);
+            }
+        }
+    }
+    // A video with comments turned off answers with nothing at all.
+    out.off = continuation.empty() && out.items.empty() && out.count.empty();
+    out.ok = true;
+    return out;
+}
+
 std::string duration_label(const Video& v) { return v.duration == "Short" ? tr("Short") : v.duration; }
 
 std::string thumbnail(const std::string& id) { return "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg"; }
 std::string thumbnail_hq(const std::string& id) { return "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg"; }
 
-bool resolve(const std::string& id, int max_height, player::Source& src, std::string& error) {
+bool resolve(const std::string& id, int quality, player::Source& src, std::string& error) {
     std::future<std::vector<Segment>> segments;
     if (store::get_bool("yt_sponsorblock", true))
         segments = std::async(std::launch::async, [id] { return sponsor_segments(id); });
@@ -1016,7 +1429,7 @@ bool resolve(const std::string& id, int max_height, player::Source& src, std::st
     std::string first_error;
     for (const Client* c : {&VISIONOS, &ANDROID_VR}) {
         std::string err;
-        if (try_client(*c, id, max_height, src, err)) {
+        if (try_client(*c, id, quality, src, err)) {
             if (!src.live) take_segments();
             return true;
         }
@@ -1029,7 +1442,7 @@ bool resolve(const std::string& id, int max_height, player::Source& src, std::st
     std::string token = yt_account::signed_in() ? yt_account::access_token(false, token_error) : "";
     if (!token.empty()) {
         std::string err;
-        if (try_client(ANDROID_VR, id, max_height, src, err, token)) {
+        if (try_client(ANDROID_VR, id, quality, src, err, token)) {
             log_message(LOG_OK, "YouTube", "%s: played signed in", id.c_str());
             if (!src.live) take_segments();
             return true;
@@ -1039,6 +1452,20 @@ bool resolve(const std::string& id, int max_height, player::Source& src, std::st
     error = first_error.empty() ? tr("YouTube playback failed") : first_error;
     return false;
 }
+
+namespace {
+
+void report_watched(const std::string& id, double position, bool done) {
+    if (!yt_account::signed_in() || !store::get_bool("yt_history_sync", true)) return;
+    tasks::submit(tasks::API, [id, position, done]() -> std::function<void()> {
+        std::string err;
+        if (!account_report_watched(id, position, done, err))
+            log_message(LOG_WARNING, "YouTube", "Watch history for %s: %s", id.c_str(), err.c_str());
+        return nullptr;
+    });
+}
+
+}  // namespace
 
 player::Source make_source(const Video& v) {
     player::Source s;
@@ -1051,12 +1478,27 @@ player::Source make_source(const Video& v) {
     s.extra = v.channel;
     s.start = v.live ? 0 : store::resume_position("youtube", v.id);
     s.channel_id = v.channel_id;
-    s.qualities = {360, 480, 720, 1080};
-    s.quality = (int)store::get_int("yt_quality", 720);
+    s.qualities = {360, 480, 72030, 72060, 108030, 108060};  // until resolve() has the video's own
+    s.quality = (int)store::get_int("yt_quality", 0);
     s.quality_setting = "yt_quality";
+    s.auto_quality = true;
     std::string id = v.id;
     s.resolve = [id](player::Source& src, std::string& err) { return resolve(id, src.quality, src, err); };
-    s.on_stop = [v](double position, bool finished) { yt_recs::on_watch(v, position, finished); };
+    // Signed in, the account's watch history follows along: once 10 s in, then only every couple
+    // of minutes (each report is work for the CPU that also feeds the video), on pausing, and at
+    // the end.
+    auto reported = std::make_shared<double>(-1);
+    s.on_progress = [id, live = v.live, reported](double position, bool paused) {
+        if (live || position < 10) return;
+        double moved = *reported < 0 ? 1e9 : std::fabs(position - *reported);
+        if (moved < (paused ? 1 : 120)) return;
+        *reported = position;
+        report_watched(id, position, false);
+    };
+    s.on_stop = [v, reported](double position, bool finished) {
+        yt_recs::on_watch(v, position, finished);
+        if (!v.live && (*reported >= 0 || position >= 10 || finished)) report_watched(v.id, position, true);
+    };
     // Nearly every video has auto-generated captions; don't turn them on unless asked to.
     s.subs_auto = store::get_bool("yt_captions", false);
     return s;
