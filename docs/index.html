@@ -65,7 +65,7 @@ a { color: inherit; }
 .nav nav a { color: var(--text-2); text-decoration: none; font-size: 15px; font-weight: 600; }
 .nav nav a:hover { color: var(--text); }
 .nav .btn { padding: 9px 16px; font-size: 15px; }
-@media (max-width: 720px) { .nav nav { display: none; } .nav .btn { margin-left: auto; } }
+@media (max-width: 900px) { .nav nav { display: none; } .nav .btn { margin-left: auto; } }
 
 /* buttons */
 .btn {
@@ -108,6 +108,10 @@ a { color: inherit; }
 section { padding: 72px 0; }
 h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 12px; }
 .sub { color: var(--text-2); margin: 0 0 36px; max-width: 62ch; }
+.community { padding: 24px 0; }
+.community-callout { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; padding: 28px; border: 1px solid rgba(255, 162, 76, 0.25); border-radius: var(--radius); background: linear-gradient(110deg, rgba(255, 162, 76, 0.08), rgba(255, 95, 109, 0.04)); }
+.community-callout h2 { font-size: clamp(24px, 3vw, 32px); margin: 10px 0; }
+.community-callout p { margin: 0; color: var(--text-2); font-size: 15px; max-width: 64ch; }
 
 .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
@@ -160,6 +164,7 @@ footer a { color: var(--text-2); }
     <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="32" height="32"><b>Coffee<span>Flix</span></b></a>
     <nav aria-label="Sections">
       <a href="#features">Features</a>
+      <a href="features.html">Feature votes</a>
       <a href="#screens">Screenshots</a>
       <a href="#install">Install</a>
       <a href="#faq">FAQ</a>
@@ -180,6 +185,7 @@ footer a { color: var(--text-2); }
           Download for Wii U
         </a>
         <a class="btn" href="#install">How to install</a>
+        <a class="btn" href="features.html">Vote on features</a>
         <a class="btn" href="https://ko-fi.com/ubecatstudio">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.6 5c2 0 3.4 1.1 4.4 2.5C12 6.1 13.4 5 15.4 5 19 5 21 8.6 19.6 11.8 17.5 16.4 12 21 12 21z"/></svg>
           Support on Ko-fi
@@ -189,6 +195,19 @@ footer a { color: var(--text-2); }
       <div class="tv"><img src="assets/shots/home.jpg" alt="The CoffeeFlix home screen: a featured video with recommendations below it" width="1280" height="720"></div>
     </div>
   </div>
+
+  <section class="community" aria-labelledby="community-title">
+    <div class="wrap">
+      <div class="community-callout">
+        <div>
+          <span class="eyebrow">Help shape CoffeeFlix</span>
+          <h2 id="community-title">What would you love to see next?</h2>
+          <p>Customization, new services, better controls — explore the community wishlist and give your favorite ideas a thumbs-up on GitHub.</p>
+        </div>
+        <a class="btn primary" href="features.html">Explore &amp; vote <span aria-hidden="true">↗</span></a>
+      </div>
+    </div>
+  </section>
 
   <section id="features">
     <div class="wrap">
@@ -323,6 +342,7 @@ footer a { color: var(--text-2); }
   <div class="wrap">
     <div><a class="brand" href="#top"><img src="assets/icon.png" alt="" width="24" height="24" style="width:24px;height:24px"><b>Coffee<span>Flix</span></b></a></div>
     <div>Enjoying CoffeeFlix? <a href="https://ko-fi.com/ubecatstudio">Support it on Ko-fi</a>.</div>
+    <div>Have an idea? <a href="features.html">Vote for features or suggest one</a>.</div>
     <div>Free for noncommercial use under the <a href="https://github.com/Roastedd/CoffeeFlix/blob/master/LICENSE.md">PolyForm Noncommercial License 1.0.0</a>. Includes open-source software listed in <a href="https://github.com/Roastedd/CoffeeFlix/blob/master/content/licenses/NOTICES.txt">NOTICES</a>.</div>
     <div>CoffeeFlix is not affiliated with or endorsed by Nintendo, Google/YouTube, Twitch, Jellyfin or SponsorBlock. All trademarks belong to their owners.</div>
     <div>Screenshots show <em>Sintel</em> (© Blender Foundation, CC BY 3.0) and <em>Alice's Adventures in Wonderland</em> (public domain, Project Gutenberg).</div>
