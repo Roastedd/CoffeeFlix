@@ -2,6 +2,7 @@
 #pragma once
 
 #include <memory>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,11 @@ std::unique_ptr<app::Screen> make_twitch();
 std::unique_ptr<app::Screen> make_radio();
 std::unique_ptr<app::Screen> make_podcasts();
 std::unique_ptr<app::Screen> make_media();
+std::unique_ptr<app::Screen> make_receive_files();
+std::unique_ptr<app::Screen> make_support();
+// Counts an app start; asks on Home, once, whether to say thanks (support_screen.cpp).
+void count_start();
+void maybe_ask_for_support();
 std::unique_ptr<app::Screen> make_settings();
 
 }  // namespace screens
@@ -28,8 +34,11 @@ namespace jellyfin { struct Item; }
 
 namespace screens {
 
+std::unique_ptr<app::Screen> make_video_player();
 // Launch helpers (push the right player screen).
 void play_video(const player::Source& src);
+// A Jellyfin video; an episode offers the next one when it ends.
+void play_jellyfin_video(const jellyfin::Item& item, bool from_start = false);
 void play_audio(const player::Source& src, bool show_now_playing = true);
 void play_audio_queue(std::vector<player::Source> queue, int index, bool show_now_playing = true);
 void play_video_queue(std::vector<player::Source> queue, int index);

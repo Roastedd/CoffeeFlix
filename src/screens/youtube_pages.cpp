@@ -20,6 +20,7 @@
 #include "logger/logger.hpp"
 #include "platform/platform.hpp"
 #include "player/player.hpp"
+#include "screens/end_card.hpp"
 #include "screens/screens.hpp"
 #include "screens/youtube_common.hpp"
 #include "services/yt_account.hpp"
@@ -144,10 +145,67 @@ void remember_watched(const youtube::Video& v) {
 
 }  // namespace
 
-void play(const youtube::Video& v) {
-    remember_watched(v);
-    play_video(youtube::make_source(v));
+namespace {
+class YoutubeAutoplayScreen : public app::Screen {
+public:
+    explicit YoutubeAutoplayScreen(youtube::Video video) { begin(std::move(video)); }
+    bool fullscreen() const override { return true; }
+    bool draws_background() const override { return true; }
+    app::Section section() const override { return app::SEC_YOUTUBE; }
+    void on_enter() override { if (video_) video_->on_enter(); }
+    bool on_back() override { return player::state() != player::ENDED && video_ && video_->on_back(); }
+    void frame() override {
+        const bool autoplay = store::get_bool("yt_autoplay", true);
+        const bool ended = player::state() == player::ENDED;
+        if (!requested_ && !current_.live && player::started() &&
+            (ended || (player::duration() > 0 && player::duration() - player::position() < 45))) load_next();
+        if (!ended) { ended_at_ = 0; video_->frame(); return; }
+        using namespace ui;
+        gfx::fill_rect(Rect(0, 0, W, H), gfx::BLACK);
+        if (auto tex = player::video_texture()) { auto r = player::fit_rect((int)W,(int)H); gfx::image_rotated(tex,Rect(r.x,r.y,r.w,r.h),player::video_rotation()); }
+        const bool ready = !next_.id.empty();
+        if (loading_ || ended_at_ == 0) ended_at_ = util::now_seconds();
+        EndCard card;
+        card.kind = EndKind::VIDEO;
+        card.title = current_.title; card.subtitle = current_.channel;
+        card.has_next = ready; card.loading = loading_; card.autoplay = autoplay;
+        card.counting = ready && autoplay && !cancelled_;
+        card.elapsed = util::now_seconds() - ended_at_;
+        if (ready) {
+            card.next_title = next_.title; card.next_subtitle = next_.channel;
+            card.next_overview = next_.views.empty() ? next_.published : next_.published.empty() ? next_.views : next_.views + " \xC2\xB7 " + next_.published;
+            card.next_image = youtube::thumbnail(next_.id);
+        }
+        if (card.counting && card.elapsed >= END_COUNTDOWN) { begin(next_); return; }
+        switch (draw_end_card(card)) {
+            case EndAction::PLAY_NEXT: begin(next_); return;
+            case EndAction::CANCEL: cancelled_=true; break;
+            case EndAction::REPLAY: cancelled_=true; ended_at_=0; player::seek(0); break;
+            case EndAction::TOGGLE_AUTOPLAY: store::set_bool("yt_autoplay",!autoplay); cancelled_=false; ended_at_=0; break;
+            case EndAction::BACK: app::pop(); break;
+            default: break;
+        }
+    }
+private:
+    void begin(youtube::Video video) {
+        scope_.reset(); video_.reset(); current_=std::move(video); next_={}; requested_=loading_=cancelled_=false; ended_at_=0;
+        if (seen_.size()>=100) seen_.clear();
+        seen_.insert(current_.id); remember_watched(current_);
+        player::open(youtube::make_source(current_)); video_=make_video_player(); video_->on_enter();
+    }
+    void load_next() {
+        requested_=loading_=true; const auto id=current_.id;
+        scope_.run<youtube::Results>([id]{return youtube::related(id);},[this](youtube::Results result){
+            loading_=false;
+            for(auto& candidate:result.items) if(!candidate.live && !candidate.id.empty() && !seen_.count(candidate.id)) {next_=std::move(candidate);break;}
+        });
+    }
+    youtube::Video current_,next_; std::set<std::string> seen_; tasks::Scope scope_;
+    std::unique_ptr<app::Screen> video_; bool requested_=false,loading_=false,cancelled_=false; double ended_at_=0;
+};
 }
+
+void play(const youtube::Video& v) { app::push(std::make_unique<YoutubeAutoplayScreen>(v)); }
 
 void play_all(const std::vector<youtube::Video>& list, int index) {
     if (index < 0 || index >= (int)list.size()) return;
@@ -725,9 +783,9 @@ private:
     // The first Videos page brings the channel's header.
     void take_header() {
         if (have_header_ || !feeds_[0].loaded) return;
-        have_header_ = true;
         const youtube::Channel& h = *fetched_;
-        if (h.name.empty()) return;
+        if (h.name.empty()) return;  // the load failed: Retry loads it again
+        have_header_ = true;
         std::string avatar = h.avatar.empty() ? ch_.avatar : h.avatar;
         ch_ = h;
         ch_.avatar = avatar;
@@ -777,8 +835,8 @@ private:
         pl_scope_.run<youtube::PlaylistResults>([id, c] { return youtube::channel_playlists(id, c); },
                                                 [this, more](youtube::PlaylistResults r) {
             pl_loading_ = false;
-            pl_loaded_ = true;
             if (!more) {
+                pl_loaded_ = r.error.empty();  // Retry asks again after an error
                 pl_ = std::move(r);
                 return;
             }

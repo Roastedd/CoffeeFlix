@@ -33,7 +33,8 @@ FFMPEG_REV="24997bdb3e5a3bc666f05e1497b0c102390f9ae0"
 LIBSMB2_REPO="https://github.com/sahlberg/libsmb2.git"
 LIBSMB2_REV="557e837d3e00636b543f17ba1b9bdf872fa1644d"
 # devkitPro's SDL 2.32.10, the version of their package (SDL2_image and SDL2_ttf are
-# built against it), patched so the Wii U renderer converts YUV video on the GPU.
+# built against it), patched so the Wii U renderer converts YUV video on the GPU (and scales
+# it bicubic for textures set to SDL_ScaleModeBest).
 SDL2_REPO="https://github.com/devkitPro/SDL.git"
 SDL2_REV="a8f1e43a4a9d70cbae397433e1a3dd40113679aa"
 
@@ -115,12 +116,12 @@ build_ffmpeg() {
         --enable-decoder=aac,aac_latm,ac3,eac3,mp3,mp3float,mp2,flac,vorbis,opus,alac,wavpack \
         --enable-decoder=pcm_s16le,pcm_s16be,pcm_s24le,pcm_s32le,pcm_f32le,pcm_u8 \
         --enable-decoder=subrip,srt,ass,ssa,mov_text,webvtt \
-        --enable-demuxer=mov,matroska,avi,flv,mpegts,mpegps,hls,h264,hevc,m4v \
+        --enable-demuxer=mov,matroska,avi,flv,live_flv,mpegts,mpegps,hls,h264,hevc,m4v \
         --enable-demuxer=mp3,aac,ac3,eac3,flac,ogg,wav,wv,image2 \
         --enable-demuxer=srt,ass,webvtt,concat \
         --enable-parser=h264,hevc,vp8,vp9,mpeg4video,mpegvideo,aac,aac_latm,ac3,mpegaudio,flac,vorbis,opus \
         --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc,extract_extradata \
-        --enable-protocol=file,http,https,tcp,tls,hls,crypto,httpproxy,data
+        --enable-protocol=file,http,https,tcp,tls,hls,crypto,httpproxy,data,rtmp,rtmps
 
     make -j"$JOBS"
     make install
@@ -154,8 +155,8 @@ build_libsmb2() {
     touch "$stamp"
 }
 
-# SDL2 with NV12 and IYUV textures in the Wii U renderer, and a 1280x720 GamePad copy of a
-# window drawn at a 1080p TV's size. The Makefile searches
+# SDL2 with NV12 and IYUV textures in the Wii U renderer (bicubic ones for SDL_ScaleModeBest),
+# and a 1280x720 GamePad copy of a window drawn at a 1080p TV's size. The Makefile searches
 # deps/install before the portlibs, so this libSDL2.a replaces the package's.
 build_sdl2() {
     [ $HOST = 1 ] && { echo "sdl2: the desktop build uses the system SDL2"; return; }

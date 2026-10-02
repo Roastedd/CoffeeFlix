@@ -633,6 +633,19 @@ void add_captions(json_t* tracks, player::Source& src) {
     for (size_t i = 0; i < list.size() && i < 12; i++) src.external_subs.emplace_back(list[i].label, list[i].url);
 }
 
+// A "player" response's views, likes and the day it was posted.
+Details details_of(json_t* root) {
+    Details d;
+    json_t* info = json_object_get(root, "videoDetails");
+    json_t* micro = json::at(root, {"microformat", "playerMicroformatRenderer"});
+    const int64_t views = json::num(info, {"viewCount"}, json::num(micro, {"viewCount"}, -1));
+    if (views >= 0) d.views = views == 1 ? tr("1 view") : util::fmt(tr("%s views"), util::format_count(views).c_str());
+    const int64_t likes = json::num(micro, {"likeCount"}, -1);
+    if (likes > 0) d.likes = likes == 1 ? tr("1 like") : util::fmt(tr("%s likes"), util::format_count(likes).c_str());
+    d.posted = i18n::long_date(json::str(micro, {"publishDate"}, json::str(micro, {"uploadDate"})));
+    return d;
+}
+
 // `token`: as the signed-in account (services/yt_account), for what guests don't get to see.
 bool try_client(const Client& c, const std::string& id, int quality, player::Source& src, std::string& error,
                 const std::string& token = "") {
@@ -660,6 +673,11 @@ bool try_client(const Client& c, const std::string& id, int quality, player::Sou
     bool live = json::boolean(details, {"isLive"}) ||
                 (json::boolean(details, {"isLiveContent"}) && json::num(details, {"lengthSeconds"}) == 0);
     src.live = live;
+    if (!live) {  // the feed's text stays for a stream: its count is of the people watching now
+        Details d = details_of(root);
+        if (!d.views.empty()) src.views = d.views;
+        if (!d.posted.empty()) src.posted = d.posted;
+    }
     src.user_agent = c.user_agent;
     // Files (not HLS) through libcurl in ranged chunks: FFmpeg's single whole-file request to
     // googlevideo.com never gets going on the Wii U.
@@ -1467,6 +1485,19 @@ void report_watched(const std::string& id, double position, bool done) {
 
 }  // namespace
 
+Details parse_details(const std::string& player_json) {
+    json::Doc doc = json::Doc::parse(player_json);
+    return doc ? details_of(doc.get()) : Details{};
+}
+
+Details details(const std::string& video_id, std::string& error) {
+    json_t* body = json_object();
+    json_object_set_new(body, "videoId", json_string(video_id.c_str()));
+    json::Doc doc = call("player", WEB, body, error, "", nullptr,
+                         "videoDetails.viewCount,microformat.playerMicroformatRenderer(viewCount,likeCount,publishDate,uploadDate)");
+    return doc ? details_of(doc.get()) : Details{};
+}
+
 player::Source make_source(const Video& v) {
     player::Source s;
     s.title = v.title;
@@ -1475,6 +1506,8 @@ player::Source make_source(const Video& v) {
     s.service = "youtube";
     s.id = v.id;
     s.live = v.live;
+    s.views = v.views;
+    s.posted = v.published;
     s.extra = v.channel;
     s.start = v.live ? 0 : store::resume_position("youtube", v.id);
     s.channel_id = v.channel_id;

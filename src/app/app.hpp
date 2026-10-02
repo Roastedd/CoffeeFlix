@@ -15,6 +15,7 @@ public:
     virtual void frame() = 0;                       // update + draw, every frame while on top
     virtual void on_enter() {}                      // became the top screen (again)
     virtual bool on_back() { return false; }        // true = handled internally
+    virtual bool prevents_sleep() const { return false; } // temporary transfers keep the console awake
     virtual bool fullscreen() const { return false; }  // hide the rail (players, viewers)
     virtual bool draws_background() const { return false; }
     virtual Section section() const { return SEC_NONE; }

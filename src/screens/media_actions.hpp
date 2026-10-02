@@ -7,22 +7,12 @@
 #include <string>
 #include <vector>
 
+#include "screens/media_files.hpp"  // Entry, kinds, sorting, subtitle files
 #include "screens/widgets.hpp"
 
 namespace screens::media {
 
-enum Kind { K_DIR, K_VIDEO, K_AUDIO, K_IMAGE, K_BOOK, K_OTHER };
-
-struct Entry {
-    std::string name, path;
-    Kind kind = K_OTHER;
-    uint64_t size = 0;
-};
-
-Kind kind_of(const std::string& name);  // by extension
 int kind_icon(Kind k);
-void sort_entries(std::vector<Entry>& entries);  // folders first, then natural order
-std::string strip_ext(const std::string& name);
 
 // Grid card for an entry; `service` is where its resume point is kept.
 CardInfo entry_card(const Entry& e, const char* service);
@@ -30,7 +20,8 @@ CardInfo entry_card(const Entry& e, const char* service);
 // Opens a file the way a file manager would: videos play (resuming, with
 // sidecar subtitles), music queues the folder's tracks, photos open the viewer
 // on the folder's pictures. `service` keys resume points ("local", "smb") and
-// `exists` looks up sidecar files (subtitles, cover art) by path.
+// `exists` looks up sidecar files (subtitles, cover art) by path; a video's
+// subtitles come from Entry::subs instead when the listing found them.
 void open_file(const std::vector<Entry>& siblings, size_t index, const char* service,
                const std::function<bool(const std::string&)>& exists);
 

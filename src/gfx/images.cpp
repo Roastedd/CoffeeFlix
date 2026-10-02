@@ -108,9 +108,90 @@ void box_blur(SDL_Surface* s, int radius, int passes) {
     }
 }
 
+constexpr int64_t MAX_PIXELS = 16 << 20;  // 4096 x 4096
+
+uint32_t be16(const std::string& d, size_t at) { return ((uint32_t)(uint8_t)d[at] << 8) | (uint8_t)d[at + 1]; }
+uint32_t be32(const std::string& d, size_t at) { return (be16(d, at) << 16) | be16(d, at + 2); }
+uint32_t le16(const std::string& d, size_t at) { return (uint8_t)d[at] | ((uint32_t)(uint8_t)d[at + 1] << 8); }
+uint32_t le24(const std::string& d, size_t at) { return le16(d, at) | ((uint32_t)(uint8_t)d[at + 2] << 16); }
+uint32_t le32(const std::string& d, size_t at) { return le16(d, at) | (le16(d, at + 2) << 16); }
+
+// (a header can state 4 billion either way: the product is only made of sizes that can't overflow it)
+bool over_limit(int64_t w, int64_t h) { return w > MAX_PIXELS || h > MAX_PIXELS || w * h > MAX_PIXELS; }
+
 }  // namespace
 
+bool stated_size(const std::string& d, int64_t& w, int64_t& h) {
+    const size_t n = d.size();
+    if (n >= 24 && d.compare(0, 8, "\x89PNG\r\n\x1a\n", 8) == 0 && d.compare(12, 4, "IHDR") == 0) {
+        w = be32(d, 16);
+        h = be32(d, 20);
+        return true;
+    }
+    if (n >= 10 && (d.compare(0, 6, "GIF87a") == 0 || d.compare(0, 6, "GIF89a") == 0)) {
+        w = le16(d, 6);
+        h = le16(d, 8);
+        return true;
+    }
+    if (n >= 25 && d.compare(0, 4, "RIFF") == 0 && d.compare(8, 4, "WEBP") == 0) {
+        if (n >= 30 && d.compare(12, 4, "VP8X") == 0) {  // extended: the canvas
+            w = 1 + le24(d, 24);
+            h = 1 + le24(d, 27);
+            return true;
+        }
+        if (n >= 30 && d.compare(12, 4, "VP8 ") == 0 && d.compare(23, 3, "\x9d\x01\x2a", 3) == 0) {  // lossy: 14 bits each
+            w = le16(d, 26) & 0x3fff;
+            h = le16(d, 28) & 0x3fff;
+            return true;
+        }
+        if (d.compare(12, 4, "VP8L") == 0 && (uint8_t)d[20] == 0x2f) {  // lossless: 14 bits each, less one
+            const uint32_t bits = le32(d, 21);
+            w = 1 + (bits & 0x3fff);
+            h = 1 + ((bits >> 14) & 0x3fff);
+            return true;
+        }
+        return false;
+    }
+    if (n >= 4 && (uint8_t)d[0] == 0xff && (uint8_t)d[1] == 0xd8) {
+        // The segments up to the frame header. Those of the camera's own thumbnail are skipped by
+        // their length, not read.
+        size_t at = 2;
+        while (at + 4 <= n) {
+            if ((uint8_t)d[at] != 0xff) return false;
+            const uint8_t marker = (uint8_t)d[at + 1];
+            if (marker == 0xff) {  // padding
+                at++;
+            } else if (marker == 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {  // no length
+                at += 2;
+            } else if (marker == 0xd9 || marker == 0xda) {  // the end, or picture data without a frame header
+                return false;
+            } else if (marker >= 0xc0 && marker <= 0xcf && marker != 0xc4 && marker != 0xc8 && marker != 0xcc) {
+                if (at + 9 > n) return false;
+                h = be16(d, at + 5);
+                w = be16(d, at + 7);
+                return true;
+            } else {
+                const size_t length = be16(d, at + 2);
+                if (length < 2) return false;
+                at += 2 + length;
+            }
+        }
+    }
+    return false;
+}
+
+bool too_big(const std::string& data) {
+    int64_t w = 0, h = 0;
+    return stated_size(data, w, h) && over_limit(w, h);
+}
+
 SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
+    int64_t stated_w = 0, stated_h = 0;
+    if (stated_size(data, stated_w, stated_h) && over_limit(stated_w, stated_h)) {
+        log_message(LOG_WARNING, "Images", "A picture of %lld x %lld pixels is too big to load", (long long)stated_w,
+                    (long long)stated_h);
+        return nullptr;
+    }
     SDL_RWops* rw = SDL_RWFromConstMem(data.data(), (int)data.size());
     SDL_Surface* s = to_rgba(IMG_Load_RW(rw, 1));
     if (!s) return nullptr;
@@ -174,6 +255,7 @@ void load_job(std::shared_ptr<Entry> e) {
             ok = util::read_file(util::starts_with(e->url, "file://") ? e->url.substr(7) : e->url, data);
         }
         SDL_Surface* s = ok ? decode(data, e->max_w, e->max_h, e->flags) : nullptr;
+        const bool hopeless = ok && !s && too_big(data);  // asking again gets the same picture
         std::lock_guard<std::mutex> lk(g_m);
         if (s) {
             e->pending = s;
@@ -181,7 +263,7 @@ void load_job(std::shared_ptr<Entry> e) {
             g_ready_to_upload.push_back(e);
         } else {
             e->state = FAILED;
-            e->failed_at = util::now_seconds();
+            e->failed_at = util::now_seconds() + (hopeless ? 1e9 : 0);  // 1e9: never asked for again
             e->img.failed = true;
         }
         return nullptr;

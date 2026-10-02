@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace updater {
 
@@ -21,6 +22,7 @@ struct Release {
     std::string sha256;   // lower-case hex, as GitHub published it
     int64_t size = 0;
     bool dev = false;     // a developer build (below), not a release
+    std::string build_id, build_name;  // signed developer catalog identity
 };
 
 const char* version();  // this build's
@@ -65,6 +67,12 @@ bool set_dev_unlocked(bool on);
 bool developer();
 bool set_developer(bool on);
 const std::string& dev_server();  // "192.168.1.20:47292" once found
+const char* current_build_name();
+std::string selected_build();
+const std::vector<Release>& developer_builds();
+// Selecting only checks availability. Cross-build changes always need an explicit download.
+// False while a download or staged installation must first be cancelled.
+bool select_build(const std::string& id);
 
 // The very last thing before exiting, once nothing reads bundled files: the swap.
 void finish_on_exit();

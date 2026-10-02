@@ -60,10 +60,7 @@ public:
                             : s == updater::READY               ? util::fmt(tr("CoffeeFlix %s is ready"), v)
                             : s == updater::FAILED              ? tr("Couldn't update")
                                                                 : tr("Updates");
-        std::string sub =
-            dev && !updater::dev_server().empty()
-                ? util::fmt(tr("You have CoffeeFlix %s \xC2\xB7 builds from %s"), updater::version(), updater::dev_server().c_str())
-            : dev ? util::fmt(tr("You have CoffeeFlix %s \xC2\xB7 builds from your computer"), updater::version())
+        std::string sub = dev ? util::fmt(tr("Installed: %s %s"), updater::current_build_name(), updater::version())
             : offer && rel.size > 0
                 ? util::fmt(tr("You have CoffeeFlix %s \xC2\xB7 the new one is %s"), updater::version(),
                             util::format_bytes(rel.size).c_str())
@@ -71,7 +68,29 @@ public:
         text::draw_fit(font::display, x0, 60, W - x0 - 60, title, t.text);
         text::draw_fit(font::body, x0 + 2, 122, W - x0 - 62, sub, t.text2);
 
-        Rect panel(x0, 176, W - x0 - 60, 400);
+        if (dev && updater::supported()) {
+            std::string selected = updater::selected_build(), label = selected;
+            for (const auto& build : updater::developer_builds())
+                if (build.build_id == selected) label = build.build_name;
+            if (value_row(id(g, "build"), Rect(x0, 157, W - x0 - 60, 48), tr("Build to install"),
+                          label.c_str(), ic::SYSTEM_UPDATE, id(g, "chooser"))) {
+                if (s == updater::DOWNLOADING || s == updater::READY) {
+                    toast(tr("Cancel the download first."), ic::INFO);
+                } else {
+                    std::vector<MenuItem> choices;
+                    for (const auto& build : updater::developer_builds()) {
+                        std::string build_id = build.build_id;
+                        choices.push_back({build.build_name + " \xC2\xB7 " + build.version,
+                            build_id == selected ? ic::CHECK_CIRCLE : ic::SYSTEM_UPDATE, [build_id] {
+                                if (!updater::select_build(build_id)) toast(tr("Cancel the download first."), ic::INFO);
+                            }});
+                    }
+                    if (!choices.empty()) show_menu(tr("Build to install"), tr("Select a build, then download and install it."), std::move(choices));
+                    else updater::check();
+                }
+            }
+        }
+        Rect panel(x0, dev ? 222 : 176, W - x0 - 60, dev ? 354 : 400);
         gfx::shadow(panel, 30, Color(0, 0, 0, 120));
         gfx::fill_rrect(panel, 26, Color(255, 255, 255, 12));
         gfx::stroke_rrect(panel, 26, 1, Color(255, 255, 255, 18));
@@ -102,7 +121,7 @@ public:
             std::string notes = !rel.notes.empty() ? rel.notes
                                 : dev              ? tr("No notes came with this build.")
                                                    : tr("See github.com/Roastedd/CoffeeFlix/releases for what changed.");
-            text::draw_wrapped(font::body, Rect(px, panel.y + 76, pw, 220), notes, t.text, 8);
+            text::draw_wrapped(font::body, Rect(px, panel.y + 76, pw, dev ? 170 : 220), notes, t.text, dev ? 6 : 8);
 
             float sy = panel.b() - 70;
             gfx::fill_rect(Rect(px, sy - 18, pw, 1), Color(255, 255, 255, 18));

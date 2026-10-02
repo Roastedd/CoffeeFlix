@@ -6,5 +6,8 @@ namespace dev_log {
 
 void tick();      // main thread, every frame
 void shutdown();  // sends what's left (briefly) and stops
+// Any thread, without waiting: sends what's been logged so far now rather than at the next second.
+// For the moments a freeze is likely, so the log shows the last thing that happened.
+void flush_now();
 
 }  // namespace dev_log

@@ -78,10 +78,10 @@ constexpr int HOME = 0xe88a, MOVIE = 0xe02c, MUSIC = 0xe405, PHOTO = 0xe410, RAD
               SD_CARD = 0xe623, LANGUAGE = 0xe894, PALETTE = 0xe40a, VOLUME_OFF = 0xe04f,
               CC = 0xe01c, HQ = 0xe024, SPEED = 0xe9e4, FULLSCREEN = 0xe5d0, MIC = 0xe029, CLOUDY = 0xe2bd;
 // Filled/extra glyphs available in MaterialIcons-Regular.
-constexpr int CHEVRON_RIGHT = 0xe5cc, CHEVRON_LEFT = 0xe5cb, EXPAND_MORE = 0xe5cf, MORE_HORIZ = 0xe5d3,
-              ADD = 0xe145, REMOVE = 0xe15b, DELETE = 0xe872, KEYBOARD = 0xe312, SHUFFLE = 0xe043,
+constexpr int CHEVRON_RIGHT = 0xe5cc, CHEVRON_LEFT = 0xe5cb, EXPAND_MORE = 0xe5cf, EXPAND_LESS = 0xe5ce, MORE_HORIZ = 0xe5d3,
+              ADD = 0xe145, REMOVE = 0xe15b, DELETE = 0xe872, EDIT = 0xe3c9, KEYBOARD = 0xe312, SHUFFLE = 0xe043,
               REPEAT = 0xe040, STOP = 0xe047, FAST_FORWARD = 0xe01f, FAST_REWIND = 0xe020,
-              IMAGE = 0xe3f4, AUDIOTRACK = 0xe3a1, THEATERS = 0xe8da, VISIBILITY = 0xe8f4,
+              IMAGE = 0xe3f4, AUDIOTRACK = 0xe3a1, THEATERS = 0xe8da, VISIBILITY = 0xe8f4, VISIBILITY_OFF = 0xe8f5,
               LINK = 0xe157, QR = 0xef6b, EQUALIZER = 0xe01d, GRAPHIC_EQ = 0xe1b8, DESCRIPTION = 0xe873,
               WARNING = 0xe002, BOLT = 0xea0b, SPORTS_ESPORTS = 0xea28, NEWSPAPER = 0xeb81,
               PUBLIC = 0xe80b, TUNE = 0xe429, SUBTITLES = 0xe048, HD = 0xe052, PEOPLE = 0xe7fb,

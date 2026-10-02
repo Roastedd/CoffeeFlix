@@ -4,6 +4,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 #include <libavutil/time.h>
 #include <libswresample/swresample.h>
 }
@@ -16,6 +17,7 @@ extern "C" {
 #include <condition_variable>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -34,6 +36,8 @@ extern "C" {
 #include "platform/platform.hpp"
 #include "player/convert.hpp"
 #include "player/http_io.hpp"
+#include "player/h264_packet.hpp"
+#include "player/orientation.hpp"
 #include "player/smb_io.hpp"
 #include "player/subtitles.hpp"
 #include "services/smb.hpp"
@@ -51,6 +55,27 @@ extern "C" {
 
 namespace player {
 
+std::string language_code(const std::string& value) {
+    std::string code = util::lower(util::trim(value));
+    code = code.substr(0, code.find_first_of("-_( "));
+    if (code.empty() || code == "und" || code == "unknown") return "";
+    static const char* const names[][4] = {
+        {"en","eng","english","eng"}, {"ja","jpn","japanese","jpn"}, {"hi","hin","hindi","hin"},
+        {"es","spa","spanish","spa"}, {"fr","fra","french","fre"}, {"de","deu","german","ger"},
+        {"it","ita","italian","ita"}, {"pt","por","portuguese","por"}, {"nl","nld","dutch","dut"},
+        {"ko","kor","korean","kor"}, {"zh","zho","chinese","chi"}, {"tl","tgl","tagalog","fil"},
+        {"ar","ara","arabic","ara"}, {"ru","rus","russian","rus"}, {"tr","tur","turkish","tur"},
+        {"th","tha","thai","tha"}, {"vi","vie","vietnamese","vie"}, {"id","ind","indonesian","ind"},
+        {"ta","tam","tamil","tam"}, {"te","tel","telugu","tel"}, {"ml","mal","malayalam","mal"},
+        {"bn","ben","bengali","ben"}, {"sv","swe","swedish","swe"}, {"no","nor","norwegian","nor"},
+        {"da","dan","danish","dan"}, {"fi","fin","finnish","fin"}, {"pl","pol","polish","pol"},
+        {"cs","ces","czech","cze"}, {"el","ell","greek","gre"}, {"he","heb","hebrew","heb"},
+    };
+    for (const auto& row : names) for (const char* name : row) if (code == name) return row[1];
+    if (code.size() == 3 && std::all_of(code.begin(), code.end(), [](unsigned char c) { return c >= 'a' && c <= 'z'; })) return code;
+    return "";
+}
+
 namespace {
 
 constexpr size_t VIDEO_QUEUE_BYTES_WIIU = 14u << 20;
@@ -67,9 +92,17 @@ constexpr double START_CUSHION = 2.5;
 // About the longest refill_target() waits (seconds on the clock) the first time the downloads
 // can't keep up with the stream; twice that the second time, three times from then on.
 constexpr double PLAY_THROUGH_WAIT = 20.0;
+// A wait for refill_target() that took this long (real seconds) plays on from PATIENCE_CUSHION seconds
+// of video instead: a source slower than the stream would otherwise show a spinner for a minute.
+constexpr double REFILL_PATIENCE = 20.0;
+constexpr double PATIENCE_CUSHION = 4.0;
 // The downloads keep what a wait is for and this much more (keep_ahead()): a stretch of the file
 // can take more bytes a second than its average.
 constexpr double KEEP_AHEAD_MARGIN = 1.25;
+// Seconds of a file the downloads keep ahead of the demuxer while it plays (up to what the byte
+// limit allows: http_io_max_ahead()): room to ride out a slow spell, as a browser's player does.
+// Nothing waits for it, it only lets the downloads go on instead of stopping at 20 s.
+constexpr double KEEP_AHEAD_SECONDS = 60.0;
 
 size_t video_queue_bytes() { return platform::is_wiiu() ? VIDEO_QUEUE_BYTES_WIIU : VIDEO_QUEUE_BYTES_DESKTOP; }
 
@@ -80,6 +113,7 @@ double now() { return util::now_seconds(); }
 struct QPacket {
     AVPacket* pkt;
     uint32_t gen;
+    unsigned damage = 0;
 };
 
 struct PacketQueue {
@@ -90,9 +124,9 @@ struct PacketQueue {
     bool eof = false;
     double last_pts = -1;  // media time of the newest queued packet
 
-    void push(AVPacket* p, uint32_t gen, double pts) {
+    void push(AVPacket* p, uint32_t gen, double pts, unsigned damage = 0) {
         std::lock_guard<std::mutex> lk(m);
-        q.push_back(QPacket{p, gen});
+        q.push_back(QPacket{p, gen, damage});
         bytes += p->size;
         eof = false;
         if (pts >= 0) last_pts = pts;
@@ -195,6 +229,9 @@ struct Input {
     std::thread thread;
     std::atomic<bool> seek_req{false};
     std::atomic<bool> eof{false};
+    // A read over the network failed (its downloads gave up): not the end of the file. The demuxer waits
+    // until update() seeks back to the spot to ask again, or gives up (Session::net_retries).
+    std::atomic<bool> lost{false};
     int video = -1, audio = -1;
     bool network = false;  // http(s)
     bool chunked = false;  // through http_io, which keeps downloads ahead; else FFmpeg reads it as it goes
@@ -245,6 +282,7 @@ struct Session {
     bool live = false;
     bool has_video = false, has_audio = false;
     int vw = 0, vh = 0;
+    Orientation orient;  // rotation and pixel shape of the video, set with vw/vh
     float fps = 0;
     std::string codec;  // for the log: "H.264 · 1920×1080 · 60 fps · HW · AAC · 44 kHz"
     // The same without the frame rate (codec_info() puts in the one it plays at), under meta_m.
@@ -254,6 +292,8 @@ struct Session {
     std::string icy, art_key;
     std::vector<Track> audio_tracks;
     std::vector<Track> sub_tracks;
+    std::mutex sub_m;
+    uint32_t sub_generation = 0;
     int sub_stream = -1;       // embedded stream index in input 0, or -1
     int sub_external = -1;     // index into src.external_subs
     Subtitles subs;
@@ -283,6 +323,9 @@ struct Session {
     double wall_base_pts = 0, wall_base_time = 0;
     bool wall_running = false;
     double last_clock = 0;
+    // Connection lost (Input::lost): when it was first noticed, the next try, tries so far, and the last.
+    double net_lost_since = 0, net_retry_at = 0, net_last_retry = 0;
+    int net_retries = 0, early_ends = 0;
     double buffering_since = 0;
     double last_progress_report = 0;
     std::vector<char> skipped;  // per src.skip_segments: already jumped over
@@ -292,6 +335,9 @@ struct Session {
     int64_t meter_bytes = -1;
     double meter_busy = 0, meter_at = 0;
     double net_rate = 0;        // bytes/s, smoothed
+    tasks::Scope adaptation;
+    bool adapting = false;
+    double adapt_low_since = 0, adapt_requested_at = -1000;
     // Input 0 when FFmpeg reads it from the network itself (not through http_io): KB it read, and
     // milliseconds the reads took (the demuxer waiting on the network, or a live stream's next
     // piece). By its demuxer.
@@ -299,6 +345,8 @@ struct Session {
     // MB more the demuxed packets may hold (keep_ahead()): all there is ahead of the playback for
     // an input without http_io's downloads.
     std::atomic<int> room_mb{0};
+    std::atomic<unsigned> video_damage{0};
+    std::atomic<int> damaged_packets{0};
     int stalls = 0;             // times the picture ran out while playing (after a refill or seconds of it)
     bool refilled = false;      // playing on after running out, rather than after a start or a seek
     double last_stall = 0;
@@ -341,10 +389,14 @@ std::atomic<int> g_closers{0};
 // The Wii U has one hardware H.264 decoder: a new session waits until the previous one has
 // closed it (sessions close in the background).
 std::atomic<int> g_hw_busy{0};
-// Safest decoding level the watchdog has needed this run, never gone back on so it can't retry
-// the same level over and over. Not saved: one stream the hardware decoder can't take says
-// little about the next.
-int g_decoding_floor = 0;
+// Safest decoding level the watchdog has needed for one video (g_decoding_floor_for), never gone
+// back on for it so it can't retry the same level over and over. Not saved, and not kept for the
+// next video: one stream the hardware decoder can't take says little about the next (it once left
+// every video after it in software for the rest of the run: 1080p at 3 pictures a second).
+std::atomic<int> g_decoding_floor{0};
+std::atomic<size_t> g_decoding_floor_for{0};  // video_key() of the video it is for
+// Which video a Source is: what start_session() compares to tell another video from a reopened one.
+size_t video_key(const Source& s) { return std::hash<std::string>()(s.service + '\n' + s.id + '\n' + s.url); }
 // 1080p60 was too much for the Wii U's decoder in this video, even leaving out pictures: its
 // 720p60 until another video plays (see max_fps).
 std::atomic<bool> g_hd60_too_slow{false};
@@ -360,6 +412,7 @@ SDL_Texture* g_tex = nullptr;
 int g_tex_w = 0, g_tex_h = 0;
 Uint32 g_tex_format = 0;
 SDL_YUV_CONVERSION_MODE g_tex_mode = SDL_YUV_CONVERSION_BT601;
+SDL_ScaleMode g_tex_scale = SDL_ScaleModeLinear;
 uint32_t g_shown_gen = 0;
 double g_shown_pts = -1;
 // Frames the video texture draws from or drew from last (the GPU can still be reading those until
@@ -568,6 +621,10 @@ SwrContext* alloc_resampler(int64_t in_layout, AVSampleFormat in_fmt, int in_rat
 #endif
 }
 
+std::string stream_language(AVStream* st) {
+    const auto* language = av_dict_get(st->metadata, "language", nullptr, 0);
+    return language ? language_code(language->value) : "";
+}
 std::string stream_label(AVStream* st, int n) {
     std::string lang, title;
     if (AVDictionaryEntry* e = av_dict_get(st->metadata, "language", nullptr, 0)) lang = e->value;
@@ -711,6 +768,10 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
     // Input 0 read by FFmpeg from the network: what its reads got, and how long they took
     // (read_kb, read_ms), handed on in whole KB and ms.
     const bool meter = idx == 0 && in.remote && !in.chunked;
+    AVStream* video = in.video >= 0 ? in.fmt->streams[in.video] : nullptr;
+    const bool h264 = video && video->codecpar->codec_id == AV_CODEC_ID_H264;
+    const auto* extra = video ? video->codecpar->extradata : nullptr;
+    const int nal_length = h264 && video->codecpar->extradata_size >= 7 && extra && extra[0] == 1 ? (extra[4] & 3) + 1 : 0;
     int64_t unmetered_bytes = 0;
     double unmetered_busy = 0;
 
@@ -727,6 +788,8 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
             const double t = s.seek_target;
             const bool snap = idx == 0 && s.snapping;
             lk.unlock();
+            // An earlier failed read stays in the I/O context, and would turn the file's real end into "I/O error".
+            if (in.fmt->pb) in.fmt->pb->error = 0;
             auto seek_to = [&](double to) {
                 int64_t ts = (int64_t)(to * AV_TIME_BASE);
                 if (in.fmt->start_time != AV_NOPTS_VALUE) ts += in.fmt->start_time;
@@ -754,6 +817,11 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
             if (in.video >= 0) s.vq.flush();
             if (in.audio >= 0) s.aq.flush();
             in.eof = false;
+            in.lost = false;
+        }
+        if (in.lost) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
         }
 
         // Back-pressure: stop reading when enough is buffered.
@@ -798,12 +866,35 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
         if (r < 0) {
             if (s.abort) break;
             if (r != AVERROR_EOF) log_message(LOG_WARNING, "Player", "read_frame: %s", av_err(r).c_str());
+            if (r != AVERROR_EOF && in.remote) {
+                // The connection broke: what was buffered plays on, and update() asks again from the spot.
+                // Not the file's end (the picture would freeze, then "Finished" and a lost place).
+                in.lost = true;
+                continue;
+            }
             in.eof = true;
             if (in.video >= 0) s.vq.set_eof();
             if (in.audio >= 0) s.aq.set_eof();
             continue;
         }
 
+        // FFmpeg can return a partial packet before reporting the read failure.
+        // Never feed that packet to hardware: some malformed inputs can wedge
+        // the console decoder rather than returning an ordinary codec error.
+        const bool bad_video = pkt->stream_index == in.video && h264 &&
+            !complete_h264_packet(pkt->data, (size_t)std::max(pkt->size,0), nal_length);
+        if ((pkt->flags & AV_PKT_FLAG_CORRUPT) || bad_video) {
+            log_message(LOG_WARNING, "Player", "Rejected damaged %s packet (%d bytes); %s",
+                        pkt->stream_index == in.video ? "video" : "media", pkt->size,
+                        in.remote ? "recovering the connection" : "skipping to a clean keyframe");
+            ++s.damaged_packets;
+            if (in.remote) {
+                if (in.fmt->pb) { http_io_discard(in.fmt->pb); avio_flush(in.fmt->pb); }
+                in.lost = true;
+            } else if (pkt->stream_index == in.video) ++s.video_damage;
+            av_packet_unref(pkt);
+            continue;
+        }
         s.packets_read++;
         s.bytes_read += pkt->size;
         AVStream* st = in.fmt->streams[pkt->stream_index];
@@ -813,10 +904,12 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
                           : ts_to_sec(pts, st->time_base) -
                                 (in.fmt->start_time != AV_NOPTS_VALUE ? in.fmt->start_time / (double)AV_TIME_BASE : 0);
         if (pkt->stream_index == in.video) {
-            s.vq.push(av_packet_clone(pkt), gen, at);
+            s.vq.push(av_packet_clone(pkt), gen, at, s.video_damage);
         } else if (pkt->stream_index == in.audio) {
             s.aq.push(av_packet_clone(pkt), gen, at);
-        } else if (idx == 0 && pkt->stream_index == s.sub_stream && s.sdec) {
+        } else if (idx == 0) {
+            std::lock_guard<std::mutex> lk(s.sub_m);
+            if (pkt->stream_index == s.sub_stream && s.sdec) {
             AVSubtitle sub;
             int got = 0;
             if (avcodec_decode_subtitle2(s.sdec, &sub, &got, pkt) >= 0 && got) {
@@ -826,10 +919,12 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
                 if (end <= start) end = start + 4;
                 for (unsigned i = 0; i < sub.num_rects; i++) {
                     AVSubtitleRect* rc = sub.rects[i];
-                    std::string txt = rc->ass ? Subtitles::strip_ass(rc->ass) : rc->text ? rc->text : "";
-                    if (!txt.empty()) s.subs.add(start, end, txt);
+                    bool sign = false;
+                    std::string txt = rc->ass ? Subtitles::strip_ass(rc->ass, &sign) : rc->text ? rc->text : "";
+                    if (!txt.empty()) s.subs.add(start, end, txt, sign);
                 }
                 avsubtitle_free(&sub);
+            }
             }
         }
         av_packet_unref(pkt);
@@ -898,6 +993,7 @@ void video_loop(std::shared_ptr<Session> sp) {
     int dropped_in_row = 0;
     double catch_up_until = 0;  // leaving out unreferenced pictures until then (at least)
     const AVDiscard base_skip = s.vdec->skip_frame;
+    unsigned damage = 0;
     bool keyframe_seen = false;  // packets before the first keyframe can't give a picture
     AVStream* st = s.in[0].fmt->streams[s.in[0].video];
     if (st->avg_frame_rate.num > 0 && st->avg_frame_rate.den > 0) fps = av_q2d(st->avg_frame_rate);
@@ -979,6 +1075,10 @@ void video_loop(std::shared_ptr<Session> sp) {
                 tail_skip = false;
                 tail = next_key = gops = 0;
                 last_key = AV_NOPTS_VALUE;
+            }
+            if (damage != qp.damage) {
+                damage = qp.damage; keyframe_seen = false;
+                avcodec_flush_buffers(s.vdec);
             }
             const bool key = qp.pkt->flags & AV_PKT_FLAG_KEY;
             if (key) keyframe_seen = true;
@@ -1398,6 +1498,28 @@ void audio_loop(std::shared_ptr<Session> sp) {
     av_frame_free(&frame);
 }
 
+// Loads an external subtitle file on a thread of its own: a slow answer (YouTube's captions took 8 s
+// once) must not hold up the picture, and the cues turn up when they arrive. The viewer choosing
+// another track in the meantime (a new generation) drops it.
+void load_subtitles_async(std::shared_ptr<Session> sp, std::string u, uint32_t generation) {
+    std::thread([sp, u, generation]() {
+        cpu::ThreadTag tag("subtitles");
+        std::string data;
+        bool ok = util::starts_with(u, "http") ? [&] {
+            http::Request req;
+            req.url = u; req.timeout = 15; req.cancel = &sp->abort; req.private_url = true;
+            http::Response r = http::perform(req);
+            data = std::move(r.body);
+            return r.ok();
+        }() : smb::is_url(u) ? smb::read_file(u, data) : util::read_file(u, data);
+        if (!ok || sp->abort) return;
+        Subtitles parsed;  // outside the lock: the UI thread asks for the cue on every frame
+        parsed.load(data);
+        std::lock_guard<std::mutex> lk(sp->sub_m);
+        if (sp->sub_generation == generation) sp->subs.swap(parsed);
+    }).detach();
+}
+
 void open_session(std::shared_ptr<Session> sp) {
     cpu::ThreadTag tag("opening");
     Session& s = *sp;
@@ -1464,16 +1586,16 @@ void open_session(std::shared_ptr<Session> sp) {
     int n_audio = 0;
     for (unsigned i = 0; i < f0->nb_streams; i++) {
         AVStream* st = f0->streams[i];
-        if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) audio_tracks.push_back(Track{(int)i, stream_label(st, ++n_audio)});
+        if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) audio_tracks.push_back(Track{(int)i, stream_label(st, ++n_audio), stream_language(st)});
         if (st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
             AVCodecID id = st->codecpar->codec_id;
             if (id == AV_CODEC_ID_SUBRIP || id == AV_CODEC_ID_TEXT || id == AV_CODEC_ID_ASS || id == AV_CODEC_ID_SSA ||
                 id == AV_CODEC_ID_MOV_TEXT || id == AV_CODEC_ID_WEBVTT)
-                sub_tracks.push_back(Track{(int)i, stream_label(st, (int)sub_tracks.size() + 1)});
+                sub_tracks.push_back(Track{(int)i, stream_label(st, (int)sub_tracks.size() + 1), stream_language(st)});
         }
     }
     for (size_t i = 0; i < s.src.external_subs.size(); i++)
-        sub_tracks.push_back(Track{1000 + (int)i, s.src.external_subs[i].first});
+        sub_tracks.push_back(Track{1000 + (int)i, s.src.external_subs[i].first, language_code(s.src.external_subs[i].first)});
     {
         std::lock_guard<std::mutex> lk(s.meta_m);
         s.audio_tracks = std::move(audio_tracks);
@@ -1498,10 +1620,22 @@ void open_session(std::shared_ptr<Session> sp) {
     std::string vinfo, ainfo;
     if (v >= 0) {
         AVStream* st = f0->streams[v];
-        // The video_decoding setting, or the safer level the player fell back to this run when the
-        // hardware gave no pictures.
+        const AVCodecParameters* p = st->codecpar;
+        // What the hardware decoder is asked to take: a stream it rejects is told by these.
+        {
+            const char* profile = avcodec_profile_name(p->codec_id, p->profile);
+            const char* format = av_get_pix_fmt_name((AVPixelFormat)p->format);
+            log_message(LOG_DEBUG, "Player", "Video stream: %s, level %s, %s, %s, %d pictures of delay",
+                        profile ? profile : "unknown profile",
+                        p->level > 0 ? util::fmt("%d.%d", p->level / 10, p->level % 10).c_str() : "unknown",
+                        format ? format : "unknown format",
+                        p->field_order == AV_FIELD_PROGRESSIVE ? "progressive" : p->field_order == AV_FIELD_UNKNOWN ? "field order unknown" : "interlaced",
+                        p->video_delay);
+        }
+        // The video_decoding setting, or the safer level the player fell back to for this video when
+        // the hardware gave no pictures.
         s.decoding = platform::is_wiiu()
-                         ? std::clamp(std::max((int)store::get_int("video_decoding", 0), g_decoding_floor), 0, 2)
+                         ? std::clamp(std::max((int)store::get_int("video_decoding", 0), decoding_floor(s.original)), 0, 2)
                          : 2;
         bool hw_reserved = s.decoding < 2 && st->codecpar->codec_id == AV_CODEC_ID_H264 && reserve_hw_decoder(s);
         s.vdec = open_decoder(st, hw_reserved, &s.hw);
@@ -1521,6 +1655,10 @@ void open_session(std::shared_ptr<Session> sp) {
             s.has_video = true;
             s.vw = st->codecpar->width;
             s.vh = st->codecpar->height;
+            s.orient = stream_orientation(st);
+            if (s.orient.turns || s.orient.sar_num != s.orient.sar_den)
+                log_message(LOG_OK, "Player", "Video shown turned %d\xC2\xB0, pixels %d:%d", s.orient.turns * 90,
+                            s.orient.sar_num, s.orient.sar_den);
             AVRational fr = st->avg_frame_rate.num > 0 && st->avg_frame_rate.den > 0 ? st->avg_frame_rate : st->r_frame_rate;
             s.fps = fr.num > 0 && fr.den > 0 && av_q2d(fr) < 400 ? (float)av_q2d(fr) : 0;
             // Pictures decoded ahead. The Wii U's decoder gets further ahead at 1080p60, for the
@@ -1572,19 +1710,39 @@ void open_session(std::shared_ptr<Session> sp) {
     extract_artwork(s, f0);
 
     // External subtitles: the first track is loaded now when it should be on from the start.
-    if (!s.src.external_subs.empty() && s.src.subs_auto && store::get_bool("subs_default_on", true)) {
-        std::string data;
-        const std::string& u = s.src.external_subs[0].second;
-        bool ok = util::starts_with(u, "http") ? [&] {
-            http::Response r = http::get(u, {}, 15);
-            data = std::move(r.body);
-            return r.ok();
-        }() : smb::is_url(u) ? smb::read_file(u, data) : util::read_file(u, data);
-        if (ok) {
-            s.subs.load(data);
-            s.sub_external = 0;
+    int subtitle = -1;
+    if (!s.src.external_subs.empty() && s.src.subs_auto && store::get_bool("subs_default_on", true)) subtitle = 1000;
+    if (subtitle >= 1000) {
+        const std::string u = s.src.external_subs[subtitle - 1000].second;
+        if (util::starts_with(u, "http")) {
+            // Not waited for: the video starts, and the captions show up when they have arrived.
+            std::lock_guard<std::mutex> lk(s.sub_m);
+            s.sub_external = subtitle - 1000;
+            load_subtitles_async(sp, u, s.sub_generation);
+        } else {
+            std::string data;
+            bool ok = smb::is_url(u) ? smb::read_file(u, data) : util::read_file(u, data);
+            if (ok) {
+                Subtitles parsed;  // outside the lock: the UI thread asks for the cue on every frame
+                parsed.load(data);
+                std::lock_guard<std::mutex> lk(s.sub_m);
+                s.subs.swap(parsed);
+                s.sub_external = subtitle - 1000;
+            }
+            lap("loading subtitles");
         }
-        lap("loading subtitles");
+    } else if (subtitle >= 0) {
+        std::lock_guard<std::mutex> lk(s.sub_m);
+        auto* st = f0->streams[subtitle];
+        const AVCodec* c = avcodec_find_decoder(st->codecpar->codec_id);
+        if (c) {
+            s.sdec = avcodec_alloc_context3(c);
+            if (s.sdec) {
+                avcodec_parameters_to_context(s.sdec, st->codecpar); s.sdec->pkt_timebase = st->time_base;
+                if (avcodec_open2(s.sdec, c, nullptr) >= 0) { st->discard = AVDISCARD_DEFAULT; s.sub_stream = subtitle; }
+                else avcodec_free_context(&s.sdec);
+            }
+        }
     }
 
     if (s.src.start > 1 && s.seekable) {
@@ -1629,6 +1787,11 @@ void teardown(std::shared_ptr<Session> sp) {
     s.abort = true;
     s.vq.wake();
     s.aq.wake();
+    {
+        // The video thread checks abort holding this and lets go of it as it starts to wait: taking
+        // it first means the wake-up below can't fall in between and be missed.
+        std::lock_guard<std::mutex> lk(s.fm);
+    }
     s.fcv.notify_all();
     if (s.opener.joinable()) s.opener.join();
     for (auto& in : s.in)
@@ -1652,6 +1815,7 @@ void teardown(std::shared_ptr<Session> sp) {
 }
 
 double master_clock(Session& s) {
+    if (s.state == PAUSED || s.state == ENDED) return s.last_clock;
     if (s.has_audio && !(s.audio_eof && audio::stream_buffered_seconds() < 0.05)) {
         double c = audio::stream_clock();
         if (c >= 0) {
@@ -1697,8 +1861,8 @@ void report_progress(Session& s, bool force) {
     if (s.src.on_progress) s.src.on_progress(pos, s.state == PAUSED);
 }
 
-// The GPU is done with the frames the video texture drew from: it has been destroyed, or has
-// just been uploaded to (which waits for the GPU).
+// Texture replacement/destruction waits for GPU reads before these references
+// can return to the decoder's pool.
 void release_bound() {
     for (AVFrame* f : g_bound)
         if (f) av_frame_unref(f);
@@ -1716,12 +1880,14 @@ void destroy_texture() {
 bool upload_frame(VFrame& f) {
     SDL_Renderer* r = gfx::renderer();
     if (!g_tex || g_tex_w != f.w || g_tex_h != f.h || g_tex_format != f.format || g_tex_mode != f.yuv_mode) {
+        platform::main_phase("video: creating the display texture");
         destroy_texture();
         SDL_SetYUVConversionMode(f.yuv_mode);  // renderers read it when they make the texture or draw it
         g_tex = SDL_CreateTexture(r, f.format, SDL_TEXTUREACCESS_STREAMING, f.w, f.h);
         if (!g_tex) return false;
         SDL_SetTextureBlendMode(g_tex, SDL_BLENDMODE_NONE);
         SDL_SetTextureScaleMode(g_tex, SDL_ScaleModeLinear);
+        g_tex_scale = SDL_ScaleModeLinear;
         g_tex_w = f.w;
         g_tex_h = f.h;
         g_tex_format = f.format;
@@ -1730,15 +1896,18 @@ bool upload_frame(VFrame& f) {
     g_shown_pts = f.pts;
     g_shown_gen = f.gen;
     const AVFrame* y = f.yuv;
+    platform::main_phase("video: binding a decoded hardware picture");
     if (f.format == SDL_PIXELFORMAT_NV12 && platform::show_video_frame(g_tex, y)) {
         AVFrame* keep = g_bound[2] ? g_bound[2] : av_frame_alloc();
-        av_frame_unref(keep);
+        av_frame_unref(keep); // SDL has completed reads of all prior bindings
         g_bound[2] = g_bound[1];
         g_bound[1] = g_bound[0];
         g_bound[0] = keep;
         av_frame_move_ref(keep, f.yuv);
         return true;
     }
+    platform::main_phase("video: uploading a copied picture");
+    platform::video_frame_cpu_read(y);
     if (f.format == SDL_PIXELFORMAT_NV12)
         SDL_UpdateNVTexture(g_tex, nullptr, y->data[0], y->linesize[0], y->data[1], y->linesize[1]);
     else if (f.format == SDL_PIXELFORMAT_IYUV)
@@ -1746,6 +1915,7 @@ bool upload_frame(VFrame& f) {
                              y->linesize[2]);
     else
         SDL_UpdateTexture(g_tex, nullptr, f.rgba.data(), f.w * 4);
+    platform::main_phase("video: releasing copied picture buffers");
     release_bound();
     return false;
 }
@@ -1763,29 +1933,29 @@ double video_ahead(Session& s) {
     return s.vq.q.empty() || s.vq.last_pts < 0 ? 0 : std::max(0.0, s.vq.last_pts - from);
 }
 
-// Seconds of video in ahead of the playback clock: demuxed, and what the downloads have ahead of
-// the demuxer (at the file's average rate).
-double video_ready(Session& s) {
-    double t = video_ahead(s);
-    const Input& in = s.in[0];
+// Seconds of input `i`'s file the downloads have ahead of the demuxer (at the file's average rate).
+// A file with both (a movie's) has the same seconds of video and of sound in it.
+double download_credit(Session& s, int i) {
+    const Input& in = s.in[i];
     HttpIoStats io;
-    if (in.video >= 0 && in.fmt && s.duration > 0 && http_io_stats(in.fmt->pb, io) && io.size > 0)
-        t += io.ready * s.duration / io.size;
-    return t;
+    if (in.fmt && s.duration > 0 && http_io_stats(in.fmt->pb, io) && io.size > 0) return io.ready * s.duration / io.size;
+    return 0;
 }
 
-// The same for the sound (a separate audio file's downloads; the video's file has both).
+// Seconds of video in ahead of the playback clock: demuxed, and what the downloads have ahead of
+// the demuxer.
+double video_ready(Session& s) { return video_ahead(s) + (s.in[0].video >= 0 ? download_credit(s, 0) : 0); }
+
+// The same for the sound: a separate audio file's downloads, or the video's file (it has both: the
+// sound's packets are demuxed together with the video's, so without those bytes the sound showed
+// only the 20 s or so the demuxer had taken out of them).
 double audio_ready(Session& s) {
     double from = !s.started || s.seeking ? (double)s.seek_target : s.last_clock, t;
     {
         std::lock_guard<std::mutex> lk(s.aq.m);
         t = s.aq.q.empty() || s.aq.last_pts < 0 ? 0 : std::max(0.0, s.aq.last_pts - from);
     }
-    const Input& in = s.in[s.audio_input];
-    HttpIoStats io;
-    if (s.audio_input > 0 && in.fmt && s.duration > 0 && http_io_stats(in.fmt->pb, io) && io.size > 0)
-        t += io.ready * s.duration / io.size;
-    return t;
+    return t + download_credit(s, s.audio_input);
 }
 
 // Seconds of the video the downloads can keep ahead of it (http_io_max_ahead()): what a wait can
@@ -1814,7 +1984,10 @@ double refill_target(const Session& s) {
         target = std::max(target, std::min({left * (1 - got / takes), PLAY_THROUGH_WAIT * std::min(n, 3) * got / takes,
                                             room_ahead(s)}));
     }
-    return target;
+    // Bound the refill goal: a marginal file should offer a lighter source instead
+    // of turning repeated interruptions into 35+ seconds of preloading. This is
+    // a media-duration target, not a promise about wall-clock wait time.
+    return std::min(target, 15.0);
 }
 
 // Lets the downloads keep `seconds` of the video ahead, and of a separate sound file: room for
@@ -1862,7 +2035,7 @@ bool decoder_watchdog(Session& s, double t) {
     double since_open = t - s.opened_at;
     if (vin < 45 && !(since_open > 15 && s.vq.count() > 0)) return false;
     int next = std::min(s.decoding + 1, 2);
-    g_decoding_floor = next;
+    note_decoding_floor(s.original, next);
     log_message(LOG_WARNING, "Player", "No pictures from the hardware decoder (%d packets in %.0f s): trying %s", vin,
                 since_open, next == 1 ? "it without unreferenced pictures" : "software decoding");
     retry();
@@ -1882,6 +2055,13 @@ int64_t downloaded(Session& s) {
 // While loading: logs what is (not) happening every 5 s, and gives up when nothing has arrived
 // for 30 s: no packets, no pictures and no bytes (with the demuxed packets all kept, a wait for
 // refill_target() goes on in the downloads only). Returns true when it ended the session.
+// Whether any input's reads failed over the network (Input::lost).
+bool connection_lost(const Session& s) {
+    for (int i = 0; i < s.inputs; i++)
+        if (s.in[i].lost) return true;
+    return false;
+}
+
 bool buffering_watchdog(Session& s, double t) {
     // All of these only grow, so their sum changes whenever one does.
     int64_t mark = (int64_t)s.packets_read + s.video_out + downloaded(s);
@@ -1901,19 +2081,20 @@ bool buffering_watchdog(Session& s, double t) {
     }
     if (s.progress_at > 0 && t - s.progress_at > 30) {
         s.abort = true;
-        set_error(s, tr("Stopped loading: nothing arrived for 30 seconds"));
+        set_error(s, connection_lost(s) || s.net_retries > 0 ? tr("Connection lost") : tr("Stopped loading: nothing arrived for 30 seconds"));
         return true;
     }
     return false;
 }
 
-void start_session(const Source& src, int pref_audio) {
+void start_session(const Source& src, int pref_audio, const Source* prepared = nullptr) {
     const Source* was = g_s ? &g_s->original : nullptr;
     if (!was || was->service != src.service || was->id != src.id || was->url != src.url) g_hd60_too_slow = false;
     close();
     auto s = std::make_shared<Session>();
     s->id = g_next_id++ & 0xFFFF;
-    s->src = src;
+    s->src = prepared ? *prepared : src;
+    if (prepared) s->src.resolve = nullptr;
     s->original = src;
     s->pref_audio = pref_audio;
     s->gen = 1;
@@ -1954,13 +2135,26 @@ void ffmpeg_log(void* avcl, int level, const char* fmt, va_list vl) {
     std::string who = cls ? cls->item_name(avcl) : "FFmpeg";
     const char* text = line;
     if (util::starts_with(text, who + ": ")) text += who.size() + 2;  // already named
-    log_message(level <= AV_LOG_ERROR ? LOG_ERROR : LOG_WARNING, "FFmpeg", "%s: %s", who.c_str(), text);
+    // FFmpeg can include complete signed video/playlist URLs in errors. Keep credentials out
+    // of local logs too, before the developer log stream or bug report sees them.
+    auto redact = [](std::string value) {
+        for (const char* scheme : {"https://", "http://"}) {
+            size_t start = 0;
+            while ((start = value.find(scheme, start)) != std::string::npos) {
+                size_t end = value.find_first_of(" \t\r\n\"'", start);
+                value.replace(start, end == std::string::npos ? value.size() - start : end - start, "[video URL]");
+                start += 11;
+            }
+        }
+        return value;
+    };
+    log_message(level <= AV_LOG_ERROR ? LOG_ERROR : LOG_WARNING, "FFmpeg", "%s: %s", redact(who).c_str(), redact(text).c_str());
 }
 
 // The language picked for this video (kept when reopening it), "" for the original.
 std::string chosen_language(Session& s) {
     std::lock_guard<std::mutex> lk(s.meta_m);
-    return s.src.audio_languages.empty() ? "" : s.src.audio_language;
+    return s.src.audio_language;
 }
 
 // Same position and settings, another audio language (the service resolves it again).
@@ -2036,34 +2230,59 @@ void sample_download_rate(Session& s, double t) {
     s.rate_at = t;
 }
 
-// Auto, when the picture ran out while playing: steps down (reopening at the same place) when
-// the downloads can't carry this stream, or when it ran out twice in a minute and a half anyway.
-// Returns true when it replaced the session.
-bool auto_step_down(Session& s, double t) {
-    const Source& o = s.original;
-    if (!o.auto_quality || o.quality != 0 || s.src.bitrate <= 0 || s.src.bitrate <= s.src.min_bitrate) return false;
-    bool again = s.last_stall > 0 && t - s.last_stall < 90;
-    s.last_stall = t;
-    double rate = s.net_rate > 0 ? s.net_rate : net_rate();
-    bool behind = rate > 0 && rate * 8 < s.src.bitrate * 1.1;
+// Resolve a lower rendition while existing decoded/buffered media can still play.
+// The decoder handoff still reopens: this is not seamless segmented ABR.
+bool prepare_auto_lower(Session& s, double t) {
+    const Source& original = s.original;  // copied below, once it is going to be used
+    if (!original.auto_quality || original.quality != 0 || !original.resolve || s.adapting ||
+        s.user_paused || s.seeking || t - s.adapt_requested_at < 25 || s.src.bitrate <= s.src.min_bitrate || s.src.bitrate <= 0) return false;
+    const double rate = s.net_rate > 0 ? s.net_rate : net_rate();
+    const bool again = s.last_stall > 0 && t - s.last_stall < 90;
+    const bool behind = rate > 0 && rate * 8 < s.src.bitrate * 1.1;
     if (!behind && !again) return false;
-    int cap = s.src.bitrate - 1;
-    if (behind) cap = std::min(cap, (int)(rate * 8 * 0.8));
-    log_message(LOG_WARNING, "Player", "Auto quality: downloads get %.0f KB/s, the stream takes %d kbps: at most %d kbps now",
-                rate / 1024, s.src.bitrate / 1000, cap / 1000);
-    g_auto_cap = cap;
-    g_auto_cap_at = (int)t;
-    Source src = o;
-    src.bitrate_cap = cap;
-    src.audio_language = chosen_language(s);
-    if (!src.live) src.start = std::max(src.start, s.last_clock);
-    auto queue = std::move(g_queue);
-    int qi = g_queue_index;
-    start_session(src, s.pref_audio);
-    g_queue = std::move(queue);
-    g_queue_index = qi;
-    g_quality_notice = tr("Lower quality for now: the connection is slow");
-    return true;
+    const int cap = behind ? std::min(s.src.bitrate - 1, (int)(rate * 8 * .8)) : s.src.bitrate - 1;
+    s.adapting = true; s.adapt_requested_at = t;
+    const int generation = s.gen, previous_bitrate = s.src.bitrate;
+    auto session = g_s;
+    Source requested = original; requested.bitrate_cap = cap; requested.audio_language = chosen_language(s);
+    struct Prepared { Source source; bool ok = false; };
+    s.adaptation.run<Prepared>([requested, session]() mutable {
+        Prepared result; result.source = requested;
+        std::string error; result.ok = result.source.resolve(result.source, error);
+        return result;
+    }, [session, requested, cap, generation, previous_bitrate](Prepared result) mutable {
+        if (g_s != session || session->abort) return;
+        session->adapting = false;
+        if (!result.ok || session->gen != generation || session->user_paused || session->seeking ||
+            (session->state != PLAYING && session->state != BUFFERING) ||
+            result.source.bitrate <= 0 || result.source.bitrate >= previous_bitrate) return;
+        requested.start = result.source.start = std::max(requested.start, session->last_clock);
+        g_auto_cap = cap; g_auto_cap_at = (int)now();
+        log_message(LOG_OK, "Player", "Auto quality prepared in background: %d to %d kbps at %.1f s",
+                    previous_bitrate / 1000, result.source.bitrate / 1000, requested.start);
+        auto queue = std::move(g_queue); const int qi = g_queue_index;
+        start_session(requested, session->pref_audio, &result.source);
+        g_queue = std::move(queue); g_queue_index = qi;
+    });
+    return false; // nothing replaced synchronously
+}
+
+bool auto_step_down(Session& s, double t) {
+    prepare_auto_lower(s, t);
+    s.last_stall = t;
+    return false;
+}
+
+void anticipate_slow_connection(Session& s, double t) {
+    if (s.state != PLAYING || s.user_paused || s.seeking || !s.started || s.live ||
+        s.net_rate <= 0 || s.src.bitrate <= 0 || (s.duration > 0 && s.duration - s.last_clock < 20)) {
+        s.adapt_low_since = 0; return;
+    }
+    const double ready = video_ready(s) / std::max(.5f, s.speed.load());
+    if (ready < 10 && s.net_rate * 8 < s.src.bitrate * s.speed * 1.1) {
+        if (!s.adapt_low_since) s.adapt_low_since = t;
+        if (t - s.adapt_low_since >= 4) prepare_auto_lower(s, t);
+    } else s.adapt_low_since = 0;
 }
 
 // 1080p60 on the Wii U that leaving out pictures only keeps up with by long freezes (video_loop):
@@ -2104,9 +2323,17 @@ void init() {
                                      : store::get_bool("allow_60fps", true) ? 72060 : 72030);
 }
 
+bool wait_closed(int milliseconds) {
+    for (int i = 0; i < milliseconds / 10 && g_closers > 0; i++) SDL_Delay(10);
+    return g_closers == 0;
+}
+
 void shutdown() {
     close();
-    for (int i = 0; i < 300 && g_closers > 0; i++) SDL_Delay(10);
+    if (!wait_closed(3000)) {
+        log_message(LOG_WARNING, "Player", "A closing session is still busy; leaving it to the end of the app");
+        return;
+    }
     destroy_texture();
     for (AVFrame*& f : g_bound) av_frame_free(&f);
     avformat_network_deinit();
@@ -2178,6 +2405,41 @@ void close() {
     }).detach();
 }
 
+// What suspend_video() closed, to be opened again by resume_video().
+bool g_suspended = false;
+Source g_suspended_src;
+int g_suspended_audio = -1;
+bool g_suspended_paused = false;
+
+bool suspend_video() {
+    g_suspended = false;
+    if (!g_s || !g_s->has_video || !active()) return false;
+    Session& s = *g_s;
+    g_suspended_src = s.original;
+    g_suspended_src.audio_language = chosen_language(s);
+    if (s.src.quality > 0) g_suspended_src.quality = s.src.quality;
+    if (!g_suspended_src.live) g_suspended_src.start = std::max(g_suspended_src.start, s.last_clock);
+    g_suspended_audio = s.pref_audio;
+    g_suspended_paused = !g_suspended_src.live && (s.state == PAUSED || s.user_paused);
+    log_message(LOG_OK, "Player", "Closing the video while the app isn't in front (at %.1f s)", s.last_clock);
+    close();  // keeps the queue; saves the position like any stop
+    g_suspended = true;
+    return true;
+}
+
+bool resume_video() {
+    if (!g_suspended) return false;
+    g_suspended = false;
+    log_message(LOG_OK, "Player", "Opening the video again at %.1f s%s", g_suspended_src.start, g_suspended_paused ? ", paused" : "");
+    auto queue = std::move(g_queue);
+    int qi = g_queue_index;
+    start_session(g_suspended_src, g_suspended_audio);
+    g_queue = std::move(queue);
+    g_queue_index = qi;
+    if (g_suspended_paused) set_paused(true);
+    return true;
+}
+
 void retry() {
     if (!g_s) return;
     Source src = g_s->original;
@@ -2191,6 +2453,13 @@ void retry() {
 }
 
 void reset_decoding_fallback() { g_decoding_floor = 0; }
+
+int decoding_floor(const Source& video) { return g_decoding_floor_for == video_key(video) ? g_decoding_floor.load() : 0; }
+
+void note_decoding_floor(const Source& video, int level) {
+    g_decoding_floor_for = video_key(video);
+    g_decoding_floor = level;
+}
 
 int auto_cap() {
     return now() - g_auto_cap_at < AUTO_CAP_SECONDS ? g_auto_cap.load() : 0;
@@ -2235,9 +2504,12 @@ void set_quality(int quality) {
 void set_paused(bool paused) {
     if (!g_s) return;
     Session& s = *g_s;
+    if (s.user_paused != paused)
+        log_message(LOG_OK, "Player", "User %s at %.1f s", paused ? "paused" : "resumed", s.last_clock);
     s.user_paused = paused;
     int st = s.state;
     if (paused && st == PLAYING) {
+        master_clock(s); // capture the last audible position once, then freeze the clock
         s.state = PAUSED;
         audio::stream_pause(true);
         s.wall_running = false;
@@ -2253,7 +2525,7 @@ void set_paused(bool paused) {
 
 void toggle_pause() {
     if (!g_s) return;
-    set_paused(!(g_s->state == PAUSED || g_s->user_paused));
+    set_paused(!(g_s->state == PAUSED || g_s->state == ENDED || g_s->user_paused));
 }
 
 void set_speed(float speed) {
@@ -2289,7 +2561,10 @@ void seek_at(double t, bool snap) {
     // with the queues drained and the inputs at their end near a video's end).
     s.vq.flush();
     s.aq.flush();
-    for (int i = 0; i < s.inputs; i++) s.in[i].eof = false;
+    for (int i = 0; i < s.inputs; i++) {
+        s.in[i].eof = false;
+        s.in[i].lost = false;
+    }
     s.last_clock = t;
     audio::stream_reset((s.id << 16) | (gen & 0xFFFF));
     audio::stream_pause(true);
@@ -2330,10 +2605,10 @@ bool active() {
     return st == OPENING || st == BUFFERING || st == PLAYING || st == PAUSED;
 }
 
-const std::string& error() {
+std::string error() {
     if (!g_s) return g_empty;
     std::lock_guard<std::mutex> lk(g_s->err_m);
-    return g_s->error;
+    return g_s->error;  // a copy: set_error() may write it again while the caller reads
 }
 
 Source source() {
@@ -2344,8 +2619,8 @@ Source source() {
 
 double position() {
     if (!g_s) return 0;
-    if (g_s->seeking) return g_s->seek_target;
-    return std::max(0.0, g_s->last_clock);
+    const double pos = std::max(0.0, g_s->seeking ? (double)g_s->seek_target : g_s->last_clock);
+    return !g_s->live && g_s->duration > 0 ? std::min(pos, g_s->duration) : pos;
 }
 
 double duration() { return g_s ? g_s->duration : 0; }
@@ -2353,10 +2628,14 @@ double duration() { return g_s ? g_s->duration : 0; }
 double buffered_until() {
     if (!g_s) return 0;
     Session& s = *g_s;
+    // The demuxed packets, and the downloads ahead of them (the seek bar's grey part).
     double a = s.has_audio ? s.aq.last_pts : -1, v = s.has_video ? s.vq.last_pts : -1;
+    if (a >= 0) a += download_credit(s, s.audio_input);
+    if (v >= 0 && s.in[0].video >= 0) v += download_credit(s, 0);
     double b = s.has_video && s.has_audio ? std::min(a, v) : std::max(a, v);
     if (s.in[0].eof) b = s.duration;
-    return std::max(b, position());
+    b = std::max(b, position());
+    return !s.live && s.duration > 0 ? std::min(b, s.duration) : b;
 }
 
 bool seekable() { return g_s && g_s->seekable; }
@@ -2365,6 +2644,7 @@ bool has_video() { return g_s && g_s->has_video; }
 bool audio_only() { return g_s && !g_s->has_video && g_s->has_audio; }
 int video_width() { return g_s ? g_s->vw : 0; }
 int video_height() { return g_s ? g_s->vh : 0; }
+int video_rotation() { return g_s && g_s->has_video ? g_s->orient.turns : 0; }
 float video_fps() { return g_s ? g_s->fps : 0; }
 std::string codec_info(bool fps) {
     if (!g_s) return "";
@@ -2385,6 +2665,7 @@ bool stats(Stats& out) {
     out = {};
     out.download = s.rate;
     out.average = (float)(s.net_rate / 1024);
+    out.damaged_packets = s.damaged_packets;
     out.waits = s.waits;
     out.waited = (float)(s.waited + (st == BUFFERING && s.starved ? now() - s.buffering_since : 0));
     if (st == OPENING) return true;
@@ -2436,7 +2717,7 @@ std::vector<Track> audio_tracks() {
     const auto& langs = g_s->src.audio_languages;
     if (langs.empty()) return g_s->audio_tracks;
     std::vector<Track> out;
-    for (size_t i = 0; i < langs.size(); i++) out.push_back(Track{(int)i, langs[i].second});
+    for (size_t i = 0; i < langs.size(); i++) out.push_back(Track{(int)i, langs[i].second, language_code(langs[i].first)});
     return out;
 }
 
@@ -2450,28 +2731,34 @@ int audio_track() {
 }
 
 void set_audio_track(int index) {
-    if (!g_s) return;
+    if (!g_s || !g_s->started) return;
+    Source src = source();
     std::string language;
-    {
-        std::lock_guard<std::mutex> lk(g_s->meta_m);
-        const auto& langs = g_s->src.audio_languages;
-        if (!langs.empty()) {
-            if (index < 0 || index >= (int)langs.size() || langs[index].first == g_s->src.audio_language) return;
-            language = langs[index].first;
-        }
+    bool external = !src.audio_languages.empty();
+    if (external) {
+        if (index < 0 || index >= (int)src.audio_languages.size()) return;
+        language = src.audio_languages[index].first;
+    } else {
+        if (g_s->inputs != 1) return;
+        auto tracks = audio_tracks();
+        auto it = std::find_if(tracks.begin(), tracks.end(), [index](const Track& t) { return t.index == index; });
+        if (it == tracks.end()) return;
+        language = it->language;
     }
+    // Record only a deliberate menu/API choice, including choosing the active track.
+    const int current = audio_track();
     if (!language.empty()) {
-        reopen_with_language(language);
-        return;
+        std::lock_guard<std::mutex> lk(g_s->meta_m);
+        g_s->src.audio_language = g_s->original.audio_language = language;
     }
-    if (g_s->inputs != 1 || index == g_s->in[0].audio) return;
-    Source src = g_s->src;
+    if (index == current) return;
+    const bool paused = g_s->user_paused;
+    if (external) { reopen_with_language(language); if (paused) set_paused(true); return; }
+    src.audio_language = language;
     src.start = position();
-    auto queue = std::move(g_queue);
-    int qi = g_queue_index;
-    start_session(src, index);
-    g_queue = std::move(queue);
-    g_queue_index = qi;
+    auto queue = std::move(g_queue); int qi = g_queue_index;
+    start_session(src, index); g_queue = std::move(queue); g_queue_index = qi;
+    if (paused) set_paused(true);
 }
 
 std::vector<Track> subtitle_tracks() {
@@ -2482,13 +2769,20 @@ std::vector<Track> subtitle_tracks() {
 
 int subtitle_track() {
     if (!g_s) return -1;
+    std::lock_guard<std::mutex> lk(g_s->sub_m);
     if (g_s->sub_external >= 0) return 1000 + g_s->sub_external;
     return g_s->sub_stream;
 }
 
 void set_subtitle_track(int index) {
-    if (!g_s) return;
+    if (!g_s || !g_s->started) return;
     Session& s = *g_s;
+    if (index >= 0) {
+        auto tracks = subtitle_tracks();
+        if (std::none_of(tracks.begin(), tracks.end(), [index](const Track& t) { return t.index == index; })) return;
+    }
+    std::unique_lock<std::mutex> subtitle_lock(s.sub_m);
+    const auto generation = ++s.sub_generation;
     s.subs.clear();
     s.sub_external = -1;
     s.sub_stream = -1;
@@ -2497,18 +2791,8 @@ void set_subtitle_track(int index) {
         size_t i = index - 1000;
         if (i >= s.src.external_subs.size()) return;
         std::string u = s.src.external_subs[i].second;
-        std::shared_ptr<Session> sp = g_s;
         s.sub_external = (int)i;
-        std::thread([sp, u]() {
-            cpu::ThreadTag tag("subtitles");
-            std::string data;
-            bool ok = util::starts_with(u, "http") ? [&] {
-                http::Response r = http::get(u, {}, 15);
-                data = std::move(r.body);
-                return r.ok();
-            }() : smb::is_url(u) ? smb::read_file(u, data) : util::read_file(u, data);
-            if (ok && !sp->abort) sp->subs.load(data);
-        }).detach();
+        load_subtitles_async(g_s, u, generation);
         return;
     }
     // Embedded: open a decoder; cues arrive as packets are demuxed, so seek
@@ -2528,11 +2812,14 @@ void set_subtitle_track(int index) {
     }
     f0->streams[index]->discard = AVDISCARD_DEFAULT;
     s.sub_stream = index;
+    subtitle_lock.unlock();
     if (s.seekable) seek_at(position(), false);
 }
 
 std::string subtitle_text() {
-    if (!g_s || (g_s->sub_stream < 0 && g_s->sub_external < 0)) return "";
+    if (!g_s) return "";
+    std::lock_guard<std::mutex> lk(g_s->sub_m);
+    if (g_s->sub_stream < 0 && g_s->sub_external < 0) return "";
     return g_s->subs.at(position());
 }
 
@@ -2551,6 +2838,11 @@ std::string download_report(Session& s, double window) {
         const HttpIoStats& was = s.io_mark[i];
         out += util::fmt("%s%s %.0f KB/s, %.1f MB in ahead", out.empty() ? "" : "; ", s.in[i].video >= 0 ? "video" : "audio",
                          (now.downloaded - was.downloaded) / 1024.0 / std::max(window, 0.1), now.ready / 1048576.0);
+        const double busy = now.busy_seconds - was.busy_seconds;
+        const int completed = now.completed_requests - was.completed_requests;
+        if (busy > 0.01) out += util::fmt(", active %.0f KB/s", (now.downloaded - was.downloaded) / 1024.0 / busy);
+        if (completed > 0) out += util::fmt(", first byte %.3f s", (now.first_byte_seconds - was.first_byte_seconds) / completed);
+        if (now.request_kb > 256) out += util::fmt(", requests up to %d KB", now.request_kb);
         std::string held;
         auto add = [&held](int n, const char* one, const char* more) {
             if (n > 0) held += util::fmt("%s%d %s", held.empty() ? "" : ", ", n, n == 1 ? one : more);
@@ -2637,10 +2929,67 @@ void update() {
         set_error(s, tr(STEP_TIMEOUTS[std::clamp((int)s.step, 0, 3)]));
         return;
     }
-    if (st == OPENING || st == FAILED || st == IDLE) return;
+    if (st == OPENING || st == FAILED || st == IDLE || st == ENDED) return;
+    platform::main_phase("player: reading queue readiness");
+    // Only demuxed, queued media earns a longer quiet-request allowance. File-size
+    // estimates can overstate readiness for variable-bitrate streams.
+    double queued = s.has_video ? video_ahead(s) : 60.0;
+    if (s.has_audio) {
+        std::lock_guard<std::mutex> lk(s.aq.m);
+        const double audio_queued = s.aq.q.empty() || s.aq.last_pts < 0 ? 0 : std::max(0.0, s.aq.last_pts - s.last_clock);
+        queued = std::min(queued, audio_queued);
+    }
+    if (!s.started || s.seeking || st != PLAYING) queued = 0;
+    platform::main_phase("player: updating download feedback");
+    for (int i = 0; i < s.inputs; ++i)
+        if (s.in[i].fmt) http_io_playback_buffer(s.in[i].fmt->pb, queued / std::max(0.5f, s.speed.load()));
+    // Existing byte limits still bound this VOD goal; live streams retain their policy.
+    if (!s.live && s.in[0].chunked) {
+        keep_ahead(s, KEEP_AHEAD_SECONDS);
+        // Paused playback still downloads, bounded by RAM. Never enlarge a live
+        // window or dedicate a second full video-sized allocation to separate audio.
+        if (s.user_paused && s.in[0].fmt) {
+            http_io_keep_ahead(s.in[0].fmt->pb, http_io_max_ahead());
+            if (s.audio_input > 0 && s.in[s.audio_input].fmt)
+                http_io_keep_ahead(s.in[s.audio_input].fmt->pb, 4 << 20);
+        }
+    }
+    if (!s.live && !s.in[0].chunked && s.in[0].remote && s.user_paused) keep_ahead(s, 60.0);
+    platform::main_phase("player: measuring downloads");
     measure_network(s, t);
     sample_download_rate(s, t);
+    anticipate_slow_connection(s, t);
     if (decoder_step_down(s)) return;
+
+    // A download gave up (Input::lost): the buffered part plays on, and once it runs low playback asks
+    // again from where it stands (a seek), after a pause that grows. Four tries, then it's an error, with
+    // the place kept (a failed session isn't a finished one).
+    if (connection_lost(s)) {
+        if (st != PAUSED) {
+            if (s.net_lost_since <= 0) {
+                s.net_lost_since = t;
+                s.net_retry_at = t + 1.5 * (1 << std::min(s.net_retries, 3));
+                log_message(LOG_WARNING, "Player", "Connection lost at %.0f s (%.0f s of video buffered): asking again in %.1f s",
+                            s.last_clock, s.has_video ? video_ahead(s) : 0.0, s.net_retry_at - t);
+            }
+            if ((st == BUFFERING || queued < 2.0) && t >= s.net_retry_at) {
+                if (!s.seekable || s.net_retries >= 4) {
+                    s.abort = true;
+                    set_error(s, tr("Connection lost"));
+                    return;
+                }
+                ++s.net_retries;
+                s.net_last_retry = t;
+                s.net_lost_since = 0;
+                log_message(LOG_WARNING, "Player", "Asking again from %.1f s (try %d of 4)", s.last_clock, s.net_retries);
+                seek_at(s.last_clock, false);
+                return;
+            }
+        }
+    } else {
+        s.net_lost_since = 0;
+        if (s.net_retries > 0 && st == PLAYING && t - s.net_last_retry > 20) s.net_retries = 0;
+    }
 
     if (st == BUFFERING) {
         bool audio_ok = !s.has_audio || audio::stream_buffered_seconds() >= (s.in[0].remote ? 0.6 : 0.25) ||
@@ -2652,7 +3001,9 @@ void update() {
         }
         // After the pictures ran out, one isn't enough: it would run out again at once. Nor
         // from the network at a start or a seek.
-        if (s.video_starved) video_ok = video_refilled(s, refill_target(s));
+        if (s.video_starved)
+            video_ok = video_refilled(s, refill_target(s)) ||
+                       (t - s.buffering_since >= REFILL_PATIENCE && video_ready(s) >= PATIENCE_CUSHION);
         else if (video_ok && s.has_video && s.in[0].remote && !s.live) video_ok = video_refilled(s, START_CUSHION);
         if (audio_ok && video_ok) {
             // A start or a seek plays from where it went: a resume from the keyframe before the
@@ -2796,6 +3147,7 @@ void update() {
         }
         s.fcv.notify_all();
     }
+    platform::main_phase("player: playback statistics");
     playback_stats(s, t, st);
 
     // End of stream.
@@ -2809,11 +3161,33 @@ void update() {
         }
         bool v_done = !s.has_video || (s.vq.drained() && frames_empty && s.video_eof);
         bool a_done = !s.has_audio || (s.aq.drained() && s.audio_eof && audio::stream_buffered_seconds() < 0.03);
+        if (inputs_done && v_done && a_done && s.in[0].remote && !s.in[0].chunked && !s.live && s.duration > 0 &&
+            s.duration - clock > std::max(60.0, s.duration * 0.1)) {
+            // FFmpeg's own network reads end the same way when the connection closes early. (http_io's
+            // downloads fail instead, so their end is the file's.) Not finished: ask again from here, and
+            // when that ends as early, say so, keeping the place.
+            if (s.seekable && s.early_ends < 2) {
+                ++s.early_ends;
+                log_message(LOG_WARNING, "Player", "Ended at %.0f s of %.0f s: asking again (try %d of 2)", clock, s.duration,
+                            s.early_ends);
+                seek_at(clock, false);
+                return;
+            }
+            s.abort = true;
+            set_error(s, tr("Connection lost"));
+            return;
+        }
         if (inputs_done && v_done && a_done) {
+            // End is a stable state: no wall/audio clock or decoder work until replay/seek.
+            // Keep the last texture, finish the seek bar, and notify completion only once.
+            s.wall_running = false;
+            s.clock_running = false;
+            s.last_clock = !s.live && s.duration > 0 ? s.duration : std::max(0.0, clock);
+            s.clock_now = s.last_clock;
             s.state = ENDED;
             audio::stream_pause(true);
             if (s.src.remember_position) store::resume_remove(s.src.service, s.src.id);
-            if (s.src.on_stop) s.src.on_stop(s.duration, true);
+            if (s.src.on_stop) s.src.on_stop(s.last_clock, true);
             log_message(LOG_OK, "Player", "Finished: %s", s.src.title.c_str());
             if (has_next()) next();
             return;
@@ -2849,13 +3223,26 @@ std::string take_quality_notice() {
     return n;
 }
 
-SDL_Texture* video_texture() { return g_s && g_shown_gen != 0 ? g_tex : nullptr; }
+SDL_Texture* video_texture() {
+    if (!g_s || g_shown_gen == 0) return nullptr;
+    // Developers: "best" has the Wii U renderer scale YUV video bicubic (sharper) instead of
+    // bilinear. Checked as it's drawn, so switching shows while paused too.
+    SDL_ScaleMode scale = developer() && store::get_bool("dev_bicubic", false) ? SDL_ScaleModeBest : SDL_ScaleModeLinear;
+    if (g_tex && scale != g_tex_scale) {
+        SDL_SetTextureScaleMode(g_tex, scale);
+        g_tex_scale = scale;
+    }
+    return g_tex;
+}
 
 SDL_Rect fit_rect(int area_w, int area_h) {
     int w = g_tex_w, h = g_tex_h;
     if (w <= 0 || h <= 0) return SDL_Rect{0, 0, area_w, area_h};
-    float s = std::min((float)area_w / w, (float)area_h / h);
-    int dw = (int)(w * s), dh = (int)(h * s);
+    // The picture's shape as shown: turned, and anamorphic pixels made square.
+    double aspect = g_s && g_s->has_video ? display_aspect(w, h, g_s->orient) : (double)w / h;
+    int dw = area_w, dh = area_h;
+    if (area_w > area_h * aspect) dw = (int)std::lround(area_h * aspect);
+    else dh = (int)std::lround(area_w / aspect);
     return SDL_Rect{(area_w - dw) / 2, (area_h - dh) / 2, dw, dh};
 }
 

@@ -9,7 +9,9 @@
 #include <vector>
 
 #include "audio/mixer.hpp"
+#include "core/blackbox.hpp"
 #include "core/cpu.hpp"
+#include "core/heartbeat.hpp"
 #include "core/http.hpp"
 #include "core/i18n.hpp"
 #include "core/input.hpp"
@@ -27,8 +29,11 @@
 #include "ui/ui.hpp"
 #include "app/ambient.hpp"
 #include "app/dev_log.hpp"
+#include "app/crash_report.hpp"
+#include "app/exit_watchdog.hpp"
 #include "app/mini_player.hpp"
 #include "app/updater.hpp"
+#include "player/http_io.hpp"
 #include "player/player.hpp"
 
 namespace app {
@@ -222,6 +227,8 @@ void frame(float dt) {
 // that took long. Also each thread's CPU use every 10 s, logged while something plays (always
 // with developer updates on).
 enum Phase { PH_INPUT, PH_CALLBACKS, PH_IMAGES, PH_PLAYER, PH_SCREEN, PH_DRAWING, PH_PRESENT, PH_AFTER, PH_COUNT };
+// With developer updates on: a line of the heartbeat's this often all the time (core/heartbeat.hpp).
+constexpr double HEARTBEAT_PERIOD = 10.0;
 const char* const PHASE_NAMES[PH_COUNT] = {"input", "callbacks", "images", "player", "screen", "drawing", "present", "after"};
 constexpr double SLOW_FRAME = 0.05;
 
@@ -263,6 +270,7 @@ public:
         Uint64 t = SDL_GetPerformanceCounter();
         frame_.phases[p] = (double)(t - mark_) / SDL_GetPerformanceFrequency();
         mark_ = t;
+        heartbeat::phase_done(PHASE_NAMES[p]);
         if (p == PH_CALLBACKS) frame_.callback = tasks::last_pump_slowest();
     }
 
@@ -277,7 +285,18 @@ public:
             sum_[p] += frame_.phases[p];
         }
         frame_.total = total;
+        // The main thread's own CPU time over the frame (developer only): a slow frame that ran
+        // little was waiting, one that ran all of it was working.
+        frame_.cpu = -1;
+        if (developer_) {
+            const uint64_t ran = platform::thread_cpu_ns(platform::current_thread());
+            if (ran && cpu_mark_ && ran >= cpu_mark_) frame_.cpu = (double)(ran - cpu_mark_) / 1e9;
+            cpu_mark_ = ran;
+        } else {
+            cpu_mark_ = 0;
+        }
         frames_++;
+        heartbeat::frame_done();
         if (total > 0.025) late_++;  // missed at least one screen update
         longest_ = std::max(longest_, total);
         double now = util::now_seconds();
@@ -298,6 +317,7 @@ private:
     struct Frame {
         double phases[PH_COUNT] = {};
         double total = 0;
+        double cpu = -1;  // the main thread's CPU time in it; -1 unknown
         tasks::Slowest callback;
         text::Work text;
         const std::type_info* screen = nullptr;
@@ -331,9 +351,10 @@ private:
             callback = util::fmt("; slowest callback %.0f ms: %s", worst_.callback.seconds * 1e3,
                                  callback_name(*worst_.callback.type).substr(0, 600).c_str());
         if (slow_count_ > 1) others = util::fmt(" (%d slow frames in this second)", slow_count_);
-        log_message(LOG_WARNING, "Frames", "Slow frame: %.0f ms (%s) on %s%s%s%s", worst_.total * 1e3,
+        const std::string ran = worst_.cpu >= 0 ? util::fmt("; the main thread ran %.0f ms of it", worst_.cpu * 1e3) : "";
+        log_message(LOG_WARNING, "Frames", "Slow frame: %.0f ms (%s) on %s%s%s%s%s", worst_.total * 1e3,
                     breakdown(worst_.phases, 1, 0.001).c_str(), screen_name(worst_.screen).c_str(), callback.c_str(),
-                    text_work(worst_.text, true).c_str(), others.c_str());
+                    text_work(worst_.text, true).c_str(), ran.c_str(), others.c_str());
         worst_ = {};
         slow_count_ = 0;
     }
@@ -356,6 +377,8 @@ private:
 
     void reset(double now) {
         developer_ = updater::developer();
+        heartbeat::keep(developer_ ? HEARTBEAT_PERIOD : 0, player::http_io_report);
+        blackbox::keep(developer_, platform::data_dir());
         since_ = now;
         std::fill(sum_, sum_ + PH_COUNT, 0.0);
         frames_ = late_ = 0;
@@ -364,6 +387,7 @@ private:
     }
 
     Uint64 mark_ = 0;
+    uint64_t cpu_mark_ = 0;
     Frame frame_, worst_;
     text::Work text_;  // over the 10 s
     double sum_[PH_COUNT] = {};
@@ -417,10 +441,68 @@ void focus_rail() { g_focus_rail_request = true; }
 void quit() { g_quit = true; }
 void set_mini_player_visible(bool v) { g_mini_visible = v; }
 
+namespace {
+
+// From the time the app is asked to close (or decides to), it has this long before it's ended by force.
+// Closing normally takes well under two seconds.
+constexpr double CLOSE_DEADLINE = 10;
+
+bool g_returned = false;  // the console gave the app back; the main loop opens the video again
+
+// HOME was pressed, or the console is going to sleep (Wii U). The main thread now waits for the
+// console to give the app back. A video is closed, hardware decoder and video memory too, and not
+// just paused: twice the console froze at this moment with a video open (the log ends right after
+// the release callbacks), and this runs before SDL lets go of its graphics memory, which a video
+// texture may still be using. It is opened again, at the same second, when the app is back.
+// Music and radio play on.
+void on_leaving_foreground() {
+    if (player::suspend_video()) {
+        const bool closed = player::wait_closed(2000);
+        log_message(closed ? LOG_OK : LOG_WARNING, "App", closed ? "The video is closed while the app isn't in front"
+                                                               : "The video is still closing");
+    }
+    dev_log::flush_now();
+}
+
+void on_returned() { g_returned = true; }
+
+// Closed from the HOME menu (Wii U). The player's decoder and downloads are let go of now, while
+// the system is still waiting on the app, and not after the app has told it that it's done: a decoder
+// that never returned from closing there is what a frozen console looked like. Should anything
+// still hang from here on, the watchdog ends the process.
+void on_exiting() {
+    exit_watchdog::arm(CLOSE_DEADLINE);
+    g_quit = true;
+    player::close();
+    bool closed = player::wait_closed(2000);
+    log_message(closed ? LOG_OK : LOG_WARNING, "App", closed ? "The player has closed" : "The player is still closing");
+    dev_log::flush_now();
+}
+
+// A line in the log, sent at once, before each step of closing: after a freeze the last one says
+// which step it was.
+struct Closing {
+    double start = util::now_seconds();
+    void step(const char* what) const {
+        log_message(LOG_OK, "App", "Closing: %s (%.0f ms in)", what, (util::now_seconds() - start) * 1000);
+        dev_log::flush_now();
+    }
+};
+
+}  // namespace
+
 int run(int, char**) {
     if (!platform::init()) return 1;
+    crash_report::install(platform::data_dir());
+    platform::Lifecycle lifecycle;
+    lifecycle.leaving_foreground = on_leaving_foreground;
+    lifecycle.returned = on_returned;
+    lifecycle.exiting = on_exiting;
+    platform::set_lifecycle(lifecycle);
     log_to_file(platform::data_dir());
     log_message(LOG_OK, "App", "CoffeeFlix starting on %s", platform::name());
+    crash_report::report_last_run(platform::data_dir());
+    blackbox::report_last_run(platform::data_dir());
     cpu::ThreadTag cpu_tag("main");
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
@@ -455,6 +537,7 @@ int run(int, char**) {
     if (!text::init(content)) log_message(LOG_ERROR, "App", "Fonts missing in %s", content.c_str());
     store::load(platform::data_dir() + "/coffeeflix.json");
     store::set_user(platform::user_id());
+    screens::count_start();
     i18n::init(content);
     http::init(content + "/cacert.pem", platform::tune_socket);
     http::set_verify_tls(store::get_bool("verify_tls", true));
@@ -489,12 +572,16 @@ int run(int, char**) {
         dev_log::tick();
         images::begin_frame();
         g_profile.mark(PH_IMAGES);
+        if (g_returned) {  // after the console's callbacks, SDL's among them, have all run
+            g_returned = false;
+            player::resume_video();
+        }
         player::update();
         {
             // Keep the screen on for videos and the console on for any playback.
             player::State ps = player::state();
             bool playing = ps == player::PLAYING || ps == player::BUFFERING || ps == player::OPENING;
-            platform::keep_awake(!playing ? platform::AWAKE_NONE
+            platform::keep_awake(!playing ? (top() && top()->prevents_sleep() ? platform::AWAKE_NO_POWEROFF : platform::AWAKE_NONE)
                                  : player::has_video() ? platform::AWAKE_FULL
                                                        : platform::AWAKE_NO_POWEROFF);
         }
@@ -519,18 +606,29 @@ int run(int, char**) {
     }
 
     log_message(LOG_OK, "App", "Shutting down");
+    exit_watchdog::arm(CLOSE_DEADLINE);
+    const Closing closing;
+    closing.step("updater and mini player");
     updater::stop();
     mini_player::shutdown();
     g_dead.clear();
+    closing.step("screens");
     g_stack.clear();
+    closing.step("player");
     player::shutdown();
     g_stack.clear();
+    closing.step("saving");
     store::save_now();
+    closing.step("tasks");
+    http::cancel_running();  // the workers may be waiting for a slow server
     tasks::shutdown();
+    closing.step("sound");
     audio::shutdown();
+    closing.step("pictures, text and graphics");
     images::shutdown();
     text::shutdown();
     gfx::shutdown();
+    closing.step("log and network");
     dev_log::shutdown();
     http::shutdown();
     IMG_Quit();
@@ -538,6 +636,7 @@ int run(int, char**) {
     SDL_DestroyWindow(window);
     SDL_Quit();
     updater::finish_on_exit();  // nothing reads bundled files any more
+    blackbox::stop();
     log_shutdown();
     platform::shutdown();
     return 0;

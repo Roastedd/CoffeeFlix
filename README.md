@@ -13,11 +13,11 @@ CoffeeFlix is free. If you enjoy it, you can [buy me a coffee on Ko-fi](https://
 ## What it does
 
 - **YouTube** without signing in. Subscriptions live on your SD card, and so does the *For you* feed, which learns from what you watch without sending anything anywhere. You get channel pages (videos, Shorts, live, playlists), search, *Watch later*, history, captions and [SponsorBlock](https://sponsor.ajay.app) skipping. Pick 360p to 1080p from the player; 720p is the default. Videos with dubbed audio play in their original language, and the player lists the dubs if you'd rather hear one.
-- **Jellyfin**: sign in with Quick Connect or a password. Continue watching, next up, seasons and episodes, server subtitles, and your progress syncs back to the server.
+- **Jellyfin**: sign in with Quick Connect or a password. Continue watching, next up, seasons and episodes, server subtitles, and your progress syncs back to the server. When an episode ends, the next one starts after a countdown you can cancel (and YouTube can do the same with its suggested video).
 - **Twitch**: live channels, search and a follow list, at the quality you choose.
 - **Radio**: the 40,000+ stations of radio-browser.info, by country or genre, with the song that's playing.
 - **Podcasts**: search Apple's directory, subscribe, and pick up episodes where you left off.
-- **Your own files**: videos (with `.srt` subtitles), music, photos, and comics and books (CBZ, EPUB) from the SD card, from a Windows, Mac or NAS share (SMB), or from a DLNA server such as Plex, which it finds on its own.
+- **Your own files**: videos (with `.srt` subtitles), music, photos, and comics and books (CBZ, EPUB) from the SD card, from a Windows, Mac or NAS share (SMB), or from a DLNA server such as Plex, which it finds on its own. You can also send files to the SD card from your phone or computer over Wi-Fi (*My Media > Receive files*).
 - A Home screen and search that cover all of the above, and music that keeps playing while you browse.
 - In English, Tagalog, Spanish, French, German, Italian, Portuguese, Dutch, Japanese, Chinese and Korean. It follows the Wii U's language, or you can pick one under *Settings > Language*.
 
@@ -99,6 +99,18 @@ tools/docker-build.sh DEBUG=1    # debug build
 With devkitPro installed (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-tinyxml2`, `ppc-giflib`, `ppc-libzip`, `ppc-libjpeg-turbo`), run `tools/build-deps.sh` once and then `make`. `WIIU_IP=192.168.x.x tools/deploy.sh` copies a build to a Wii U running an FTP server.
 
 FFmpeg-wiiu is patched during the build; the patches are in [tools/patches](tools/patches).
+
+### Choosing a developer build
+
+A developer update server can offer multiple local checkouts at once:
+
+```bash
+tools/dev-update.sh --no-build --also-project /path/to/another/checkout
+```
+
+With Developer updates enabled, **Settings > Updates > Build to install** lists the signed builds offered by that server. Select a build, download it, then choose **Install and close**. Cancel a pending download or staged installation before selecting another build. Automatic updates only update the current build variant; they do not switch variants.
+
+Each checkout identifies its variant in `src/core/build_variant.hpp`. Build each checkout before offering it. Older clients receive the server's primary build once, gaining the chooser after installation. The installed application still occupies one Wii U slot.
 
 ### Translations
 

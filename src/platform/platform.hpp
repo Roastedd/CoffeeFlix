@@ -24,6 +24,34 @@ bool running();
 // Asks to close the app, back to the Wii U Menu; running() turns false once the system agrees.
 void exit_to_menu();
 
+// What the console asks of the app besides drawing frames (the Wii U's ProcUI; a desktop has
+// nothing like it and never calls these). Each runs on the thread that calls running(), from
+// inside it, before the system carries on: they must be quick, and must not touch SDL or the
+// GPU (SDL lets go of its own graphics memory in the same breath).
+struct Lifecycle {
+    void (*leaving_foreground)() = nullptr;  // HOME was pressed; the app is about to be put in the background
+    void (*returned)() = nullptr;            // and it's back in front
+    void (*exiting)() = nullptr;             // closed from the HOME menu (or by the power button)
+};
+void set_lifecycle(const Lifecycle& handlers);
+
+// Ends the process at once, without cleaning up: for when closing is stuck.
+[[noreturn]] void terminate_now(int code);
+// For the thread that ends a stuck process: a priority above the main thread's, so a spinning
+// thread can't keep it from running. Nothing on a desktop.
+void raise_thread_priority();
+
+// A crash (a bad memory access, an illegal instruction) on the Wii U ends the app with the last
+// picture on the screen. Once installed, the system's exception handlers write what they know
+// (which thread, where in the code) through app/crash_report and into the log before it ends.
+// Also watches the main loop and logs when it stops for seconds. Nothing on a desktop, which has
+// its own crash reports.
+void install_crash_reporter();
+// Main-thread stage for the console stall reporter; literals only, no allocation.
+void main_phase(const char* stage);
+// The heap's use in a few words, for the line logged when memory runs out.
+std::string memory_summary();
+
 // The app's own package on the SD card when it can be replaced in place (Wii U: the .wuhb Aroma
 // started it from), else empty. Desktop tests name one with COFFEEFLIX_BUNDLE.
 std::string app_bundle();
@@ -73,8 +101,8 @@ void tune_socket(int fd);
 void attach_video_frames(AVCodecContext* ctx);
 void detach_video_frames(AVCodecContext* ctx);
 // Points an NV12 texture at such a frame. False for any other frame, or when the texture can't
-// take it: upload the frame then. The GPU can read the frame until another has been shown and
-// the screen updated twice, or the texture destroyed.
+// take it: upload the frame then. On a successful replacement, SDL has waited for GPU
+// reads of the previous binding to complete; texture destruction also waits.
 bool show_video_frame(SDL_Texture* tex, const AVFrame* f);
 // Before the CPU reads such a frame: it may still have what the memory held before cached.
 void video_frame_cpu_read(const AVFrame* f);
@@ -94,6 +122,11 @@ void set_thread_name(const char* name);
 // thread_cpu_ns reads against. Empty elsewhere.
 std::string thread_clock_debug(void* thread);
 std::string clock_debug();
+// For the black box, from any thread, without allocating or waiting: where a thread is as far as
+// the system tells, written into `out` (`capacity` bytes): its state (R running, r ready, W waiting,
+// S suspended), the address it stopped at and its caller, and what it waits for (a lock, and the
+// thread holding it; a queue). Returns the length, 0 where nothing is known.
+size_t thread_where(void* thread, char* out, size_t capacity);
 
 // For threads doing background work (thumbnails, parsing, writing the log): on the Wii U they
 // get a lower priority than the main thread's, so they only take its core while it waits for

@@ -111,7 +111,7 @@ HomeItem from_jellyfin(const jellyfin::Item& it) {
         h.badge = util::fmt(tr("%s left"), util::format_duration(it.runtime - it.position).c_str());
     }
     jellyfin::Item copy = it;
-    h.open = [copy] { play_video(jellyfin::make_source(copy)); };
+    h.open = [copy] { play_jellyfin_video(copy); };
     return h;
 }
 
@@ -171,6 +171,7 @@ public:
         float x0 = content_x();
         Id g = id("home");
         build_rows();
+        if (ui::time() > 8 && !player::active()) maybe_ask_for_support();  // once, after the tenth start
 
         // --- hero -------------------------------------------------------------------
         const float hero_h = 350;
@@ -294,7 +295,7 @@ private:
         struct Tile { const char* title; const char* sub; int icon; app::Section s; uint32_t color; };
         const Tile tiles[] = {
             {"YouTube", tr("Search and watch"), ic::SMART_DISPLAY, app::SEC_YOUTUBE, 0xE53935},
-            {"Jellyfin", jellyfin::account().valid() ? tr("Your library") : tr("Connect your server"), ic::VIDEO_LIBRARY,
+            {"Jellyfin", jellyfin::signed_in() ? tr("Your library") : tr("Connect your server"), ic::VIDEO_LIBRARY,
              app::SEC_JELLYFIN, 0x7E57C2},
             {"Twitch", tr("Live streams"), ic::LIVE_TV, app::SEC_TWITCH, 0x9146FF},
             {tr("Radio"), tr("40,000 stations"), ic::RADIO, app::SEC_RADIO, 0xFB8C00},
@@ -303,7 +304,7 @@ private:
         };
         ShelfSpec s;
         s.title = tr("Explore");
-        s.count = 6;
+        s.count = (int)std::size(tiles);
         s.item_w = 220;
         s.item = [&tiles](int i) {
             CardInfo c;
@@ -321,7 +322,7 @@ private:
         refreshed_ = ui::time();
         dirty_ = true;
         scope_.reset();
-        jf_loading_ = jellyfin::account().valid();
+        jf_loading_ = jellyfin::signed_in();
         tw_loading_ = !store::favs("twitch").empty();
         yt_loading_ = true;
         if (jf_loading_) {
@@ -360,7 +361,14 @@ private:
         rows_.clear();
         Row cont{N_("Continue watching"), CARD_WIDE, 300, {}, false};
         for (auto& jr : jf_resume_) cont.items.push_back(from_jellyfin(jr));
-        for (auto& r : store::resume_list(12)) cont.items.push_back(from_resume(r));
+        // Ignore entries from services this build cannot open; keep their saved data intact.
+        int resumed = 0;
+        for (auto& r : store::resume_list(60)) {
+            if (r.service != "youtube" && r.service != "podcast" && r.service != "local" && r.service != "smb" &&
+                r.service != "dlna") continue;
+            cont.items.push_back(from_resume(r));
+            if (++resumed == 12) break;
+        }
         cont.loading = cont.items.empty() && jf_loading_;
         rows_.push_back(std::move(cont));
 

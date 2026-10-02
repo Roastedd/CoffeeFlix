@@ -30,6 +30,9 @@ struct CardInfo {
     bool favorite = false;
     int image_w = 400;           // decode size hint
     ui::Color tint{0, 0, 0, 0};  // placeholder gradient color (default: accent-derived)
+    std::string tag;                  // e.g. "Needs conversion" (top left of the image)
+    ui::Color tag_color{0, 0, 0, 0};  // its background (default: dark)
+    ui::Color tag_text{0, 0, 0, 0};   // its text (default: white, or dark on a light background)
 };
 
 // Card with image on top and text below; returns true when activated.

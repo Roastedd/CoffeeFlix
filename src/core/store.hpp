@@ -69,6 +69,9 @@ double resume_position(const std::string& service, const std::string& id);
 std::vector<Resume> resume_list(size_t max = 20);
 void resume_remove(const std::string& service, const std::string& id);
 void resume_clear();
+// Changes whenever a resume point is saved, removed or cleared: a screen showing resume_list() asks
+// again only then, not every frame.
+uint32_t resume_version();
 
 // --- recent searches ---------------------------------------------------------------
 std::vector<std::string> recent_searches(const char* service);

@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <condition_variable>
@@ -28,12 +29,15 @@ const Style STYLES[] = {
     {"DEBUG", "\x1b[34m"},
 };
 
-constexpr long FILE_LIMIT = 1 << 20;  // per run
+constexpr long FILE_LIMIT = 1 << 20;  // the file's size; a longer run starts it over, with the lines before
+constexpr size_t FILE_CARRY = 300;    // of them
 constexpr size_t RECENT_LINES = 4000;
 
 struct Line {
     std::string console, file;
 };
+
+std::atomic<uint32_t> g_called{0}, g_queued{0}, g_written{0};  // 32-bit: the Wii U has no 64-bit atomics
 
 std::mutex g_mutex;  // the lists below
 std::condition_variable g_cv;
@@ -45,19 +49,40 @@ bool g_stop = false;
 
 std::mutex g_io;  // the console and the file
 FILE* g_file = nullptr;
+std::string g_file_path;
 long g_file_bytes = 0;
+std::deque<std::string> g_file_tail;  // the last lines written to it
 const auto g_start = std::chrono::steady_clock::now();
+
+// The file holds the end of a long run rather than its start: how it ended is what matters (and
+// what tells the next start whether it ended at all). With g_io held.
+void start_file_over() {
+    g_file = std::freopen(g_file_path.c_str(), "w", g_file);
+    g_file_bytes = 0;
+    if (!g_file) return;
+    std::fputs("(the start of this run's log was left out to keep the file short)\n", g_file);
+    for (const std::string& line : g_file_tail) {
+        std::fputs(line.c_str(), g_file);
+        g_file_bytes += (long)line.size();
+    }
+}
 
 void write_out(const Line& l) {
     std::lock_guard<std::mutex> lock(g_io);
     std::fputs(l.console.c_str(), stdout);
     std::fflush(stdout);
-    if (!g_file || g_file_bytes >= FILE_LIMIT) return;
+    if (!g_file) return;
+    if (g_file_bytes >= FILE_LIMIT) {
+        start_file_over();
+        if (!g_file) return;
+    }
     if (std::fputs(l.file.c_str(), g_file) >= 0) g_file_bytes += (long)l.file.size();
-    if (g_file_bytes >= FILE_LIMIT) std::fputs("(log limit reached)\n", g_file);
+    g_file_tail.push_back(l.file);
+    if (g_file_tail.size() > FILE_CARRY) g_file_tail.pop_front();
     // Written through to the card: the last lines matter most when the console froze.
     std::fflush(g_file);
     fsync(fileno(g_file));
+    g_written.fetch_add(1);
 }
 
 void writer_loop() {
@@ -78,6 +103,7 @@ void writer_loop() {
 }  // namespace
 
 void log_message(LogLevel level, const char* system, const char* format, ...) {
+    g_called.fetch_add(1);
     char text[1024];
     va_list args;
     va_start(args, format);
@@ -98,6 +124,7 @@ void log_message(LogLevel level, const char* system, const char* format, ...) {
     g_recent.push_back(l.file);
     if (g_recent.size() > RECENT_LINES) g_recent.pop_front();
     g_count++;
+    g_queued.fetch_add(1);
     if (g_writer && !g_stop) {
         g_pending.push_back(std::move(l));
         lock.unlock();
@@ -108,6 +135,15 @@ void log_message(LogLevel level, const char* system, const char* format, ...) {
     }
 }
 
+size_t log_pending() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_pending.size();
+}
+
+double log_seconds() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - g_start).count(); }
+
+LogCounts log_counts() { return {g_called.load(), g_queued.load(), g_written.load()}; }
+
 void log_to_file(const std::string& dir) {
     std::string path = dir + "/coffeeflix.log", previous = dir + "/coffeeflix-previous.log";
     {
@@ -116,7 +152,9 @@ void log_to_file(const std::string& dir) {
         std::remove(previous.c_str());
         std::rename(path.c_str(), previous.c_str());
         g_file = std::fopen(path.c_str(), "w");
+        g_file_path = path;
         g_file_bytes = 0;
+        g_file_tail.clear();
     }
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_writer || g_stop) return;

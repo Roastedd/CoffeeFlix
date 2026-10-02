@@ -1,6 +1,7 @@
 #include "core/i18n.hpp"
 
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <map>
@@ -137,6 +138,25 @@ const char* tr(const char* english) {
     if (!cat || !english) return english;
     auto it = cat->map.find(english);
     return it == cat->map.end() ? english : it->second;
+}
+
+namespace {
+const char* const MONTHS[] = {N_("January"), N_("February"), N_("March"),     N_("April"),
+                              N_("May"),     N_("June"),     N_("July"),      N_("August"),
+                              N_("September"), N_("October"), N_("November"), N_("December")};
+}
+
+const char* month_name(int month) { return month >= 0 && month < 12 ? tr(MONTHS[month]) : ""; }
+
+std::string long_date(const std::string& iso) {
+    int y = 0, m = 0, d = 0;
+    if (sscanf(iso.c_str(), "%d-%d-%d", &y, &m, &d) != 3 || y < 1900 || y > 2999 || m < 1 || m > 12 || d < 1 || d > 31)
+        return "";
+    // Each language puts the parts in its own order.
+    std::string s = tr("{month} {day}, {year}");
+    s = util::replace_all(s, "{month}", month_name(m - 1));
+    s = util::replace_all(s, "{day}", std::to_string(d));
+    return util::replace_all(s, "{year}", std::to_string(y));
 }
 
 }  // namespace i18n

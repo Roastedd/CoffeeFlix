@@ -164,10 +164,15 @@ public:
         header(tr("PLAYBACK"));
         choice_row(g, "yt_q", YT_QUALITY, tr("YouTube quality"), ic::SMART_DISPLAY, x0, w, y);
         choice_row(g, "jf_q", JF_QUALITY, tr("Jellyfin quality"), ic::VIDEO_LIBRARY, x0, w, y);
+        bool_row(g, "jfautoplay", "jf_autoplay", true, tr("Jellyfin autoplay"),
+                 tr("Play the next episode, with a countdown you can cancel"), x0, w, y);
         choice_row(g, "tw_q", TW_QUALITY, tr("Twitch quality"), ic::LIVE_TV, x0, w, y);
         if (platform::is_wiiu()) choice_row(g, "vdec", VIDEO_DECODING, tr("Video decoding"), ic::TUNE, x0, w, y);
         if (updater::developer())  // not translated: developers only
             choice_row(g, "conns", DEV_CONNECTIONS, "Video downloads at once", ic::TUNE, x0, w, y);
+        if (updater::developer() && platform::is_wiiu())
+            bool_row(g, "bicubic", "dev_bicubic", false, "Sharper video scaling",
+                     "Video filtered bicubic instead of bilinear: sharper where it's scaled up", x0, w, y);
         bool_row(g, "subs", "subs_default_on", true, tr("Subtitles on by default"), tr("When a video comes with subtitles"), x0, w, y);
         bool_row(g, "ytcc", "yt_captions", false, tr("YouTube captions"), tr("Turn captions on automatically (your language first)"), x0, w, y);
         bool_row(g, "ytsb", "yt_sponsorblock", true, tr("Skip sponsors on YouTube"),
@@ -228,6 +233,8 @@ public:
                 yt::account_menu();
             track(iid, top, 64);
         }
+        bool_row(g, "ytautoplay", "yt_autoplay", true, tr("YouTube autoplay"),
+                 tr("Play a suggested video next, with a countdown you can cancel"), x0, w, y);
         if (yt_account::signed_in()) {
             bool_row(g, "ythist", "yt_history_sync", true, tr("Save watch history to your account"),
                      tr("Videos you watch here show in your YouTube history, with how far you got"), x0, w, y);
@@ -360,6 +367,13 @@ public:
             Item it = focusable(iid, r, g);
             focus_ring(r, 16, it.f);
             track(iid, top, 150);
+        }
+        {
+            Id iid = id(g, "support");
+            float top = row_h(64);
+            if (value_row(iid, Rect(x0, top, w, 64), tr("Support CoffeeFlix"), tr("Buy me a coffee on Ko-fi"), ic::FAVORITE, g))
+                app::push(make_support());
+            track(iid, top, 64);
         }
         {
             Id iid = id(g, "sendlogs");

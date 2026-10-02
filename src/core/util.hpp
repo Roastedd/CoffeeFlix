@@ -33,7 +33,9 @@ std::string fmt(const char* format, ...) __attribute__((format(printf, 1, 2)));
 std::string type_name(const std::type_info& type);
 
 uint64_t hash64(std::string_view s, uint64_t seed = 1469598103934665603ull);
-std::string random_hex(int bytes);
+std::string random_hex(int bytes);  // for names and IDs: not for anything that keeps others out
+// Hex of bytes from the system's entropy source, for tokens that keep others out ("" without one).
+std::string secure_random_hex(int bytes);
 double now_seconds();          // monotonic
 int64_t unix_time();           // wall clock seconds
 std::string clock_hhmm();      // local time for the status bar

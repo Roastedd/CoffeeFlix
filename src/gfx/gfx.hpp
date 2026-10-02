@@ -102,6 +102,9 @@ void glow(const Rect& r, Color c);
 // Textured quad. `uv` is in normalized texture coordinates.
 void image(SDL_Texture* tex, const Rect& dst, Color tint = WHITE, float radius = 0,
            const Rect& uv = Rect(0, 0, 1, 1));
+// The whole texture turned clockwise by `quarter_turns` (0-3) and stretched over `dst`, which is
+// in the turned image's shape (taller than wide for a landscape texture at 1 or 3 turns).
+void image_rotated(SDL_Texture* tex, const Rect& dst, int quarter_turns, Color tint = WHITE, float radius = 0);
 // Scale-to-fill with center crop ("object-fit: cover").
 void image_cover(SDL_Texture* tex, int tex_w, int tex_h, const Rect& dst, float radius = 0,
                  Color tint = WHITE, float focus_y = 0.5f);

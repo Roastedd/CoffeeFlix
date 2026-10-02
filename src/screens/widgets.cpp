@@ -108,11 +108,22 @@ bool card(Id id, const Rect& ir, CardShape shape, const CardInfo& c, Id group, i
     }
 
     // Overlays on the image
+    float tag_x = r.x + 10;
     if (c.live) {
         const char* live = tr("LIVE");
         Rect b(r.x + 10, r.y + 10, std::max(52.0f, text::measure(font::caption, live) + 16), 24);
         gfx::fill_rrect(b, 6, t.bad);
         text::draw(font::caption, b.cx(), b.y + 4, live, gfx::WHITE, text::CENTER);
+        tag_x = b.r() + 6;
+    }
+    if (!c.tag.empty()) {
+        float tw = std::min(text::measure(font::caption, c.tag) + 16, r.r() - 10 - tag_x);
+        Rect b(tag_x, r.y + 10, tw, 24);
+        Color bg = c.tag_color.a ? c.tag_color : Color(0, 0, 0, 185);
+        Color fg = c.tag_text.a ? c.tag_text
+                   : bg.r * 0.299f + bg.g * 0.587f + bg.b * 0.114f > 150 && bg.a > 128 ? gfx::rgb(0x1A1016) : gfx::WHITE;
+        gfx::fill_rrect(b, 6, bg);
+        text::draw_fit(font::caption, b.x + 8, b.y + 4, b.w - 16, c.tag, fg);
     }
     if (!c.badge.empty()) {
         float bw = text::measure(font::caption, c.badge) + 14;

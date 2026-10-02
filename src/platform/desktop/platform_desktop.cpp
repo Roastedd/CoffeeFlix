@@ -519,7 +519,20 @@ void set_thread_name(const char* name) { pthread_setname_np(pthread_self(), name
 #endif
 
 std::string thread_clock_debug(void*) { return ""; }
+size_t thread_where(void*, char* out, size_t capacity) {
+    if (capacity < 2) return 0;
+    out[0] = '-';  // a desktop doesn't tell; a line with nothing in it keeps the thread in the list
+    out[1] = 0;
+    return 1;
+}
 std::string clock_debug() { return ""; }
 void lower_thread_priority() {}
+void raise_thread_priority() {}
+
+void set_lifecycle(const Lifecycle&) {}
+void install_crash_reporter() {}
+void main_phase(const char*) {}
+std::string memory_summary() { return "unknown"; }
+void terminate_now(int code) { std::_Exit(code); }
 
 }  // namespace platform

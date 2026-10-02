@@ -111,6 +111,13 @@ void tick() {
     }
 }
 
+void flush_now() {
+    std::lock_guard<std::mutex> lock(g_m);
+    if (!g_thread || g_stop) return;
+    g_changed = true;
+    g_cv.notify_all();
+}
+
 void shutdown() {
     std::unique_lock<std::mutex> lock(g_m);
     g_stop = true;

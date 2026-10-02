@@ -2,6 +2,7 @@
 // tells how much of a core each kind used since it was last asked.
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -34,5 +35,10 @@ std::string report();
 // name (platform::thread_clock_debug), a line each, to check what report() reads against.
 // Empty elsewhere.
 std::vector<std::string> clock_debug();
+
+// For the black box: a line for each tagged thread (name, state, where it stopped, what it waits
+// for: platform::thread_where) in `out`, as many as fit, without allocating or waiting for the
+// list (a note says so when someone else has it). Returns the length.
+size_t where(char* out, size_t capacity);
 
 }  // namespace cpu
