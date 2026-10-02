@@ -99,13 +99,5 @@
     ],
     "issues": [13],
     "status": "needs-research"
-  },
-  {
-    "id": "wii-port",
-    "category": "Platforms",
-    "title": "A version for the original Wii",
-    "summary": "Investigate a smaller build for the Wii. Hardware limits would shape the features and video quality it could support.",
-    "includes": [],
-    "status": "needs-research"
   }
 ]
