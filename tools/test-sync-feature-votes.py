@@ -92,7 +92,13 @@ class SyncTests(unittest.TestCase):
         create, edits = sync.plan([self.items[0], replied, *self.items[2:]], thread)
         self.assertEqual(create, [])
         self.assertEqual([c["id"] for c, _ in edits], [thread[target["id"]]["id"]])
-        self.assertIn("**Reply from the maintainer:** Thanks, looking at this <soon>.", edits[0][1])
+        self.assertIn("**Dev reply:** Thanks, looking at this <soon>.", edits[0][1])
+
+    def test_a_shipped_idea_names_its_release_in_the_comment(self):
+        done = {**self.items[0], "status": "shipped", "shipped_in": "2.4.0"}
+        body = sync.feature_body(done)
+        self.assertIn("**Shipped in:** [v2.4.0](https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.4.0)", body)
+        self.assertNotIn("Shipped in", sync.feature_body(self.items[0]))
 
     def test_source_line_shows_only_issue_links_when_there_is_no_source_text(self):
         base = {k: v for k, v in self.items[0].items() if k not in ("source", "issues")}

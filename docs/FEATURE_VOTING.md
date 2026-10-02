@@ -45,9 +45,11 @@ Each card shows a badge from its `status` field. Edit it in the catalogue, run t
 
 Use Planned, In progress and Shipped only when work is accepted, underway or released; votes are not a schedule or a commitment.
 
+When an idea ships, set `"status": "shipped"` and add `"shipped_in": "2.4.0"` (the editor has a *Shipped in version* field). The badge then reads *Shipped in v2.4.0* and links to that release, the card's vote button becomes *What's new*, the idea leaves the *Most wanted* leaderboard and sorts after the ideas still waiting, and its GitHub comment gets a *Shipped in* line. Its votes stay.
+
 ## Reply to an idea
 
-Add a `"reply"` line to the idea in the catalogue (for example `"reply": "Thanks, I'll look at this after the next release."`), render and push. The text shows on the card as a *Maintainer reply* and is added to the voting comment on GitHub. Delete the line to remove it. Plain text only.
+Add a `"reply"` line to the idea in the catalogue (for example `"reply": "Thanks, I'll look at this after the next release."`), render and push. The text shows on the card as a *Dev reply* and is added to the voting comment on GitHub. Delete the line to remove it. Plain text only.
 
 ## Remove or merge ideas
 

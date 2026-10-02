@@ -11,6 +11,7 @@ const threadUrl = `https://github.com/Roastedd/CoffeeFlix/issues/${issue}`;
 const api = `**/api.github.com/repos/Roastedd/CoffeeFlix/issues/${issue}/comments?*`;
 const snapshotUrl = '**/raw.githubusercontent.com/Roastedd/CoffeeFlix/votes/votes.json';
 const N = features.length;
+const OPEN = features.filter(f => !f.shipped_in).length;  // shipped ideas link to their release, not to a vote
 const at = id => features.findIndex(f => f.id === id);
 const cid = id => 9000 + at(id);  // stand-in comment ids; the real ones come from GitHub
 const fixture = () => features.map((f, i) => ({id: 9000 + i, body: `<!-- coffeeflix-feature: ${f.id} -->\n<!-- coffeeflix-status: ${f.status} -->`, user: {login: 'github-actions[bot]'}, reactions: {'+1': 0, heart: 100}}));
@@ -89,7 +90,7 @@ const server = http.createServer((request, response) => {
     await offline.goto(base + '/features.html'); await finished(offline);
     assert.equal(await offline.locator('#personalize-home [data-votes]').innerText(), '—');
     assert.match(await offline.locator('#vote-status').innerText(), /Couldn’t load.*Counts are unavailable/);
-    assert.equal(await offline.locator(`.vote-btn[href="${threadUrl}"]`).count(), N);
+    assert.equal(await offline.locator(`.vote-btn[href="${threadUrl}"]`).count(), OPEN);
     pass('offline failure leaves counts unavailable and every card linked to the voting thread');
     await close(offline);
 
@@ -200,7 +201,7 @@ const server = http.createServer((request, response) => {
     const staticPage = await newPage({javaScriptEnabled: false});
     await staticPage.goto(base + '/features.html');
     assert.equal(await staticPage.locator('.card:visible').count(), N);
-    assert.equal(await staticPage.locator(`.vote-btn[href="${threadUrl}"]`).count(), N);
+    assert.equal(await staticPage.locator(`.vote-btn[href="${threadUrl}"]`).count(), OPEN);
     assert.equal(await staticPage.locator('#toolbar').isVisible(), false);
     pass('all cards and vote links work without JavaScript');
     await close(staticPage);
@@ -228,6 +229,24 @@ const server = http.createServer((request, response) => {
     assert.equal(await board.locator('#controller-keyboard').isVisible(), true);
     assert.equal(await board.locator('.pill[aria-pressed="true"]').innerText(), `All ${N}`);
     pass('a leaderboard link reveals its card even when a filter had hidden it');
+
+    // An idea that shipped says so, links to its release, stays out of the leaderboard and sorts after the open ones.
+    const shipped = features.find(f => f.shipped_in);
+    const shippedVotes = {[shipped.id]: 40, 'controller-keyboard': 5, 'personalize-home': 3};
+    const done = await newPage({viewport: {width: 1440, height: 1120}});
+    await done.route(snapshotUrl, route => route.fulfill({json: snapshot(shippedVotes)}));
+    await done.goto(base + '/features.html'); await finished(done);
+    const release = `https://github.com/Roastedd/CoffeeFlix/releases/tag/v${shipped.shipped_in}`;
+    assert.equal(await done.locator(`#${shipped.id} .badge`).innerText(), `Shipped in v${shipped.shipped_in}`);
+    assert.equal(await done.locator(`#${shipped.id} .badge`).getAttribute('href'), release);
+    assert.equal(await done.locator(`#${shipped.id} .release-btn`).getAttribute('href'), release);
+    assert.equal(await done.locator(`#${shipped.id} .vote-btn`).count(), 0);
+    assert.equal(await done.locator('.podium-card h3').first().innerText(), features.find(f => f.id === 'controller-keyboard').title);
+    assert.equal(await done.locator('.podium-card').filter({hasText: shipped.title}).count(), 0);
+    const order = await done.locator('.feature-grid .card').evaluateAll(nodes => nodes.map(node => node.id));
+    assert.equal(order[order.length - 1], shipped.id);
+    await close(done);
+    pass('a shipped idea names its release, links to it, leaves the leaderboard and sorts after the open ideas');
 
     const voteLink = board.locator('#personalize-home .vote-btn');
     assert.equal(await voteLink.getAttribute('target'), '_blank');

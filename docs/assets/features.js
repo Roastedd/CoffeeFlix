@@ -36,7 +36,8 @@
     category: card.dataset.category,
     status: card.dataset.status,
     searchText: [...card.querySelectorAll(".category, h3, .summary, .includes li, .reply")].map(node => node.textContent).join(" ").toLowerCase(),
-    link: card.querySelector(".vote-btn"),
+    link: card.querySelector(".vote-btn"),  // a shipped idea has a release link instead
+    shipped: card.dataset.status === "shipped",
     count: card.querySelector("[data-votes]"),
     label: card.querySelector("[data-vote-label]"),
     meter: card.querySelector(".meter i"),
@@ -48,8 +49,9 @@
     const ordered = [...entries].sort((a, b) => {
       if (sort.value === "title") return a.title.localeCompare(b.title);
       if (sort.value === "category") return a.category.localeCompare(b.category) || a.title.localeCompare(b.title);
-      // Unknown counts stay after loaded counts. Ties preserve the catalogue's order.
-      return (b.votes ?? -1) - (a.votes ?? -1) || a.index - b.index;
+      // Ideas that shipped go after the ones still waiting. Unknown counts stay after loaded counts.
+      // Ties preserve the catalogue's order.
+      return (a.shipped - b.shipped) || (b.votes ?? -1) - (a.votes ?? -1) || a.index - b.index;
     });
     let visible = 0;
     for (const entry of ordered) {
@@ -91,7 +93,7 @@
   // The three most-voted ideas. Nothing is ranked until someone has voted.
   function renderTop() {
     if (!entries.some(entry => entry.votes !== null)) return;
-    const ranked = entries.filter(entry => entry.votes > 0)
+    const ranked = entries.filter(entry => entry.votes > 0 && !entry.shipped)
       .sort((a, b) => b.votes - a.votes || a.index - b.index).slice(0, 3);
     const podium = $("podium");
     podium.replaceChildren(...ranked.map((entry, place) => {
@@ -145,9 +147,9 @@
       entry.label.textContent = entry.votes === 1 ? "vote" : "votes";
       entry.meter.style.setProperty("--w", entry.votes && best ? `${Math.round(entry.votes / best * 100)}%` : "0%");
       // The exact comment is only known from the totals; the static card links to the thread.
-      if (Number.isSafeInteger(item?.commentId)) {
+      if (entry.link && Number.isSafeInteger(item?.commentId)) {
         entry.link.href = `${THREAD}#issuecomment-${item.commentId}`;
-      } else if (item?.missing === true) {
+      } else if (entry.link && item?.missing === true) {
         entry.link.href = THREAD;
       }
     }

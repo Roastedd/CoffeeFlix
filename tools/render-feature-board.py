@@ -23,6 +23,9 @@ def validate_catalogue(items):
             assert isinstance(item.get(key), str) and item[key].strip(), f"{item['id']}: {key} can't be empty"
         assert item["status"] in STATUSES, f"Unknown status {item['status']!r}"
         assert isinstance(item.get("reply", ""), str), "reply must be text"
+        version = item.get("shipped_in", "")
+        assert isinstance(version, str) and (not version or re.fullmatch(r"\d+\.\d+(\.\d+)?", version)), f"{item['id']}: shipped_in must be a version like 2.4.0"
+        assert not version or item["status"] == "shipped", f"{item['id']}: only shipped ideas can say which version shipped them"
         assert all(isinstance(line, str) for line in item.get("includes", [])), "includes must be a list of text lines"
         assert all(type(n) is int and n > 0 for n in item.get("issues", [])), "Issue numbers must be positive integers"
         seen.add(item["id"])
@@ -46,14 +49,21 @@ def card_html(item, thread):
     source = f'\n            <p class="source">{source_html(item)}</p>' if item.get("source") or item.get("issues") else ""
     reply = ""
     if item.get("reply"):
-        reply = f'\n            <p class="reply"><b>Maintainer reply</b> {esc(item["reply"])}</p>'
+        reply = f'\n            <p class="reply"><b>Dev reply</b> {esc(item["reply"])}</p>'
+    version = item.get("shipped_in", "")
+    release = f"{REPO_URL}/releases/tag/v{version}"
+    badge = (f'<a class="badge" data-state="shipped" href="{release}" target="_blank" rel="noopener">Shipped in v{esc(version)}</a>' if version
+             else f'<span class="badge" data-state="{item["status"]}">{STATUSES[item["status"]]}</span>')
+    # A shipped idea doesn't take votes any more: the card points to what it became.
+    action = (f'<a class="release-btn" href="{release}" target="_blank" rel="noopener" aria-label="Read what is new in version {esc(version)} on GitHub"><svg aria-hidden="true"><use href="#i-check"/></svg>What’s new<span aria-hidden="true"> ↗</span></a>' if version
+              else f'<a class="vote-btn" href="{thread}" target="_blank" rel="noopener" aria-label="Vote for {esc(item["title"])} on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>')
     return f'''          <article class="card" id="{item['id']}" data-category="{esc(item['category'])}" data-status="{item['status']}" aria-labelledby="title-{item['id']}">
-            <div class="card-head"><span class="category">{esc(item['category'])}</span><span class="badge" data-state="{item['status']}">{STATUSES[item['status']]}</span></div>
+            <div class="card-head"><span class="category">{esc(item['category'])}</span>{badge}</div>
             <h3 id="title-{item['id']}">{esc(item['title'])}</h3>
             <p class="summary">{esc(item['summary'])}</p>{includes}{reply}{source}
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
-              <a class="vote-btn" href="{thread}" target="_blank" rel="noopener" aria-label="Vote for {esc(item['title'])} on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+              {action}
             </div>
             <div class="meter" aria-hidden="true"><i></i></div>
           </article>'''

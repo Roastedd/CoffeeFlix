@@ -112,6 +112,7 @@
       grid.append(
         field(idea, "category", "Category", "input", { list: "cats" }).wrap,
         field(idea, "issues", "GitHub issue numbers <small>(optional, like 11, 12)</small>").wrap,
+        field(idea, "shipped_in", "Shipped in version <small>(optional, like 2.4.0, for shipped ideas)</small>").wrap,
         field(idea, "summary", "Summary <small>(one or two sentences)</small>", "textarea", { wide: true }).wrap,
         field(idea, "includes", "What’s included <small>(one per line, optional)</small>", "textarea", { wide: true }).wrap,
         field(idea, "reply", "Your reply <small>(optional — shows on the card and in the GitHub comment)</small>", "textarea", { wide: true, cls: "reply" }).wrap);

@@ -38,7 +38,8 @@
     "title": "Autoplay the next episode",
     "summary": "Keep a series rolling: continue to the next Jellyfin episode automatically, with an option to turn it off.",
     "includes": [],
-    "status": "shipped"
+    "status": "shipped",
+    "shipped_in": "2.4.0"
   },
   {
     "id": "more-servers",
