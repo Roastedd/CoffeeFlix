@@ -200,13 +200,26 @@ SDL_Color grad_color(float x, float y, const void* ctx) {
                      (uint8_t)(g->a.b + (g->b.b - g->a.b) * t), (uint8_t)(g->a.a + (g->b.a - g->a.a) * t)};
 }
 
-struct UvCtx { Rect dst; Rect uv; };
+// Where in the image (0..1 across and down) a spot 0..1 across and down the destination shows,
+// with the image turned clockwise by `turns` quarter turns.
+inline void turned_uv(float s, float t, int turns, float& p, float& q) {
+    switch (turns & 3) {
+        case 1: p = t; q = 1 - s; break;
+        case 2: p = 1 - s; q = 1 - t; break;
+        case 3: p = 1 - t; q = s; break;
+        default: p = s; q = t; break;
+    }
+}
+
+struct UvCtx { Rect dst; Rect uv; int turns; };
 SDL_FPoint rect_uv(float x, float y, const void* ctx) {
     const UvCtx* u = (const UvCtx*)ctx;
+    float p, q;
+    turned_uv((x - u->dst.x) / u->dst.w, (y - u->dst.y) / u->dst.h, u->turns, p, q);
     // SDL_RenderGeometry rejects the whole batch if any uv is outside [0, 1],
     // and the anti-aliasing fringe sits slightly outside the image.
-    float fu = u->uv.x + (x - u->dst.x) / u->dst.w * u->uv.w;
-    float fv = u->uv.y + (y - u->dst.y) / u->dst.h * u->uv.h;
+    float fu = u->uv.x + p * u->uv.w;
+    float fv = u->uv.y + q * u->uv.h;
     return SDL_FPoint{std::clamp(fu, 0.0f, 1.0f), std::clamp(fv, 0.0f, 1.0f)};
 }
 
@@ -492,23 +505,36 @@ void glow(const Rect& lr, Color c) {
     add_quad(a, b, d, e);
 }
 
-void image(SDL_Texture* tex, const Rect& ldst, Color tint, float radius, const Rect& uv) {
+static void draw_image(SDL_Texture* tex, const Rect& ldst, Color tint, float radius, const Rect& uv, int turns) {
     if (!tex || ldst.w <= 0 || ldst.h <= 0) return;
     use_texture(tex);
     Rect r = to_screen(ldst);
     SDL_Color sc = to_sdl(tint);
     if (radius <= 0.5f) {
-        int a = add_vertex(r.x, r.y, sc, uv.x, uv.y);
-        int b = add_vertex(r.r(), r.y, sc, uv.x + uv.w, uv.y);
-        int c = add_vertex(r.r(), r.b(), sc, uv.x + uv.w, uv.y + uv.h);
-        int d = add_vertex(r.x, r.b(), sc, uv.x, uv.y + uv.h);
-        add_quad(a, b, c, d);
+        // Corners clockwise from the top left; turning the image moves which corner of it each shows.
+        const float xs[4] = {r.x, r.r(), r.r(), r.x}, ys[4] = {r.y, r.y, r.b(), r.b()};
+        const float ss[4] = {0, 1, 1, 0}, ts[4] = {0, 0, 1, 1};
+        int v[4];
+        for (int i = 0; i < 4; i++) {
+            float p, q;
+            turned_uv(ss[i], ts[i], turns, p, q);
+            v[i] = add_vertex(xs[i], ys[i], sc, uv.x + p * uv.w, uv.y + q * uv.h);
+        }
+        add_quad(v[0], v[1], v[2], v[3]);
         return;
     }
     float rad = std::min({radius * S.xf.s, r.w * 0.5f, r.h * 0.5f});
     rrect_centers(r, rad);
-    UvCtx u{r, uv};
+    UvCtx u{r, uv, turns};
     fill_path(rad, r.cx(), r.cy(), solid_color, &sc, rect_uv, &u);
+}
+
+void image(SDL_Texture* tex, const Rect& ldst, Color tint, float radius, const Rect& uv) {
+    draw_image(tex, ldst, tint, radius, uv, 0);
+}
+
+void image_rotated(SDL_Texture* tex, const Rect& dst, int quarter_turns, Color tint, float radius) {
+    draw_image(tex, dst, tint, radius, Rect(0, 0, 1, 1), quarter_turns);
 }
 
 void image_cover(SDL_Texture* tex, int tw, int th, const Rect& dst, float radius, Color tint, float focus_y) {

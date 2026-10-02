@@ -9,10 +9,12 @@ extern "C" {
 #include <SDL2/SDL_image.h>
 
 #include <algorithm>
+#include <cstdio>
 
 #include "core/util.hpp"
 #include "logger/logger.hpp"
 #include "platform/platform.hpp"
+#include "player/orientation.hpp"
 
 namespace player {
 
@@ -58,16 +60,32 @@ SDL_Surface* grab_frame(const std::string& path, int max_w) {
         }
         if (!got) break;
 
-        int w = std::min(max_w, frame->width);
-        int h = std::max(1, (int)((int64_t)frame->height * w / frame->width));
-        sws = sws_getContext(frame->width, frame->height, (AVPixelFormat)frame->format, w, h, AV_PIX_FMT_RGBA,
+        // Upright, with square pixels: the size it shows at, scaled down to max_w wide. Scaled in
+        // the stored orientation (sw×sh), then turned.
+        Orientation o = stream_orientation(st);
+        int dw = 0, dh = 0;
+        display_size(frame->width, frame->height, o, dw, dh);
+        if (dw <= 0 || dh <= 0) break;
+        int w = std::min(max_w, dw);
+        int h = std::max(1, (int)((int64_t)dh * w / dw));
+        int sw = o.turns & 1 ? h : w, sh = o.turns & 1 ? w : h;
+        sws = sws_getContext(frame->width, frame->height, (AVPixelFormat)frame->format, sw, sh, AV_PIX_FMT_RGBA,
                              SWS_BILINEAR, nullptr, nullptr, nullptr);
         if (!sws) break;
-        out = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
-        if (!out) break;
-        uint8_t* dst[4] = {(uint8_t*)out->pixels, nullptr, nullptr, nullptr};
-        int lines[4] = {out->pitch, 0, 0, 0};
+        SDL_Surface* scaled = SDL_CreateRGBSurfaceWithFormat(0, sw, sh, 32, SDL_PIXELFORMAT_RGBA32);
+        if (!scaled) break;
+        uint8_t* dst[4] = {(uint8_t*)scaled->pixels, nullptr, nullptr, nullptr};
+        int lines[4] = {scaled->pitch, 0, 0, 0};
         sws_scale(sws, frame->data, frame->linesize, 0, frame->height, dst, lines);
+        if (o.turns == 0) {
+            out = scaled;
+            break;
+        }
+        out = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
+        if (out)
+            rotate_pixels32((const uint8_t*)scaled->pixels, sw, sh, scaled->pitch, o.turns, (uint8_t*)out->pixels,
+                            out->pitch);
+        SDL_FreeSurface(scaled);
     } while (false);
     if (sws) sws_freeContext(sws);
     av_packet_free(&pkt);
@@ -81,15 +99,41 @@ SDL_Surface* grab_frame(const std::string& path, int max_w) {
 
 SDL_Surface* video_thumbnail(const std::string& path, int max_w) {
     std::string dir = platform::data_dir() + "/thumbs";
-    std::string cached = util::fmt("%s/%016llx-%d.jpg", dir.c_str(), (unsigned long long)util::hash64(path), max_w);
+    // "-o1": stills made upright and with square pixels (older ones, without the tag, weren't).
+    const unsigned long long key = util::hash64(path);
+    std::string cached = util::fmt("%s/%016llx-%d-o1.jpg", dir.c_str(), key, max_w);
     if (util::file_exists(cached)) {
         if (SDL_Surface* s = IMG_Load(cached.c_str())) return s;
     }
     SDL_Surface* s = grab_frame(path, max_w);
     if (!s) return nullptr;
+    std::remove(util::fmt("%s/%016llx-%d.jpg", dir.c_str(), key, max_w).c_str());
     util::make_dirs(dir);
     if (IMG_SaveJPG(s, cached.c_str(), 82) != 0) IMG_SavePNG(s, cached.c_str());
     return s;
+}
+
+}  // namespace player
+
+// --- forgetting a video's stills ------------------------------------------------------------
+#include <dirent.h>
+
+#include <cstring>
+#include <vector>
+
+namespace player {
+
+void forget_thumbnail(const std::string& path) {
+    std::string dir = platform::data_dir() + "/thumbs";
+    // Every size and version of it: "<hash of the path>-<width>[-tag].jpg".
+    std::string prefix = util::fmt("%016llx-", (unsigned long long)util::hash64(path));
+    DIR* d = opendir(dir.c_str());
+    if (!d) return;
+    std::vector<std::string> doomed;
+    while (dirent* de = readdir(d))
+        if (strncmp(de->d_name, prefix.c_str(), prefix.size()) == 0) doomed.push_back(dir + "/" + de->d_name);
+    closedir(d);
+    for (const std::string& f : doomed) std::remove(f.c_str());
 }
 
 }  // namespace player

@@ -12,19 +12,6 @@
 
 namespace screens::media {
 
-Kind kind_of(const std::string& name) {
-    std::string e = util::file_extension(name);
-    static const char* video[] = {"mp4", "m4v", "mkv", "webm", "avi", "mov", "ts", "m2ts", "mpg", "mpeg", "flv", "3gp"};
-    static const char* audio[] = {"mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "wv", "alac", "oga", "mka"};
-    static const char* image[] = {"jpg", "jpeg", "png", "gif", "webp", "bmp"};
-    static const char* book[] = {"cbz", "epub"};
-    for (auto v : video) if (e == v) return K_VIDEO;
-    for (auto v : audio) if (e == v) return K_AUDIO;
-    for (auto v : image) if (e == v) return K_IMAGE;
-    for (auto v : book) if (e == v) return K_BOOK;
-    return K_OTHER;
-}
-
 int kind_icon(Kind k) {
     switch (k) {
         case K_DIR: return ic::FOLDER;
@@ -34,18 +21,6 @@ int kind_icon(Kind k) {
         case K_BOOK: return ic::BOOK;
         default: return ic::DESCRIPTION;
     }
-}
-
-void sort_entries(std::vector<Entry>& entries) {
-    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
-        if ((a.kind == K_DIR) != (b.kind == K_DIR)) return a.kind == K_DIR;
-        return util::natural_less(a.name, b.name);
-    });
-}
-
-std::string strip_ext(const std::string& name) {
-    size_t dot = name.find_last_of('.');
-    return dot == std::string::npos ? name : name.substr(0, dot);
 }
 
 CardInfo entry_card(const Entry& e, const char* service) {
@@ -82,9 +57,20 @@ void open_file(const std::vector<Entry>& siblings, size_t index, const char* ser
             s.service = service;
             s.id = e.path;
             s.start = store::resume_position(service, e.path);
-            std::string base = util::parent_dir(e.path) + "/" + strip_ext(e.name);
-            for (const char* ext : {".srt", ".vtt", ".en.srt"})
-                if (exists(base + ext)) s.external_subs.push_back({util::file_name(base + ext), base + ext});
+            std::vector<Sidecar> subs = e.subs;
+            if (!e.subs_listed) {
+                // Network shares: the usual names, looked up one by one.
+                std::string base = strip_ext(e.name);
+                for (const char* ext : {".srt", ".vtt", ".ass", ".ssa", ".en.srt"}) {
+                    Sidecar sc;
+                    std::string path = util::parent_dir(e.path) + "/" + base + ext;
+                    if (!exists(path) || !match_sidecar(e.name, base + ext, sc)) continue;
+                    sc.path = path;
+                    subs.push_back(std::move(sc));
+                }
+                order_sidecars(subs, i18n::current().code);
+            }
+            for (const Sidecar& sc : subs) s.external_subs.push_back({sc.label, sc.path});
             play_video(s);
             break;
         }

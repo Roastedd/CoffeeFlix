@@ -67,15 +67,23 @@ int sockopt_cb(void* big_buffers, curl_socket_t fd, curlsocktype) {
     return CURL_SOCKOPT_OK;
 }
 
+// Counts cancel_running() calls: a transfer that began in an earlier round ends.
+std::atomic<uint32_t> g_cancel_round{0};
+
 struct Progress {
     const Request* req;
     CURL* curl;
     double started;
-    bool gave_up = false;  // keep_going said no
+    uint32_t round;        // g_cancel_round when the transfer began
+    bool gave_up = false;  // keep_going said no, or cancel_running()
 };
 
 int progress_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     auto* p = (Progress*)clientp;
+    if (g_cancel_round.load() != p->round) {
+        p->gave_up = true;
+        return 1;
+    }
     if (p->req->cancel && p->req->cancel->load()) return 1;
     if (p->req->keep_going) {
         curl_off_t sent = 0;  // microseconds from the start until the request went out
@@ -129,9 +137,11 @@ std::string friendly_error(CURLcode rc) {
         case CURLE_SEND_ERROR:
         case CURLE_GOT_NOTHING: return tr("The connection was interrupted");
         case CURLE_PEER_FAILED_VERIFICATION:
+            return tr("The server's certificate could not be verified. Check the console's date and time.");
         case CURLE_SSL_CACERT_BADFILE:
+            return tr("The app's certificate bundle could not be loaded. Reinstall or update the app.");
         case CURLE_SSL_CONNECT_ERROR:
-            return tr("Secure connection failed (check the console's date and time)");
+            return tr("The secure handshake failed. The server may be unavailable or incompatible.");
         default: return curl_easy_strerror(rc);
     }
 }
@@ -170,12 +180,28 @@ void shutdown() {
 Connection::~Connection() {
     if (curl_) curl_easy_cleanup((CURL*)curl_);
 }
+void cancel_running() { g_cancel_round++; }
 void set_verify_tls(bool verify) { g_verify = verify; }
 bool verify_tls() { return g_verify; }
 const std::string& ca_bundle() { return g_ca_bundle; }
 
+double retry_after(const Response& response, int64_t unix_now) {
+    auto it = response.headers.find("retry-after");
+    if (it == response.headers.end()) return -1;
+    const std::string value = util::trim(it->second);
+    if (value.empty()) return -1;
+    if (value.find_first_not_of("0123456789") == std::string::npos) {
+        double seconds = 0;
+        for (char digit : value) { seconds = seconds * 10 + digit - '0'; if (seconds >= 86400) return 86400; }
+        return seconds;
+    }
+    const time_t date = curl_getdate(value.c_str(), nullptr);
+    return date < 0 ? -1 : std::clamp((double)date - unix_now, 0.0, 86400.0);
+}
+
 Response perform(const Request& req) {
     Response resp;
+    const std::string log_url = req.private_url ? "[private URL]" : req.url.substr(0, 96);
     if (req.connection && !req.connection->curl_) req.connection->curl_ = curl_easy_init();
     CURL* curl = req.connection ? (CURL*)req.connection->curl_ : acquire_handle();
     if (!curl) {
@@ -226,14 +252,17 @@ Response perform(const Request& req) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+    // Nothing here speaks anything else, but this libcurl would (gopher, ftp, smb, file, ...), and
+    // a playlist's guide link or a logo address is somebody else's text.
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
     curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, req.require_tls ? "https" : "http,https");
 
-    Progress progress{&req, curl, 0};
-    if (req.cancel || req.keep_going) {
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void*)&progress);
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    }
+    // For every transfer, so that cancel_running() reaches it (curl calls this about once a second when
+    // nothing arrives, and with what does).
+    Progress progress{&req, curl, 0, g_cancel_round.load()};
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void*)&progress);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
     struct curl_slist* hdrs = nullptr;
     for (auto& [k, v] : req.headers) {
@@ -262,7 +291,14 @@ Response perform(const Request& req) {
     CURLcode rc = curl_easy_perform(curl);
     double took = util::now_seconds() - t0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp.status);
+    long tls_verify_result = 0;
+    curl_easy_getinfo(curl, CURLINFO_SSL_VERIFYRESULT, &tls_verify_result);
     curl_easy_getinfo(curl, CURLINFO_NUM_CONNECTS, &resp.connects);
+    curl_easy_getinfo(curl, CURLINFO_NAMELOOKUP_TIME, &resp.dns_seconds);
+    curl_easy_getinfo(curl, CURLINFO_CONNECT_TIME, &resp.connect_seconds);
+    curl_easy_getinfo(curl, CURLINFO_APPCONNECT_TIME, &resp.tls_seconds);
+    curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME, &resp.first_byte_seconds);
+    curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &resp.total_seconds);
     char* eff = nullptr;
     if (curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &eff) == CURLE_OK && eff) resp.effective_url = eff;
     if (hdrs) curl_slist_free_all(hdrs);
@@ -278,9 +314,18 @@ Response perform(const Request& req) {
         if (sink.overflow) resp.error = tr("Response too large");
         else if (cancelled) resp.error = "Cancelled";
         else resp.error = friendly_error(rc);
-        if (!cancelled)  // asked for: not worth a line
-            log_message(LOG_WARNING, "HTTP", "%s %s -> %s", req.method.c_str(), req.url.substr(0, 96).c_str(),
+        if (!cancelled) {  // asked for: not worth a line
+            log_message(LOG_WARNING, "HTTP", "%s %s -> %s", req.method.c_str(), log_url.c_str(),
                         resp.error.c_str());
+            if (rc == CURLE_PEER_FAILED_VERIFICATION || rc == CURLE_SSL_CACERT_BADFILE || rc == CURLE_SSL_CONNECT_ERROR) {
+                const auto* version = curl_version_info(CURLVERSION_NOW);
+                // Numeric diagnostics avoid printing backend error buffers, which may
+                // include a configured URL, query token, or redirect target.
+                log_message(LOG_WARNING, "HTTP", "TLS: curl %d, verification %ld, UTC epoch %lld, backend %s",
+                            (int)rc, tls_verify_result, (long long)util::unix_time(),
+                            version && version->ssl_version ? version->ssl_version : "unknown");
+            }
+        }
     } else if (resp.status >= 400) {
         resp.error = resp.status == 401 || resp.status == 403 ? util::fmt(tr("Access denied (HTTP %ld)"), resp.status)
                      : resp.status == 404                     ? tr("Not found (HTTP 404)")
@@ -289,7 +334,7 @@ Response perform(const Request& req) {
                                                               : util::fmt(tr("HTTP error %ld"), resp.status);
         // 404 is routine (a station without an icon, a video without SponsorBlock segments).
         if (resp.status != 404)
-            log_message(LOG_WARNING, "HTTP", "%s %s -> %ld", req.method.c_str(), req.url.substr(0, 96).c_str(),
+            log_message(LOG_WARNING, "HTTP", "%s %s -> %ld", req.method.c_str(), log_url.c_str(),
                         resp.status);
     }
     // Slow requests, for the log (the first few; COFFEEFLIX_HTTP_TRACE logs all of them). Streamed
@@ -297,15 +342,16 @@ Response perform(const Request& req) {
     static std::atomic<int> slow_logged{0};
     if (getenv("COFFEEFLIX_HTTP_TRACE") || (took > 5.0 && !req.on_data && slow_logged++ < 20))
         log_message(took > 5.0 ? LOG_WARNING : LOG_DEBUG, "HTTP", "%s %s: %ld, %zu KB in %.2f s", req.method.c_str(),
-                    req.url.substr(0, 90).c_str(), resp.status, resp.body.size() / 1024, took);
+                    log_url.c_str(), resp.status, resp.body.size() / 1024, took);
     return resp;
 }
 
-Response get(const std::string& url, std::vector<std::pair<std::string, std::string>> headers, long timeout) {
+Response get(const std::string& url, std::vector<std::pair<std::string, std::string>> headers, long timeout, bool private_url) {
     Request r;
     r.url = url;
     r.headers = std::move(headers);
     r.timeout = timeout;
+    r.private_url = private_url;
     return perform(r);
 }
 

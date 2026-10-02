@@ -7,6 +7,7 @@
 #pragma once
 
 #include <SDL2/SDL.h>
+#include <cstdint>
 #include <string>
 
 namespace images {
@@ -35,8 +36,15 @@ float fade(const Image* img, float duration = 0.25f);
 // Insert an image produced locally (e.g. embedded album art). Takes the surface.
 void put(const std::string& key, SDL_Surface* surface, int flags = 0);
 // Decodes jpg/png/webp/gif bytes to an RGBA32 surface that fits max_w x max_h
-// (0 = unlimited). Any thread; nullptr on failure.
+// (0 = unlimited). Any thread; nullptr on failure, and for a picture that states more than 16
+// million pixels: a small file can (flat colour compresses to nothing), and decoding one takes
+// the memory the player needs.
 SDL_Surface* decode(const std::string& data, int max_w = 0, int max_h = 0, int flags = 0);
+// The size a jpg/png/webp/gif header states, without decoding. False for other formats and for
+// a header cut short.
+bool stated_size(const std::string& data, int64_t& w, int64_t& h);
+// Whether decode() refuses the picture for its size.
+bool too_big(const std::string& data);
 void clear();
 size_t bytes_used();
 

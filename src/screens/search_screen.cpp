@@ -85,7 +85,7 @@ public:
             };
             s.on_click = [this](int i) {
                 const jellyfin::Item& it = jf_[i];
-                if (it.type == "Episode") play_video(jellyfin::make_source(it));
+                if (it.type == "Episode") play_jellyfin_video(it);
                 else if (it.is_audio()) play_audio(jellyfin::make_source(it));
                 else app::push(make_jellyfin_item(it));
             };
@@ -223,7 +223,7 @@ private:
         tw_.clear();
         radio_.clear();
         pods_.clear();
-        jf_loading_ = jellyfin::account().valid();
+        jf_loading_ = jellyfin::signed_in();
         yt_loading_ = tw_loading_ = radio_loading_ = pods_loading_ = true;
         if (jf_loading_)
             scope_.run<jellyfin::List>([q] { return jellyfin::search(q); }, [this](jellyfin::List l) {

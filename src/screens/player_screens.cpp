@@ -6,6 +6,7 @@
 #include "audio/mixer.hpp"
 #include "core/i18n.hpp"
 #include "core/store.hpp"
+#include "core/tasks.hpp"
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
@@ -13,6 +14,7 @@
 #include "player/player.hpp"
 #include "screens/screens.hpp"
 #include "screens/youtube_common.hpp"
+#include "services/youtube.hpp"
 #include "ui/ui.hpp"
 
 namespace screens {
@@ -52,7 +54,7 @@ struct TrackMenu {
             // Auto first, with what it picked: 0 as the value, as in the setting.
             if (src.auto_quality) {
                 std::string label = tr("Auto");
-                int h = player::video_height();
+                int h = std::min(player::video_width(), player::video_height());  // an upright 1080×1920 is 1080p
                 if (src.quality == 0 && h > 0)
                     label += util::fmt(" (%dp%s)", h, player::video_fps() > 31 ? "60" : "");
                 tracks.push_back(player::Track{0, label});
@@ -192,7 +194,7 @@ public:
             gfx::fill_rrect(Rect(area.x, area.y, area.w, area.h), 14 * ce, Color(0, 0, 0, (uint8_t)(255 * ce)));
         }
         if (SDL_Texture* tex = player::video_texture()) {
-            gfx::image(tex, vr_, gfx::WHITE, 14 * ce);
+            gfx::image_rotated(tex, vr_, player::video_rotation(), gfx::WHITE, 14 * ce);
         } else if (st == player::OPENING || st == player::BUFFERING) {
             // Artwork placeholder while the first frame loads.
             std::string art = player::source().artwork;
@@ -384,8 +386,8 @@ private:
         // Quick controls that work regardless of focus.
         if (in.pressed_(BTN_ZR) || in.pressed_(BTN_R)) seek_by(30);
         if (in.pressed_(BTN_ZL) || in.pressed_(BTN_L)) seek_by(-30);
-        if (in.pressed_(BTN_Y) && !player::subtitle_tracks().empty()) menu_.show(TrackMenu::SUBTITLES);
-        if (in.pressed_(BTN_X) && player::audio_tracks().size() > 1) menu_.show(TrackMenu::AUDIO);
+        if (in.pressed_(BTN_Y) && player::started() && !player::subtitle_tracks().empty()) menu_.show(TrackMenu::SUBTITLES);
+        if (in.pressed_(BTN_X) && player::started() && player::audio_tracks().size() > 1) menu_.show(TrackMenu::AUDIO);
         if (comments_open_) return;  // the D-pad moves around the comments
 
         if (!overlay_visible) {
@@ -424,6 +426,31 @@ private:
         ripple_t_ = ui::time();
     }
 
+    // "1.2M views  ·  19M likes  ·  September 14, 2026" under a YouTube title: what the feed or
+    // the stream's resolving had, and the likes and the exact day once they've been asked for.
+    std::string watch_facts(const player::Source& src) {
+        if (src.service != "youtube") return "";
+        if (src.id != facts_id_) {
+            facts_id_ = src.id;
+            facts_ = {};
+            facts_scope_.reset();
+            if (!src.live)
+                facts_scope_.run<youtube::Details>(
+                    [id = src.id] {
+                        std::string err;
+                        return youtube::details(id, err);
+                    },
+                    [this](youtube::Details d) { facts_ = std::move(d); });
+        }
+        std::string s;
+        for (const std::string* part : std::initializer_list<const std::string*>{
+                 facts_.views.empty() ? &src.views : &facts_.views, &facts_.likes,
+                 facts_.posted.empty() ? &src.posted : &facts_.posted}) {
+            if (!part->empty()) s += (s.empty() ? "" : "  \xC2\xB7  ") + *part;
+        }
+        return s;
+    }
+
     void draw_overlay(player::State st) {
         const Theme& t = theme();
         float a = overlay_a_;
@@ -437,6 +464,8 @@ private:
         if (icon_button(id(id("vp_top"), "back"), 64, 62 - slide, 24, ic::ARROW_BACK, id("vp_top"))) app::pop();
         text::draw_fit(font::headline, 108, 40 - slide, W - 400, src.title, t.text);
         if (!src.subtitle.empty()) text::draw_fit(font::body, 108, 88 - slide, W - 400, src.subtitle, t.text2);
+        const std::string facts = watch_facts(src);
+        if (!facts.empty()) text::draw_fit(font::small, 108, (src.subtitle.empty() ? 90 : 120) - slide, W - 400, facts, t.text2);
         std::string codec = player::codec_info(updater::developer());  // the frame rate for the developer
         if (!codec.empty()) {
             float cw = text::measure(font::caption, codec) + 24;
@@ -504,20 +533,43 @@ private:
             if (icon_button(id(g, "speed"), rx, cy, 26, ic::SPEED, g, 0, player::speed() != 1.0f)) menu_.show(TrackMenu::SPEED);
             rx -= 70;
         }
-        if (!player::subtitle_tracks().empty()) {
+        if (player::started() && !player::subtitle_tracks().empty()) {
             if (icon_button(id(g, "subs"), rx, cy, 26, ic::SUBTITLES, g, 0, player::subtitle_track() >= 0))
                 menu_.show(TrackMenu::SUBTITLES);
             rx -= 70;
         }
-        if (player::audio_tracks().size() > 1) {
+        if (player::started() && player::audio_tracks().size() > 1) {
             if (icon_button(id(g, "audio"), rx, cy, 26, ic::AUDIOTRACK, g)) menu_.show(TrackMenu::AUDIO);
+            rx -= 70;
+        }
+        // Developers: bicubic video scaling on/off (Settings > Playback too), lit up while on. Not translated.
+        if (updater::developer() && platform::is_wiiu()) {
+            bool on = store::get_bool("dev_bicubic", false);
+            if (icon_button(id(g, "bicubic"), rx, cy, 26, ic::AUTO_AWESOME, g, 0, on)) {
+                store::set_bool("dev_bicubic", !on);
+                toast(!on ? "Sharper video scaling: bicubic" : "Sharper video scaling off: bilinear", ic::AUTO_AWESOME);
+            }
         }
 
-        // YouTube: subscribe to the uploader without leaving the video, and the comments.
+        // YouTube: subscribe to the uploader without leaving the video, the comments, and whether
+        // the next video follows by itself (lit up while it does; not in a playlist, which goes on
+        // anyway, nor for a live stream).
         if (src.service == "youtube") {
             float lx = 64;
             if (!src.channel_id.empty()) lx += subscribe_button(id(g, "subscribe"), src, lx, cy, g) + 20;
-            if (!live && icon_button(id(g, "comments"), lx + 26, cy, 26, ic::COMMENT, g)) open_comments();
+            lx += 26;
+            if (!live) {
+                if (icon_button(id(g, "comments"), lx, cy, 26, ic::COMMENT, g)) open_comments();
+                lx += 70;
+            }
+            if (!live && !player::has_next()) {
+                const bool autoplay = store::get_bool("yt_autoplay", true);
+                if (icon_button(id(g, "autoplay"), lx, cy, 26, ic::PLAY_CIRCLE, g, 0, autoplay)) {
+                    store::set_bool("yt_autoplay", !autoplay);
+                    audio::play(audio::SFX_TOGGLE, 0.6f);
+                    toast(std::string(tr("Autoplay")) + ": " + (autoplay ? tr("Off") : tr("On")), ic::PLAY_CIRCLE);
+                }
+            }
         }
 
         if (st == player::FAILED) draw_message(ic::ERROR_OUTLINE, tr("Playback failed"), player::error().c_str(), true);
@@ -588,7 +640,14 @@ private:
         float x = 36, w = SMALL_W;
         float y = 36 + SMALL_W * 9 / 16 + 20 + (1 - ce) * 40;
         text::draw_wrapped(font::title, Rect(x, y, w, 80), src.title, t.text, 2);
-        y += text::measure_wrapped(font::title, w, src.title, 2) + 14;
+        y += text::measure_wrapped(font::title, w, src.title, 2) + 6;
+        const std::string facts = watch_facts(src);
+        if (facts.empty()) {
+            y += 8;
+        } else {
+            text::draw_fit(font::small, x, y, w, facts, t.text2);
+            y += text::line_height(font::small) + 8;
+        }
 
         Id g = id("vp_watch");
         float cy = y + 23;
@@ -647,6 +706,9 @@ private:
 
     TrackMenu menu_;
     yt::CommentsPanel comments_;
+    youtube::Details facts_;   // asked for when a video starts
+    std::string facts_id_;
+    tasks::Scope facts_scope_;
     bool comments_open_ = false;
     std::string comments_video_;
     Rect vr_{0, 0, W, H};  // where the video is drawn
@@ -801,6 +863,9 @@ private:
 
 }  // namespace
 
+std::unique_ptr<app::Screen> make_video_player() {
+    return std::make_unique<VideoPlayerScreen>();
+}
 void play_video(const player::Source& src) {
     player::open(src);
     app::push(std::make_unique<VideoPlayerScreen>());

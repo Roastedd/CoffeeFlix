@@ -14,7 +14,8 @@ struct Account {
     bool valid() const { return !server.empty() && !token.empty() && !user_id.empty(); }
 };
 
-const Account& account();
+Account account();  // a copy: signing in and switching write it from other threads
+bool signed_in();   // account().valid() without the copy
 void sign_out();
 // The Wii U user's other accounts, to switch between. Each keeps a device ID of its own: Jellyfin
 // ends a device's earlier session when it signs in again.

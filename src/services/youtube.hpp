@@ -132,5 +132,15 @@ bool resolve(const std::string& video_id, int max_height, player::Source& src, s
 
 // Builds a player source for a video (resolved lazily on the player thread).
 player::Source make_source(const Video& v);
+// What YouTube says about a video besides how to play it, as text in the current language ("" for
+// what it doesn't say): "1.2M views", "19M likes", "September 14, 2026" (the day it was posted).
+struct Details {
+    std::string views, likes, posted;
+};
+// From a "player" response.
+Details parse_details(const std::string& player_json);
+// Asks for them: the playback clients leave out the likes and the day, the WEB client's answer has
+// them (even for a video it won't play), a few hundred bytes with a field mask.
+Details details(const std::string& video_id, std::string& error);
 
 }  // namespace youtube

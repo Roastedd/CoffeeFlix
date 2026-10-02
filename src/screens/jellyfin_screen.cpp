@@ -1,6 +1,7 @@
 // Jellyfin: sign-in flow, home shelves, libraries and item details.
 #include <cmath>
 
+#include "audio/mixer.hpp"
 #include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
@@ -8,6 +9,7 @@
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
 #include "player/player.hpp"
+#include "screens/end_card.hpp"
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
@@ -70,11 +72,98 @@ CardInfo thumb_card(const jf::Item& it) {
     return c;
 }
 
+// Plays an episode and, when it ends, offers the next one: the following episode of its season, or the
+// first of the next season. A countdown starts it unless it is cancelled or the setting is off.
+class EpisodePlayerScreen : public app::Screen {
+public:
+    EpisodePlayerScreen(jf::Item item, bool from_start) { begin(std::move(item), from_start); }
+    bool fullscreen() const override { return true; }
+    bool draws_background() const override { return true; }
+    app::Section section() const override { return app::SEC_JELLYFIN; }
+    void on_enter() override { if (video_) video_->on_enter(); }
+    bool on_back() override { return player::state() != player::ENDED && video_ && video_->on_back(); }
+    void frame() override {
+        if (player::state() != player::ENDED) { ended_at_ = 0; video_->frame(); return; }
+        if (auto tex = player::video_texture()) {
+            auto r = player::fit_rect((int)W, (int)H);
+            gfx::fill_rect(Rect(0, 0, W, H), gfx::BLACK);
+            gfx::image_rotated(tex, Rect(r.x, r.y, r.w, r.h), player::video_rotation(), gfx::WHITE);
+        } else gfx::fill_rect(Rect(0, 0, W, H), gfx::BLACK);
+        const bool autoplay = store::get_bool("jf_autoplay", true), ready = !next_.id.empty();
+        if (loading_ || ended_at_ == 0) ended_at_ = util::now_seconds();
+        EndCard card;
+        card.title = current_.name;
+        if (current_.type == "Episode") card.subtitle = util::fmt(tr("%s \xC2\xB7 S%d E%d"), current_.series_name.c_str(), current_.parent_index, current_.index);
+        card.has_next = ready;
+        card.loading = loading_;
+        card.autoplay = autoplay;
+        card.counting = ready && autoplay && !cancelled_;
+        card.elapsed = util::now_seconds() - ended_at_;
+        if (ready) {
+            card.next_title = next_.name;
+            card.next_subtitle = util::fmt(tr("%s \xC2\xB7 S%d E%d"), next_.series_name.c_str(), next_.parent_index, next_.index);
+            card.next_overview = next_.overview;
+            card.next_image = jf::thumb(next_, 480);
+        }
+        if (card.counting && card.elapsed >= END_COUNTDOWN) { begin(next_, false); return; }
+        switch (draw_end_card(card)) {
+            case EndAction::PLAY_NEXT: begin(next_, false); return;
+            case EndAction::CANCEL: cancelled_ = true; break;
+            case EndAction::REPLAY: cancelled_ = true; ended_at_ = 0; player::seek(0); break;
+            case EndAction::TOGGLE_AUTOPLAY: store::set_bool("jf_autoplay", !autoplay); cancelled_ = false; ended_at_ = 0; break;
+            case EndAction::BACK: app::pop(); break;
+            default: break;
+        }
+    }
+
+private:
+    void begin(jf::Item item, bool from_start) {
+        scope_.reset();
+        video_.reset();
+        current_ = std::move(item);
+        next_ = {};
+        cancelled_ = false;
+        ended_at_ = 0;
+        loading_ = current_.type == "Episode" && !current_.series_id.empty();
+        player::open(jf::make_source(current_, from_start));
+        video_ = make_video_player();
+        video_->on_enter();
+        if (!loading_) return;
+        jf::Item cur = current_;  // looked up now, so it is ready when the episode ends
+        scope_.run<jf::Item>([cur] { return find_next(cur); }, [this](jf::Item found) {
+            next_ = std::move(found);
+            loading_ = false;
+            if (!next_.id.empty()) images::get(jf::thumb(next_, 480), 480, 0);  // ready by the time it is shown
+        });
+    }
+    static jf::Item find_next(const jf::Item& cur) {
+        jf::List eps = jf::episodes(cur.series_id, cur.season_id);
+        int at = -1;
+        for (size_t i = 0; i < eps.items.size(); i++)
+            if (eps.items[i].id == cur.id) at = (int)i;
+        if (at < 0) return {};
+        if (at + 1 < (int)eps.items.size()) return eps.items[at + 1];
+        jf::List seasons = jf::seasons(cur.series_id);
+        for (size_t i = 0; i + 1 < seasons.items.size(); i++)
+            if (seasons.items[i].id == cur.season_id) {
+                jf::List next = jf::episodes(cur.series_id, seasons.items[i + 1].id);
+                if (!next.items.empty()) return next.items[0];
+                break;
+            }
+        return {};
+    }
+    jf::Item current_, next_;
+    tasks::Scope scope_;
+    std::unique_ptr<app::Screen> video_;
+    bool loading_ = false, cancelled_ = false;
+    double ended_at_ = 0;
+};
+
 void open_item(const jf::Item& it) {
     if (it.type == "Movie" || it.type == "Series" || it.type == "MusicAlbum" || it.type == "Season" || it.type == "BoxSet") {
         app::push(make_detail(it));
     } else if (it.type == "Episode" || it.type == "Video" || it.type == "MusicVideo") {
-        play_video(jf::make_source(it));
+        play_jellyfin_video(it);
     } else if (it.is_audio()) {
         play_audio(jf::make_source(it));
     } else if (it.type == "CollectionFolder" || it.type == "UserView" || it.type == "Folder") {
@@ -682,11 +771,11 @@ private:
 
     void play(bool from_start) {
         if (it_.type == "Series" && !next_.list.items.empty()) {
-            play_video(jf::make_source(next_.list.items[0], from_start));
+            play_jellyfin_video(next_.list.items[0], from_start);
         } else if (it_.type == "MusicAlbum") {
             play_tracks(0);
         } else {
-            play_video(jf::make_source(it_, from_start));
+            play_jellyfin_video(it_, from_start);
         }
     }
 
@@ -749,7 +838,7 @@ private:
             c.badge.clear();
             return c;
         };
-        s.on_click = [this](int i) { play_video(jf::make_source(episodes_.list.items[i])); };
+        s.on_click = [this](int i) { play_jellyfin_video(episodes_.list.items[i]); };
         s.on_focus = [this](int i) { focused_ep_ = i; };
         y += shelf(id(g, "episodes"), x, y, s, &page_);
         if (focused_ep_ >= 0 && focused_ep_ < (int)episodes_.list.items.size()) {
@@ -885,5 +974,10 @@ std::unique_ptr<app::Screen> make_jellyfin() { return std::make_unique<JellyfinS
 std::unique_ptr<app::Screen> make_jellyfin_search(const std::string& q) { return std::make_unique<JellyfinSearchScreen>(q); }
 
 std::unique_ptr<app::Screen> make_jellyfin_item(const jellyfin::Item& item) { return make_detail(item); }
+
+void play_jellyfin_video(const jellyfin::Item& item, bool from_start) {
+    app::push(std::make_unique<EpisodePlayerScreen>(item, from_start));
+    audio::play(audio::SFX_OPEN, 0.7f);
+}
 
 }  // namespace screens

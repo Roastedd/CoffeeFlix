@@ -1,0 +1,16 @@
+diff --git a/src/render/wiiu/SDL_rtexture_wiiu.c b/src/render/wiiu/SDL_rtexture_wiiu.c
+--- a/src/render/wiiu/SDL_rtexture_wiiu.c
++++ b/src/render/wiiu/SDL_rtexture_wiiu.c
+@@ -462,6 +462,12 @@
+                             pitch, (unsigned) Y->pitch);
+     }
+ 
++    /* Old app buffers must not be recycled while GX2 still samples them.
++       Flush the queued draw first, then wait on this texture's submitted work. */
++    if (videodata->hasForeground && WIIU_TextureInUse(data, tdata) &&
++        !WIIU_TextureWaitDone(data, tdata)) {
++        return SDL_SetError("GPU did not finish reading the previous video picture");
++    }
+     if (!tdata->ownImage[0]) {
+         tdata->ownImage[0] = Y->image;
+         tdata->ownImage[1] = UV->image;

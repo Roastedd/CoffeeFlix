@@ -7,10 +7,17 @@
 #include <cctype>
 #include <chrono>
 #include <ctime>
+#include <mutex>
 #include <random>
 #include <cerrno>
 #include <cxxabi.h>
 #include <cstdlib>
+
+#ifdef __WIIU__
+#include <mbedtls/entropy.h>
+#else
+#include <openssl/rand.h>
+#endif
 
 #include "core/i18n.hpp"
 
@@ -299,12 +306,35 @@ uint64_t hash64(std::string_view s, uint64_t h) {
 
 std::string random_hex(int bytes) {
     static std::mt19937_64 rng((uint64_t)std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    static std::mutex rng_m;  // called from any thread
     static const char* hex = "0123456789abcdef";
+    std::lock_guard<std::mutex> lock(rng_m);
     std::string out;
     for (int i = 0; i < bytes; i++) {
         unsigned v = (unsigned)(rng() & 0xFF);
         out += hex[v >> 4];
         out += hex[v & 15];
+    }
+    return out;
+}
+
+std::string secure_random_hex(int bytes) {
+    unsigned char raw[32];
+    if (bytes < 1 || bytes > (int)sizeof(raw)) return "";
+#ifdef __WIIU__
+    mbedtls_entropy_context entropy;
+    mbedtls_entropy_init(&entropy);
+    const bool ok = mbedtls_entropy_func(&entropy, raw, (size_t)bytes) == 0;
+    mbedtls_entropy_free(&entropy);
+#else
+    const bool ok = RAND_bytes(raw, bytes) == 1;
+#endif
+    if (!ok) return "";
+    static const char* hex = "0123456789abcdef";
+    std::string out;
+    for (int i = 0; i < bytes; i++) {
+        out += hex[raw[i] >> 4];
+        out += hex[raw[i] & 15];
     }
     return out;
 }

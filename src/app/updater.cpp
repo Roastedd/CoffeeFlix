@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "core/http.hpp"
+#include "core/build_variant.hpp"
 #include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/sha256.hpp"
@@ -64,10 +65,13 @@ struct CheckResult {
     Release rel;
     std::string server;  // developer builds: where it came from
     bool running = false;  // developer builds: it's the one running now
+    bool catalog_valid = false;
+    std::vector<Release> builds;
 };
 
 State g_state = IDLE;
 Release g_release;
+std::vector<Release> g_dev_builds;
 std::string g_error, g_reason, g_bundle, g_dev_server;
 bool g_supported = false, g_has_previous = false, g_switch_back = false;
 bool g_declined = false;  // this session: the user said no to this update
@@ -321,7 +325,8 @@ std::string find_dev_server() {
 std::string running_sha256(const std::string& bundle) {
     struct stat st;
     if (stat(bundle.c_str(), &st) != 0) return "";
-    std::string stamp = util::fmt("%lld %lld", (long long)st.st_size, (long long)st.st_mtime);
+    std::string stamp = bundle + "|" + APP_BUILD_ID + "|" + APP_VERSION + "|" +
+        util::fmt("%lld %lld", (long long)st.st_size, (long long)st.st_mtime);
     if (store::get_str("update_running_stamp") == stamp) return store::get_str("update_running_sha256");
     FileHash fh;
     if (!hash_file(bundle, nullptr, fh)) return "";
@@ -330,8 +335,71 @@ std::string running_sha256(const std::string& bundle) {
     return fh.sha256;
 }
 
-// Worker: the build tools/dev-update.sh offers, if the developer key signed it.
-CheckResult fetch_dev(const std::string& bundle) {
+bool valid_build_id(const std::string& id) {
+    return !id.empty() && id.size() <= 48 && id[0] >= 'a' && id[0] <= 'z' &&
+        std::all_of(id.begin(), id.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'; });
+}
+
+// Sign the catalog too: a binary signature alone does not authenticate the build's label.
+CheckResult parse_dev_catalog(const std::string& body, const std::string& server,
+                              const std::string& bundle, const std::string& selected) {
+    CheckResult out;
+    out.server = server;
+    out.rel.dev = true;
+    auto envelope = json::Doc::parse(body);
+    std::string payload = json::str(envelope.get(), {"catalog"});
+    auto signature = from_hex(util::lower(json::str(envelope.get(), {"signature"})));
+    sha256::Hasher hash;
+    hash.update(payload.data(), payload.size());
+    auto digest = from_hex(hash.hex());
+    if (payload.empty() || payload.size() > (256u << 10) || signature.empty() ||
+        !platform::verify_signature(DEV_KEY, digest.data(), signature)) {
+        out.error = tr("The build list is not signed with your developer key.");
+        return out;
+    }
+    auto doc = json::Doc::parse(payload);
+    json_t* builds = json::at(doc.get(), {"builds"});
+    if (json::num(doc.get(), {"schema"}) != 1 || !json_is_array(builds) || json::size(builds) == 0 || json::size(builds) > 8) {
+        out.error = tr("Your computer sent an invalid build list.");
+        return out;
+    }
+    std::vector<Release> verified;
+    for (size_t i = 0; i < json::size(builds); ++i) {
+        json_t* o = json_array_get(builds, i);
+        Release rel;
+        rel.dev = true;
+        rel.build_id = json::str(o, {"id"});
+        rel.build_name = drawable(json::str(o, {"name"}));
+        rel.version = json::str(o, {"version"});
+        rel.notes = plain_notes(json::str(o, {"notes"})).substr(0, 4000);
+        rel.size = json::num(o, {"size"});
+        rel.sha256 = util::lower(json::str(o, {"sha256"}));
+        auto sig = from_hex(util::lower(json::str(o, {"signature"})));
+        auto sum = from_hex(rel.sha256);
+        if (!valid_build_id(rel.build_id) || rel.build_name.empty() || rel.build_name.size() > 128 ||
+            rel.version.empty() || rel.version.size() > 128 || !is_sha256(rel.sha256) ||
+            rel.size < (1 << 20) || rel.size > (256 << 20) || sig.empty() ||
+            !platform::verify_signature(DEV_KEY, sum.data(), sig) ||
+            std::any_of(verified.begin(), verified.end(), [&](const Release& v) { return v.build_id == rel.build_id; })) {
+            out.error = tr("Your computer sent an invalid build list.");
+            return out;
+        }
+        rel.url = "http://" + server + "/builds/" + rel.build_id + "/" + rel.sha256 + "/coffeeflix.wuhb";
+        verified.push_back(std::move(rel));
+    }
+    out.builds = std::move(verified);
+    out.catalog_valid = true;
+    auto it = std::find_if(out.builds.begin(), out.builds.end(), [&](const Release& r) { return r.build_id == selected; });
+    if (it == out.builds.end()) {
+        out.error = tr("The selected build is not offered by this server.");
+        return out;
+    }
+    out.rel = *it;
+    out.running = running_sha256(bundle) == it->sha256;
+    return out;
+}
+
+CheckResult fetch_dev(const std::string& bundle, const std::string& selected) {
     CheckResult out;
     out.rel.dev = true;
     out.server = find_dev_server();
@@ -340,31 +408,17 @@ CheckResult fetch_dev(const std::string& bundle) {
         return out;
     }
     http::Request req;
-    req.url = "http://" + out.server + "/dev.json";
+    req.url = "http://" + out.server + "/builds.json";
     req.timeout = 8;
-    req.max_bytes = 1 << 20;
-    http::Response r = http::perform(req);
+    req.max_bytes = 512u << 10;
+    auto r = http::perform(req);
     if (!r.ok()) {
-        out.error = r.status ? util::fmt(tr("Your computer (%s) answered %ld"), out.server.c_str(), r.status)
-                             : util::fmt(tr("Couldn't reach your computer at %s. Is tools/dev-update.sh running?"), out.server.c_str());
+        out.error = r.status == 404 ? tr("Restart the developer update server with the updated tools.")
+            : r.status ? util::fmt(tr("Your computer (%s) answered %ld"), out.server.c_str(), r.status)
+                       : util::fmt(tr("Couldn't reach your computer at %s. Is tools/dev-update.sh running?"), out.server.c_str());
         return out;
     }
-    json::Doc doc = json::Doc::parse(r.body);
-    json_t* root = doc.get();
-    out.rel.version = json::str(root, {"version"});
-    out.rel.notes = plain_notes(json::str(root, {"notes"}));
-    out.rel.url = "http://" + out.server + "/coffeeflix.wuhb";
-    out.rel.size = json::num(root, {"size"});
-    out.rel.sha256 = util::lower(json::str(root, {"sha256"}));
-    std::vector<uint8_t> digest = from_hex(out.rel.sha256), sig = from_hex(util::lower(json::str(root, {"signature"})));
-    if (!doc) out.error = tr("Your computer's answer didn't make sense");
-    else if (out.rel.version.empty()) out.error = tr("The build has no version");
-    else if (!is_sha256(out.rel.sha256)) out.error = tr("Your computer gave no checksum for the build");
-    else if (out.rel.size < (1 << 20) || out.rel.size > (256 << 20)) out.error = tr("The build's size looks wrong");
-    else if (sig.empty() || !platform::verify_signature(DEV_KEY, digest.data(), sig))
-        out.error = tr("That build isn't signed with your developer key, so it can't be installed");
-    else out.running = running_sha256(bundle) == out.rel.sha256;
-    return out;
+    return parse_dev_catalog(r.body, out.server, bundle, selected);
 }
 
 // Worker: reads the saved file back from the SD card and compares it with what was published.
@@ -427,10 +481,18 @@ void remember_ready(const Release* rel) {
     store::set_int("update_ready_size", rel ? rel->size : 0);
     store::set_str("update_ready_notes", rel ? rel->notes.substr(0, 4000) : "");
     store::set_bool("update_ready_dev", rel && rel->dev);
+    store::set_str("update_ready_build", rel ? rel->build_id : "");
+    store::set_str("update_ready_build_name", rel ? rel->build_name : "");
 }
 
 void on_checked(CheckResult r, bool automatic_check) {
+    if (r.catalog_valid) {
+        g_dev_builds = std::move(r.builds);
+        g_dev_server = r.server;
+        store::set_str("update_dev_server", r.server);
+    }
     if (!r.error.empty()) {
+        g_release = Release();
         log_message(LOG_WARNING, "Update", "Checking for updates failed: %s", r.error.c_str());
         g_next_check = util::now_seconds() + 3600;
         g_state = automatic_check ? IDLE : FAILED;
@@ -442,6 +504,7 @@ void on_checked(CheckResult r, bool automatic_check) {
         g_dev_server = r.server;
         store::set_str("update_dev_server", r.server);
         if (r.running) {
+            g_release = r.rel;
             log_message(LOG_OK, "Update", "Running the developer build %s from %s", r.rel.version.c_str(), r.server.c_str());
             g_state = UP_TO_DATE;
             return;
@@ -473,8 +536,8 @@ void start_check(bool automatic_check) {
     g_error.clear();
     int check = ++g_check;
     bool dev = developer();
-    std::string bundle = g_bundle;
-    g_scope.run<CheckResult>([dev, bundle] { return dev ? fetch_dev(bundle) : fetch_latest(); },
+    std::string bundle = g_bundle, selected = selected_build();
+    g_scope.run<CheckResult>([dev, bundle, selected] { return dev ? fetch_dev(bundle, selected) : fetch_latest(); },
                              [automatic_check, check](CheckResult r) {
                                  if (check == g_check) on_checked(std::move(r), automatic_check);
                              });
@@ -651,8 +714,11 @@ void init() {
     ready.size = store::get_int("update_ready_size", 0);
     ready.notes = store::get_str("update_ready_notes");
     ready.dev = store::get_bool("update_ready_dev", false);
+    ready.build_id = store::get_str("update_ready_build");
+    ready.build_name = store::get_str("update_ready_build_name");
     bool have = util::file_exists(dl);
-    if (have && ready.dev == developer() && (ready.dev || newer(ready.version, APP_VERSION)) && is_sha256(ready.sha256) &&
+    if (have && ready.dev == developer() && (!ready.dev || ready.build_id == selected_build()) &&
+        (ready.dev || newer(ready.version, APP_VERSION)) && is_sha256(ready.sha256) &&
         file_size(dl) == ready.size) {
         reverify(ready);
     } else if (have || !ready.version.empty()) {
@@ -673,7 +739,8 @@ void tick() {
         g_dev_checked = true;
         start_check(true);
     }
-    if (g_state == AVAILABLE && automatic() && !g_declined && now >= g_next_download &&
+    if (g_state == AVAILABLE && automatic() && (!g_release.dev || g_release.build_id == APP_BUILD_ID) &&
+        !g_declined && now >= g_next_download &&
         store::get_str("update_skip") != key(g_release) && !player_busy()) {
         g_next_download = now + 6 * 3600;  // after a failed attempt
         download();
@@ -774,6 +841,7 @@ bool set_developer(bool on) {
     remove((g_bundle + ".download").c_str());
     remember_ready(nullptr);
     g_release = Release();
+    g_dev_builds.clear();
     g_state = IDLE;
     g_declined = false;
     g_dev_checked = true;
@@ -783,6 +851,28 @@ bool set_developer(bool on) {
 }
 
 const std::string& dev_server() { return g_dev_server; }
+
+const char* current_build_name() { return APP_BUILD_NAME; }
+std::string selected_build() { return store::get_str("update_dev_build", APP_BUILD_ID); }
+const std::vector<Release>& developer_builds() { return g_dev_builds; }
+
+bool select_build(const std::string& id) {
+    if (!developer() || g_state == DOWNLOADING || g_state == READY || g_job ||
+        std::none_of(g_dev_builds.begin(), g_dev_builds.end(), [&](const Release& r) { return r.build_id == id; })) return false;
+    if (id == selected_build()) return true;
+    store::set_str("update_dev_build", id);
+    g_scope.reset();
+    ++g_check;  // a response for the old choice must not overwrite the new one
+    g_release = Release();
+    g_error.clear();
+    g_declined = false;
+    g_state = IDLE;
+    g_dev_checked = true;
+    remember_ready(nullptr);
+    if (g_supported) start_check(false);
+    return true;
+}
+
 
 void finish_on_exit() {
     if (!g_supported) return;

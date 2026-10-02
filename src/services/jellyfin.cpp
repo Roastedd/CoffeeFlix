@@ -349,15 +349,23 @@ bool resolve_video(const Item& it, player::Source& src, std::string& error) {
 
 }  // namespace
 
-const Account& account() {
+Account account() { return snapshot(); }
+
+bool signed_in() {
     std::lock_guard<std::mutex> lk(g_m);
     load_account();
-    return g_acc;
+    return g_acc.valid();
 }
 
 void sign_out() {
     Account a = snapshot();
-    if (a.valid()) request(a.server, a.token, "POST", "/Sessions/Logout");
+    // Told in the background: a server that is down (why one signs out of it, often) would hold up
+    // the screen for the whole request timeout.
+    if (a.valid())
+        tasks::submit(tasks::API, [a]() -> std::function<void()> {
+            request(a.server, a.token, "POST", "/Sessions/Logout");
+            return nullptr;
+        });
     std::lock_guard<std::mutex> lk(g_m);
     g_acc = Account();
     g_acc.server = a.server;  // keep the address for convenience

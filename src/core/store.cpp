@@ -28,6 +28,7 @@ std::mutex g_file_m;
 uint64_t g_saves = 0;    // under g_m
 uint64_t g_written = 0;  // under g_file_m
 std::atomic<bool> g_saving{false};  // a save is on its way
+std::atomic<uint32_t> g_resume_version{0};  // changes with the resume points
 
 json_t* object_in(json_t* obj, const char* name) {
     json_t* s = json_object_get(obj, name);
@@ -116,16 +117,14 @@ void mark_dirty() {
 
 std::string key_of(const std::string& service, const std::string& id) { return service + "\x1f" + id; }
 
-// Under g_m. Empty when there is nothing to save.
-std::string dump(uint64_t& number) {
-    if (!g_root || g_path.empty()) return "";
-    char* s = json_dumps(g_root, JSON_INDENT(1));
+// Under g_m: a copy of everything to save (null when there is nothing), so that the lock isn't held while it is turned
+// into text: that takes tens of ms on the Wii U, and every setting read on the main thread waits for the lock.
+json_t* snapshot(uint64_t& number) {
+    if (!g_root || g_path.empty()) return nullptr;
+    json_t* copy = json_deep_copy(g_root);
     g_dirty = false;
-    if (!s) return "";
-    std::string out = s;
-    free(s);
-    number = ++g_saves;
-    return out;
+    if (copy) number = ++g_saves;
+    return copy;
 }
 
 void write_json(const std::string& path, const std::string& data, uint64_t number) {
@@ -141,11 +140,20 @@ void write_json(const std::string& path, const std::string& data, uint64_t numbe
 void load(const std::string& path) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
     g_path = path;
-    std::string data;
-    if (util::read_file(path, data)) {
+    // The .tmp is the only copy after a save was cut off between removing the old file and moving
+    // the new one in (util::write_file_atomic).
+    for (const std::string& file : {path, path + ".tmp"}) {
+        std::string data;
+        if (!util::read_file(file, data)) continue;
         json_error_t err;
-        g_root = json_loadb(data.data(), data.size(), 0, &err);
-        if (!g_root) log_message(LOG_WARNING, "Store", "Corrupt data file (%s), starting fresh", err.text);
+        json_t* root = json_loadb(data.data(), data.size(), 0, &err);
+        if (!root) {
+            log_message(LOG_WARNING, "Store", "Corrupt data file %s (%s)", file.c_str(), err.text);
+            continue;
+        }
+        if (file != path) log_message(LOG_WARNING, "Store", "Recovered the data from an interrupted save");
+        g_root = root;
+        break;
     }
     if (!json_is_object(g_root)) {
         if (g_root) json_decref(g_root);
@@ -155,14 +163,21 @@ void load(const std::string& path) {
 }
 
 void save_now() {
-    std::string data, path;
+    json_t* copy = nullptr;
+    std::string path;
     uint64_t number = 0;
     {
         std::lock_guard<std::recursive_mutex> lk(g_m);
-        data = dump(number);
+        copy = snapshot(number);
         path = g_path;
     }
-    if (!data.empty()) write_json(path, data, number);
+    if (!copy) return;
+    char* text = json_dumps(copy, JSON_INDENT(1));
+    json_decref(copy);
+    if (!text) return;
+    std::string data = text;
+    free(text);
+    write_json(path, data, number);
 }
 
 void tick() {
@@ -401,6 +416,7 @@ void resume_save(const Resume& r) {
     json_t* obj = section("resume");
     std::string key = key_of(r.service, r.id);
     bool finished = r.duration > 0 && (r.position > r.duration * 0.95 || r.duration - r.position < 30);
+    g_resume_version++;
     if (r.position < 15 || finished) {
         json_object_del(obj, key.c_str());
         mark_dirty();
@@ -467,14 +483,18 @@ std::vector<Resume> resume_list(size_t max) {
 void resume_remove(const std::string& service, const std::string& id) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
     json_object_del(section("resume"), key_of(service, id).c_str());
+    g_resume_version++;
     mark_dirty();
 }
 
 void resume_clear() {
     std::lock_guard<std::recursive_mutex> lk(g_m);
     json_object_clear(section("resume"));
+    g_resume_version++;
     mark_dirty();
 }
+
+uint32_t resume_version() { return g_resume_version; }
 
 // --- recent searches ---
 

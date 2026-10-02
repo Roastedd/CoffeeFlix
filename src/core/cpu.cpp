@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <vector>
@@ -91,6 +92,35 @@ std::string report() {
     }
     if (out.empty()) return "";  // nothing worth a line
     return out + util::fmt("; %.0f%% in all", total * 100.0 / wall_ns);
+}
+
+size_t where(char* out, size_t capacity) {
+    if (capacity == 0) return 0;
+    size_t used = 0;
+    auto add = [&](const char* text) {
+        const size_t n = std::min(std::strlen(text), capacity - 1 - used);
+        std::memcpy(out + used, text, n);
+        used += n;
+        out[used] = 0;
+    };
+    out[0] = 0;
+    std::unique_lock<std::mutex> lock(g_m, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        add("  (the thread list is in use)\n");
+        return used;
+    }
+    for (auto& [id, t] : g_threads) {
+        char line[200];
+        const size_t n = platform::thread_where(t.handle, line, sizeof(line) - 1);
+        if (n == 0) continue;
+        line[n] = 0;
+        add("  ");
+        add(t.name);
+        add(" ");
+        add(line);
+        add("\n");
+    }
+    return used;
 }
 
 std::vector<std::string> clock_debug() {

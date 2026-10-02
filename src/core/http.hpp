@@ -2,6 +2,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <string>
@@ -34,6 +35,7 @@ struct Request {
     // Checks the server's certificate even when set_verify_tls(false), and follows redirects to
     // https only: for what gets installed (app updates).
     bool require_tls = false;
+    bool private_url = false;                 // configured addon/media URLs may contain credentials
     // Made on this connection rather than one from the shared pool (see Connection).
     Connection* connection = nullptr;
     // On a new connection even when one to the host is open: after giving up on a transfer that
@@ -49,6 +51,9 @@ struct Response {
     std::string effective_url;
     long connects = 0;  // connections the request had to open (0: it reused one)
 
+    // Cumulative curl timings in seconds (redirects included); zero may mean connection reuse.
+    double dns_seconds = 0, connect_seconds = 0, tls_seconds = 0, first_byte_seconds = 0, total_seconds = 0;
+
     bool ok() const { return error.empty() && status >= 200 && status < 300; }
 };
 
@@ -58,9 +63,14 @@ void init(const std::string& ca_bundle_path, void (*socket_setup)(int fd) = null
 void shutdown();
 void set_verify_tls(bool verify);
 bool verify_tls();
+// Ends the transfers in progress now, each failing as cancelled; ones started afterwards go ahead.
+// For the app closing: its worker threads wait for the transfers, and not every request can be told.
+void cancel_running();
 const std::string& ca_bundle();
 
 Response perform(const Request& req);
+// Retry-After seconds or HTTP-date; -1 if absent/invalid. Bounded to one day.
+double retry_after(const Response& response, int64_t unix_now);
 
 // A connection of one caller's own (a download thread of the player's), apart from the pool the
 // other requests share: its next request goes out on the same connection, which nothing else
@@ -77,7 +87,8 @@ private:
     void* curl_ = nullptr;
 };
 
-Response get(const std::string& url, std::vector<std::pair<std::string, std::string>> headers = {}, long timeout = 20);
+Response get(const std::string& url, std::vector<std::pair<std::string, std::string>> headers = {}, long timeout = 20,
+             bool private_url = false);
 Response post_json(const std::string& url, const std::string& body,
                    std::vector<std::pair<std::string, std::string>> headers = {}, long timeout = 20);
 

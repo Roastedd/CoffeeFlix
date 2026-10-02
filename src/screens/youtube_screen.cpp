@@ -157,12 +157,15 @@ float video_shelf(Id sid, float x, float y, const std::string& title, Feed& f, P
         o.removed = [&f, vid] { f.remove(vid); };
         yt::video_menu(f.res.items[i], o);
     };
-    s.on_y = [&f](int i) {
+    std::string dismissed;  // taken out once the shelf is done: it is still going through the items
+    s.on_y = [&f, &dismissed](int i) {
         yt_recs::not_interested(f.res.items[i]);
-        f.res.items.erase(f.res.items.begin() + i);
+        dismissed = f.res.items[i].id;
         toast(tr("Got it, you'll see less like this"), ic::CHECK_CIRCLE);
     };
-    return shelf(sid, x, y, s, &page);
+    float h = shelf(sid, x, y, s, &page);
+    if (!dismissed.empty()) f.remove(dismissed);
+    return h;
 }
 
 void prompt_search() {
@@ -403,28 +406,31 @@ public:
         y += 70;
         if (focus_in_group(top)) page_.focus_range(0, y + page_.scroll());
 
-        // Continue watching (YouTube only)
-        std::vector<store::Resume> resume;
-        for (auto& r : store::resume_list(30))
-            if (r.service == "youtube") resume.push_back(r);
-        if (!resume.empty()) {
+        // Continue watching (YouTube only), asked for again once a resume point changed.
+        if (uint32_t v = store::resume_version(); v != resume_version_) {
+            resume_version_ = v;
+            resume_.clear();
+            for (auto& r : store::resume_list(30))
+                if (r.service == "youtube") resume_.push_back(std::move(r));
+        }
+        if (!resume_.empty()) {
             ShelfSpec s;
             s.title = tr("Continue watching");
-            s.count = (int)resume.size();
+            s.count = (int)resume_.size();
             s.item_w = 300;
-            s.item = [resume](int i) {
+            s.item = [this](int i) {
                 CardInfo c;
-                c.image = youtube::thumbnail(resume[i].id);
-                c.title = resume[i].title;
-                c.subtitle = resume[i].subtitle;
-                c.progress = resume[i].duration > 0 ? (float)(resume[i].position / resume[i].duration) : 0;
-                c.badge = util::fmt(tr("%s left"), util::format_duration(resume[i].duration - resume[i].position).c_str());
+                c.image = youtube::thumbnail(resume_[i].id);
+                c.title = resume_[i].title;
+                c.subtitle = resume_[i].subtitle;
+                c.progress = resume_[i].duration > 0 ? (float)(resume_[i].position / resume_[i].duration) : 0;
+                c.badge = util::fmt(tr("%s left"), util::format_duration(resume_[i].duration - resume_[i].position).c_str());
                 return c;
             };
-            s.on_click = [resume](int i) { yt::play(resume_video(resume[i])); };
-            s.on_focus = [resume](int i) { set_backdrop(youtube::thumbnail_hq(resume[i].id)); };
-            s.on_x = [resume](int i) {
-                youtube::Video v = resume_video(resume[i]);
+            s.on_click = [this](int i) { yt::play(resume_video(resume_[i])); };
+            s.on_focus = [this](int i) { set_backdrop(youtube::thumbnail_hq(resume_[i].id)); };
+            s.on_x = [this](int i) {
+                youtube::Video v = resume_video(resume_[i]);
                 yt::MenuOptions o;
                 o.extra.push_back({tr("Remove from Continue watching"), ic::REMOVE,
                                    [v] { store::resume_remove("youtube", v.id); }});
@@ -556,6 +562,8 @@ private:
     std::string subs_key_;
     std::vector<youtube::Channel> chans_;
     std::vector<youtube::Video> later_;
+    std::vector<store::Resume> resume_;  // Continue watching, as of resume_version_
+    uint32_t resume_version_ = ~0u;
     std::vector<std::unique_ptr<Feed>> topic_feeds_;
     Page page_;
 };

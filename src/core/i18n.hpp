@@ -31,6 +31,12 @@ int generation();
 // valid for as long as the app runs.
 const char* tr(const char* english) __attribute__((format_arg(1)));
 
+// A month in the current language, 0 (January) to 11.
+const char* month_name(int month);
+// "2026-09-14" (a date as the web gives it; anything after the day is ignored) as "September 14,
+// 2026" in the current language; "" when it isn't a date.
+std::string long_date(const std::string& iso);
+
 }  // namespace i18n
 
 using i18n::tr;

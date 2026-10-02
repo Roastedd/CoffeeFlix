@@ -2,6 +2,7 @@
 
 #include <sstream>
 #include <tuple>
+#include <curl/curl.h>
 
 #include "core/util.hpp"
 
@@ -30,17 +31,18 @@ std::string attr(const std::string& line, const char* key) {
 }  // namespace
 
 std::string resolve_url(const std::string& base, const std::string& ref) {
-    if (util::starts_with(ref, "http://") || util::starts_with(ref, "https://")) return ref;
     if (ref.empty()) return base;
-    size_t scheme = base.find("://");
-    if (ref[0] == '/') {
-        size_t host_end = base.find('/', scheme == std::string::npos ? 0 : scheme + 3);
-        return (host_end == std::string::npos ? base : base.substr(0, host_end)) + ref;
-    }
-    size_t q = base.find('?');
-    std::string path = base.substr(0, q);
-    size_t slash = path.find_last_of('/');
-    return path.substr(0, slash + 1) + ref;
+    // RFC 3986 resolution, including //cdn links, ../ paths, and query-only references.
+    CURLU* url = curl_url();
+    if (!url) return "";
+    char* value = nullptr;
+    std::string result;
+    if (curl_url_set(url, CURLUPART_URL, base.c_str(), 0) == CURLUE_OK &&
+        curl_url_set(url, CURLUPART_URL, ref.c_str(), 0) == CURLUE_OK &&
+        curl_url_get(url, CURLUPART_URL, &value, 0) == CURLUE_OK) result = value;
+    curl_free(value);
+    curl_url_cleanup(url);
+    return result;
 }
 
 Master parse(const std::string& text, const std::string& base_url) {

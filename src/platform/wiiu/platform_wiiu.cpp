@@ -1,9 +1,12 @@
 #include "platform/platform.hpp"
 
 #include <whb/proc.h>
+#include <proc_ui/procui.h>
 #include <coreinit/dynload.h>
+#include <coreinit/exit.h>
 #include <coreinit/energysaver.h>
 #include <coreinit/memory.h>
+#include <coreinit/mutex.h>
 #include <coreinit/core.h>
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
@@ -23,14 +26,18 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <thread>
 
 #include "core/i18n.hpp"
 #include "core/util.hpp"
+#include "crash_wiiu.hpp"
 #include "logger/logger.hpp"
 #include "platform/text_input.hpp"
 
@@ -44,9 +51,20 @@ namespace {
 bool g_ac_ok = false;
 uint32_t g_ip = 0;
 float g_rumble_left = 0;
-Awake g_awake = AWAKE_NONE;
+Awake g_awake = AWAKE_NONE;  // what the app last asked for (main thread)
 uint32_t g_dim_was_on = 0, g_apd_was_on = 0;
 uint8_t g_rumble_pattern[15];
+
+// The energy-saver calls are round trips to the system's power manager, which the frame making
+// them would wait for. A thread of its own makes them; the main thread only says what it wants.
+struct PowerRequests {
+    std::mutex m;
+    std::condition_variable cv;
+    Awake wanted = AWAKE_NONE;
+    bool quit = false;
+    std::thread thread;
+};
+PowerRequests* g_power = nullptr;  // never destroyed: the thread may still be waiting on it as the process ends
 
 TextInputState g_text_state = TEXT_IDLE;
 std::string g_text;
@@ -83,6 +101,44 @@ void donate_socket_pool() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     log_message(LOG_WARNING, "Platform", "Socket memory pool not available");
+}
+
+// Puts the console's dimming and auto power-down from one level of keep_awake() to another, only
+// changing what its own settings had turned on.
+void set_energy_saver(Awake from, Awake to) {
+    const bool dim_off = to == AWAKE_FULL, was_dim_off = from == AWAKE_FULL;
+    const bool apd_off = to != AWAKE_NONE, was_apd_off = from != AWAKE_NONE;
+    const OSTime start = OSGetSystemTime();
+    IMError err = 0;
+    if (dim_off != was_dim_off && g_dim_was_on) {
+        const IMError e = dim_off ? IMDisableDim() : IMEnableDim();
+        if (e) err = e;
+    }
+    if (apd_off != was_apd_off && g_apd_was_on) {
+        const IMError e = apd_off ? IMDisableAPD() : IMEnableAPD();
+        if (e) err = e;
+    }
+    const int ms = (int)OSTicksToMilliseconds(OSGetSystemTime() - start);
+    if (err) log_message(LOG_WARNING, "Platform", "The energy saver settings were refused (%d)", (int)err);
+    if (ms >= 30) log_message(LOG_WARNING, "Platform", "The system took %d ms to change the energy saver settings", ms);
+}
+
+void power_thread() {
+    set_thread_name("power settings");
+    lower_thread_priority();
+    PowerRequests& p = *g_power;
+    Awake applied = AWAKE_NONE;
+    std::unique_lock<std::mutex> lock(p.m);
+    for (;;) {
+        p.cv.wait(lock, [&] { return p.quit || p.wanted != applied; });
+        const bool last = p.quit;  // the settings come back to the console's own before the app ends
+        const Awake to = last ? AWAKE_NONE : p.wanted;
+        lock.unlock();
+        if (to != applied) set_energy_saver(applied, to);
+        applied = to;
+        if (last) return;
+        lock.lock();
+    }
 }
 
 void pump_sdl_events() {
@@ -182,6 +238,88 @@ uint32_t map_wiimote(uint32_t h) {
 
 }  // namespace
 
+namespace {
+
+Lifecycle g_lifecycle;
+
+// ProcUI calls these from inside ProcUIProcessMessages (WHBProcIsRunning) on the main thread. SDL
+// registers its own for the same moments, at priority 100, to let go of the graphics memory it holds
+// in front. The higher priorities run first (the logs show 1000, then ours, then 1): ours is above
+// SDL's, so what uses that memory, a video's decoder and texture, is let go of before SDL frees it.
+// The callback itself still must not touch SDL.
+constexpr uint32_t RELEASE_BEFORE_SDL = 2000;
+uint32_t proc_release(void*) {
+    crash::background(true);
+    crash::phase("HOME: in our release callback");
+    log_message(LOG_OK, "Platform", "HOME pressed: giving up the foreground");
+    if (g_lifecycle.leaving_foreground) g_lifecycle.leaving_foreground();
+    log_message(LOG_OK, "Platform", "HOME: our release callback is done");
+    crash::phase("HOME: after our release callback, in the others' or the system's");
+    return 0;
+}
+
+// Not ours to do anything: two more release callbacks, one at each end of the priorities, so the
+// log shows in which order ProcUI runs them, SDL's (priority 100, which frees the graphics memory
+// in front) among them.
+uint32_t proc_release_probe_high(void*) {
+    log_message(LOG_OK, "Platform", "HOME: release callbacks, priority 1000");
+    return 0;
+}
+
+uint32_t proc_release_probe_above_sdl(void*) {
+    log_message(LOG_OK, "Platform", "HOME: release callbacks, priority 101 (just above SDL's)");
+    return 0;
+}
+
+uint32_t proc_release_probe_below_sdl(void*) {
+    log_message(LOG_OK, "Platform", "HOME: release callbacks, priority 99 (just below SDL's)");
+    return 0;
+}
+
+uint32_t proc_release_probe_low(void*) {
+    log_message(LOG_OK, "Platform", "HOME: release callbacks, priority 1");
+    return 0;
+}
+
+uint32_t proc_acquire(void*) {
+    crash::background(false);
+    log_message(LOG_OK, "Platform", "Back in the foreground");
+    if (g_lifecycle.returned) g_lifecycle.returned();
+    return 0;
+}
+
+uint32_t proc_exit(void*) {
+    log_message(LOG_OK, "Platform", "The system asks the app to close");
+    if (g_lifecycle.exiting) g_lifecycle.exiting();
+    return 0;
+}
+
+// The system stops and allows networking for apps in the background and on the way to sleep. Nothing to
+// do about it yet, but the log tells what was going on around a freeze.
+uint32_t proc_net_stop(void*) {
+    log_message(LOG_OK, "Platform", "The system asks the app to stop using the network");
+    return 0;
+}
+
+uint32_t proc_net_start(void*) {
+    log_message(LOG_OK, "Platform", "The network may be used again");
+    return 0;
+}
+
+void register_lifecycle_callbacks() {
+    ProcUIRegisterCallback(PROCUI_CALLBACK_RELEASE, proc_release, nullptr, RELEASE_BEFORE_SDL);
+    ProcUIRegisterCallback(PROCUI_CALLBACK_RELEASE, proc_release_probe_high, nullptr, 1000);
+    ProcUIRegisterCallback(PROCUI_CALLBACK_RELEASE, proc_release_probe_above_sdl, nullptr, 101);
+    ProcUIRegisterCallback(PROCUI_CALLBACK_RELEASE, proc_release_probe_below_sdl, nullptr, 99);
+    ProcUIRegisterCallback(PROCUI_CALLBACK_RELEASE, proc_release_probe_low, nullptr, 1);
+    ProcUIRegisterCallback(PROCUI_CALLBACK_ACQUIRE, proc_acquire, nullptr, 50);
+    ProcUIRegisterCallback(PROCUI_CALLBACK_EXIT, proc_exit, nullptr, 50);
+    ProcUIRegisterCallback(PROCUI_CALLBACK_NET_IO_STOP, proc_net_stop, nullptr, 50);
+    ProcUIRegisterCallback(PROCUI_CALLBACK_NET_IO_START, proc_net_start, nullptr, 50);
+}
+
+}  // namespace
+
 bool init() {
     g_main_priority = OSGetThreadPriority(OSGetCurrentThread());
     log_message(LOG_OK, "Platform", "Main thread: priority %d on core %u", g_main_priority, OSGetCoreId());
@@ -192,6 +330,7 @@ bool init() {
     donate_socket_pool();
     ff_tcp_socket_setup = tune_socket;  // FFmpeg's own connections (Twitch, radio) too
     WHBProcInit();
+    register_lifecycle_callbacks();
     VPADInit();
     KPADInit();
     WPADEnableURCC(true);  // Pro Controller support
@@ -213,15 +352,42 @@ void post_video_init(SDL_Window*, SDL_Renderer*) {
 }
 
 void shutdown() {
-    keep_awake(AWAKE_NONE);
+    if (g_power && g_power->thread.joinable()) {  // waits for the console's own settings to be back
+        {
+            std::lock_guard<std::mutex> lock(g_power->m);
+            g_power->quit = true;
+        }
+        g_power->cv.notify_one();
+        g_power->thread.join();
+    }
     VPADStopMotor(VPAD_CHAN_0);
     KPADShutdown();
     WHBProcShutdown();
     nn::ac::Finalize();
 }
 
-bool running() { return WHBProcIsRunning(); }
+bool running() {
+    crash::phase("in the system's process loop (HOME, closing)");
+    const bool going = WHBProcIsRunning();
+    crash::frame();
+    crash::phase("running a frame");
+    return going;
+}
 void exit_to_menu() { SYSLaunchMenu(); }
+
+void set_lifecycle(const Lifecycle& handlers) { g_lifecycle = handlers; }
+void install_crash_reporter() { crash::install(); }
+void main_phase(const char* stage) { crash::phase(stage); }
+
+std::string memory_summary() {
+    const struct mallinfo m = mallinfo();
+    return util::fmt("%u KB in use of %u KB taken from the system, %u KB free in it", (unsigned)m.uordblks / 1024, (unsigned)m.arena / 1024,
+                     (unsigned)m.fordblks / 1024);
+}
+void terminate_now(int code) {
+    _Exit(code);
+    for (;;) OSSleepTicks(OSMillisecondsToTicks(1000));  // _Exit doesn't return; this tells the compiler too
+}
 
 namespace {
 
@@ -457,24 +623,46 @@ std::string ip_address() {
 }
 
 void tune_socket(int fd) {
-    // Only speed is at stake: an option the system refuses is ignored.
-    auto set = [fd](int option, int value) { setsockopt(fd, SOL_SOCKET, option, &value, sizeof(value)); };
+    // Only speed is at stake: an option the system refuses is ignored, but counted for the log.
+    int refused = 0, refused_errno = 0;
+    auto set = [&](int option, int value) {
+        if (setsockopt(fd, SOL_SOCKET, option, &value, sizeof(value)) == 0) return true;
+        if (!refused++) refused_errno = errno;
+        return false;
+    };
     set(SO_WINSCALE, 1);  // windows over 64 KB
     set(SO_TCPSACK, 1);
-    if (g_pool_ready) set(SO_RUSRBUF, 1);  // before SO_RCVBUF, which then draws from the pool
-    set(SO_RCVBUF, SOCKET_RCVBUF);
+    const bool from_pool = g_pool_ready && set(SO_RUSRBUF, 1);  // before SO_RCVBUF, which then draws from the pool
+
+    // Half the size again while the system refuses: a pool with some room left still gives a
+    // connection a bigger buffer than the 8 KB it starts with (one run had every socket on 8 KB
+    // with the pool donated, downloads at a third of the speed).
+    int got = 0;
+    for (int want = SOCKET_RCVBUF;; want /= 2) {
+        set(SO_RCVBUF, want);
+        socklen_t len = sizeof(got);
+        got = 0;
+        getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &got, &len);
+        if (got >= want || want <= 64 * 1024) break;
+    }
 
     // Logged for the first socket, and again whenever one gets less than any before (the pool
     // used up by the sockets open at the time: slower downloads).
     static std::atomic<int> least{-1};
-    int got = 0;
-    socklen_t len = sizeof(got);
-    getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &got, &len);
+    // The first sockets' numbers and buffers too: a run that piles sockets up (their numbers
+    // climbing) or is handed less than it asked for shows here.
+    static std::atomic<int> opened{0};
+    if (const int n = ++opened; n <= 60)
+        log_message(LOG_DEBUG, "Platform", "Socket %d opened: descriptor %d, receive buffer %d KB", n, fd, got / 1024);
     const int was = least.load();
     if (was < 0 || got < was) {
         least = got;
-        log_message(was < 0 ? LOG_OK : LOG_WARNING, "Platform", "Socket receive buffer %d KB (memory pool %d KB)",
-                    got / 1024, g_pool_bytes / 1024);
+        std::string why;
+        if (got < SOCKET_RCVBUF)  // what the system said to the options
+            why = util::fmt(" (asked for %d KB%s; %d options refused, first with error %d)", SOCKET_RCVBUF / 1024,
+                            from_pool ? "" : ", pool buffers not switched on", refused, refused_errno);
+        log_message(was < 0 && got >= SOCKET_RCVBUF ? LOG_OK : LOG_WARNING, "Platform", "Socket receive buffer %d KB (memory pool %d KB)%s",
+                    got / 1024, g_pool_bytes / 1024, why.c_str());
     }
 }
 
@@ -485,11 +673,16 @@ void rumble(float seconds) {
 
 void keep_awake(Awake level) {
     if (level == g_awake) return;
-    bool dim_off = level == AWAKE_FULL, apd_off = level != AWAKE_NONE;
-    bool was_dim_off = g_awake == AWAKE_FULL, was_apd_off = g_awake != AWAKE_NONE;
-    if (dim_off != was_dim_off && g_dim_was_on) dim_off ? IMDisableDim() : IMEnableDim();
-    if (apd_off != was_apd_off && g_apd_was_on) apd_off ? IMDisableAPD() : IMEnableAPD();
     g_awake = level;
+    if (!g_power) {  // the first request: nothing was held off before it
+        g_power = new PowerRequests;
+        g_power->thread = std::thread(power_thread);
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_power->m);
+        g_power->wanted = level;
+    }
+    g_power->cv.notify_one();
 }
 
 // --- text input (system keyboard) -----------------------------------------------
@@ -542,6 +735,38 @@ std::string thread_clock_debug(void* thread) {
                      (long long)t->unk0x610, (long long)t->unk0x618, (long long)t->unk0x620, (long long)t->unk0x628);
 }
 
+namespace {
+
+// Memory a pointer in another thread's fields may point to; a stale or garbled one must not crash
+// the thread reading it.
+bool in_app_memory(const void* p, uintptr_t from = 0x10000000) { return (uintptr_t)p >= from && (uintptr_t)p < 0x50000000; }
+
+}  // namespace
+
+size_t thread_where(void* thread, char* out, size_t capacity) {
+    if (!thread || capacity < 2) return 0;
+    OSThread* t = (OSThread*)thread;
+    const char state = t->suspendCounter > 0                  ? 'S'
+                       : (t->state & OS_THREAD_STATE_RUNNING) ? 'R'
+                       : (t->state & OS_THREAD_STATE_WAITING) ? 'W'
+                       : (t->state & OS_THREAD_STATE_READY)   ? 'r'
+                                                              : '?';
+    size_t n = (size_t)std::snprintf(out, capacity, "%c pc=%08x lr=%08x", state, (unsigned)t->context.srr0, (unsigned)t->context.lr);
+    n = std::min(n, capacity - 1);
+    const OSMutex* lock = t->mutex;
+    const OSThreadQueue* queue = t->queue;
+    if (in_app_memory(lock)) {
+        OSThread* owner = lock->owner;
+        const char* name = in_app_memory(owner) ? OSGetThreadName(owner) : nullptr;
+        if (!in_app_memory(name, 0x01000000)) name = nullptr;
+        n += (size_t)std::snprintf(out + n, capacity - n, " waits for lock %08x held by %.16s (%08x)", (unsigned)(uintptr_t)lock,
+                                   owner ? (name ? name : "?") : "nobody", (unsigned)(uintptr_t)owner);
+    } else if (in_app_memory(queue)) {
+        n += (size_t)std::snprintf(out + n, capacity - n, " sleeps on queue %08x", (unsigned)(uintptr_t)queue);
+    }
+    return std::min(n, capacity - 1);
+}
+
 std::string clock_debug() {
     return util::fmt("time %lld, system time %lld, %u ticks/s", (long long)OSGetTime(), (long long)OSGetSystemTime(),
                      (unsigned)OSTimerClockSpeed);
@@ -553,6 +778,8 @@ void lower_thread_priority() {
     // 0 is the highest, 31 the lowest.
     OSSetThreadPriority(OSGetCurrentThread(), std::min(31, g_main_priority + 4));
 }
+
+void raise_thread_priority() { OSSetThreadPriority(OSGetCurrentThread(), std::max(0, g_main_priority - 4)); }
 
 bool scripted() { return false; }
 float fixed_dt() { return 0; }

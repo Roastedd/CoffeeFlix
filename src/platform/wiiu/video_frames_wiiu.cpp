@@ -1,4 +1,5 @@
-// Video frames the GPU draws from where the hardware decoder wrote them: see platform.hpp.
+// Reference-counted hardware pictures; decoder targets survive delayed output,
+// and SDL waits for GPU completion before retiring a texture's old memory.
 #include "platform/platform.hpp"
 
 extern "C" {
@@ -68,6 +69,7 @@ int get_buffer(AVCodecContext* ctx, AVFrame* f, int flags) {
 void attach_video_frames(AVCodecContext* ctx) {
     ctx->opaque = new VideoFrames;
     ctx->get_buffer2 = get_buffer;
+    log_message(LOG_OK, "Player", "Direct hardware pictures with retained decoder targets and GPU completion waits");
 }
 
 void detach_video_frames(AVCodecContext* ctx) {

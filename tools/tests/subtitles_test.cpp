@@ -1,0 +1,451 @@
+// Subtitle parsing and lookup: SRT, WebVTT, ASS/SSA files, embedded ASS events, overlapping
+// cues, the embedded-cue cap, and a large generated file.
+// make -f desktop.mk -f tools/tests/subtitles.mk subtitles-tests && build-desktop/subtitles-test
+#include "player/subtitles.hpp"
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <random>
+#include <string>
+#include <thread>
+#include <vector>
+
+using player::Subtitles;
+
+static int g_failed = 0, g_checks = 0;
+
+#define CHECK(cond)                                                          \
+    do {                                                                     \
+        g_checks++;                                                          \
+        if (!(cond)) {                                                       \
+            g_failed++;                                                      \
+            std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);      \
+        }                                                                    \
+    } while (0)
+
+#define CHECK_EQ(got, want)                                                                        \
+    do {                                                                                           \
+        g_checks++;                                                                                \
+        std::string got_ = (got), want_ = (want);                                                  \
+        if (got_ != want_) {                                                                       \
+            g_failed++;                                                                            \
+            std::printf("FAIL %s:%d: %s\n  got:  \"%s\"\n  want: \"%s\"\n", __FILE__, __LINE__, #got, \
+                        got_.c_str(), want_.c_str());                                              \
+        }                                                                                          \
+    } while (0)
+
+static double ms_since(std::chrono::steady_clock::time_point t0) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+}
+
+static void test_srt() {
+    Subtitles s;
+    s.load("1\n00:00:01,000 --> 00:00:03,500\n<i>Hello</i> there\nsecond line\n\n"
+           "2\n00:00:04,000 --> 00:00:05,000 X1:10 X2:20\nI <3 you & {\\an8}<b>more</b>\n\n"
+           "3\n00:00:06,000 --> 00:00:07,000\n<i></i>\n\n"
+           "4\n00:00:08,000 --> 00:00:09,000\nSmile {: and a > sign\n");
+    CHECK_EQ(s.at(0.5), "");
+    CHECK_EQ(s.at(2), "Hello there\nsecond line");
+    CHECK_EQ(s.at(3.5), "Hello there\nsecond line");
+    CHECK_EQ(s.at(4.5), "I <3 you & more");
+    CHECK_EQ(s.at(6.5), "");  // only tags
+    CHECK_EQ(s.at(8.5), "Smile {: and a > sign");
+    CHECK(s.size() == 3);
+}
+
+static void test_vtt() {
+    Subtitles s;
+    s.load("WEBVTT\nKind: captions\n\nSTYLE\n::cue { color: yellow }\n\nNOTE a comment\nspans lines\n\n"
+           "intro\n00:01.000 --> 00:02.500 align:start position:10%\n<v Roger>Hi &amp; bye</v>\n\n"
+           "00:00:03.000 --> 00:00:04.000\tline:0\n<c.yellow>word</c><00:00:03.500><c> next</c>\n \n\n"
+           "00:00:05.000 --> 00:00:06.000\na --> b\n");
+    CHECK_EQ(s.at(1.5), "Hi & bye");
+    CHECK_EQ(s.at(3.2), "word next");
+    CHECK_EQ(s.at(5.5), "a --> b");
+    CHECK(s.size() == 3);
+}
+
+static void test_crlf_bom_encodings() {
+    Subtitles s;
+    s.load("\xEF\xBB\xBF" "1\r\n00:00:01,000 --> 00:00:02,000\r\nCaf\xC3\xA9\r\n\xEF\xBD\xA2quoted\xEF\xBD\xA3\r\n\r\n"
+           "2\r\n00:00:03,000 --> 00:00:04,000\r\nsecond\r\n");
+    CHECK_EQ(s.at(1.5), "Caf\xC3\xA9\n\xEF\xBD\xA2quoted\xEF\xBD\xA3");  // a line starting EF BD.. isn't a BOM
+    CHECK_EQ(s.at(3.5), "second");
+
+    // CR CR LF (double conversion) keeps the cue's two lines together.
+    s.load("1\r\r\n00:00:01,000 --> 00:00:02,000\r\r\nOne\r\r\nTwo\r\r\n\r\r\n");
+    CHECK_EQ(s.at(1.5), "One\nTwo");
+
+    // Classic Mac OS line ends (CR only).
+    s.load("1\r00:00:01,000 --> 00:00:02,000\rMac\rtwo\r\r2\r00:00:03,000 --> 00:00:04,000\rNext\r");
+    CHECK_EQ(s.at(1.5), "Mac\ntwo");
+    CHECK_EQ(s.at(3.5), "Next");
+
+    // Windows-1252 bytes in an otherwise UTF-8 file.
+    s.load("1\n00:00:01,000 --> 00:00:02,000\nCaf\xE9 \x93quoted\x94\n");
+    CHECK_EQ(s.at(1.5), "Caf\xC3\xA9 \xE2\x80\x9Cquoted\xE2\x80\x9D");
+
+    // UTF-16 LE with a BOM, CRLF, an ASS file.
+    std::string ascii = "[Script Info]\r\n[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, "
+                        "MarginV, Effect, Text\r\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Wide \xE9";
+    std::string wide = "\xFF\xFE";
+    for (unsigned char c : ascii) {
+        wide += (char)c;
+        wide += '\0';
+    }
+    s.load(wide);
+    CHECK_EQ(s.at(1.5), "Wide \xC3\xA9");
+}
+
+static const char* kAssHeader =
+    "[Script Info]\n; Script generated by Aegisub\nTitle: Test\nScriptType: v4.00+\nWrapStyle: 0\n\n"
+    "[V4+ Styles]\n"
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
+    "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, "
+    "MarginR, MarginV, Encoding\n"
+    "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
+    "[Events]\n"
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n";
+
+static void test_ass_standard() {
+    Subtitles s;
+    s.load(std::string("\xEF\xBB\xBF") + kAssHeader +
+           "Comment: 0,0:00:00.50,0:00:09.00,Default,,0,0,0,karaoke,{\\k20}hidden template\n"
+           "Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,Hello, world, again\n"
+           "Dialogue: 0,0:00:03.00,0:00:04.00,Default,Nami,0000,0000,0000,,{\\an8}{\\i1}x{\\i0}\n"
+           "Dialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,First\\NSecond\\nThird\\hword\n"
+           "Dialogue: 0,0:00:07.00,0:00:08.00,Default,,0,0,0,,{\\p1}m 0 0 l 100 0 100 100 0 100{\\p0}\n"
+           "Dialogue: 1,0:00:07.00,0:00:08.00,Sign,,0,0,0,,{\\an7\\pos(10,10)\\p2}m 0 0 l 10 0{\\p0}After shape\n"
+           "Dialogue: 0,0:00:09.00,0:00:10.00,Default,,0,0,0,,{\\blur2}\n"
+           "Dialogue: 0,0:00:11.00,0:00:12.00,Default,,0,0,0,,Smile :-} and {TL note: hidden}text :-{\n"
+           "Dialogue: 0,0:00:13.00,0:00:14.00,Default,,0,0,0,,  spaced   \\N\\N  out  \n"
+           "Dialogue: 0,0:00:15.00,0:00:16.00,Default,,0,0,0,,Unclosed{\\i1\n"
+           "Dialogue: 0,0:00:17.00,0:00:18.00,Default,,0,0,0,,I <3 <i>you</i> & <Kirito>\n"
+           "Dialogue: broken line without fields\n"
+           "Dialogue: 0,bad,0:00:20.00,Default,,0,0,0,,bad time\n");
+    CHECK_EQ(s.at(0.7), "");  // Comment: lines are not shown
+    CHECK_EQ(s.at(1.0), "Hello, world, again");
+    CHECK_EQ(s.at(2.5), "Hello, world, again");
+    CHECK_EQ(s.at(2.6), "");
+    CHECK_EQ(s.at(3.5), "x");
+    CHECK_EQ(s.at(5.5), "First\nSecond\nThird word");
+    CHECK_EQ(s.at(7.5), "After shape");  // the pure drawing is dropped
+    CHECK_EQ(s.at(9.5), "");
+    CHECK_EQ(s.at(11.5), "Smile :-} and text :-{");  // only closed blocks hide
+    CHECK_EQ(s.at(13.5), "spaced\nout");
+    CHECK_EQ(s.at(15.5), "Unclosed");
+    CHECK_EQ(s.at(17.5), "I <3 you & <Kirito>");
+    CHECK(s.size() == 8);
+}
+
+static void test_ass_columns() {
+    Subtitles s;
+    // Reordered and missing columns; a styles Format line must not be taken for the events'.
+    s.load("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Start, Text\nStyle: X,Y\n\n"
+           "[Events]\nFormat: End, Start, Text\n"
+           "Dialogue: 0:00:02.00,0:00:01.00,Reordered, with comma\n"
+           "Format: Style, Start, Effect, End, Text\n"
+           "Dialogue: Default,0:00:03.00,,0:00:04.00,Five columns\n"
+           "dialogue: Default,0:00:05.00,,0:00:06.00,lower-case prefix\n");
+    CHECK_EQ(s.at(1.5), "Reordered, with comma");
+    CHECK_EQ(s.at(3.5), "Five columns");
+    CHECK_EQ(s.at(5.5), "lower-case prefix");
+
+    // SSA v4 with "Marked=0" and no Format line; bare events without any header.
+    s.load("[Script Info]\nScriptType: v4.00\n[Events]\n"
+           "Dialogue: Marked=0,0:00:01.00,0:00:02.00,Default,NTP,0000,0000,0000,!Effect,SSA line\n");
+    CHECK_EQ(s.at(1.5), "SSA line");
+    s.load("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Bare event\n");
+    CHECK_EQ(s.at(1.5), "Bare event");
+    // Junk before the header: found through the fallback.
+    s.load("; exported\n\n[Script Info]\n[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,After junk\n");
+    CHECK_EQ(s.at(1.5), "After junk");
+    // [Fonts] data is skipped, events after it are read.
+    s.load(std::string(kAssHeader) + "[Fonts]\nfontname: a.ttf\nDialogue: M3!@#$%\n[Events]\n"
+           "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,After fonts\n");
+    CHECK_EQ(s.at(1.5), "After fonts");
+    CHECK(s.size() == 1);
+}
+
+static void test_overlap_long_cue() {
+    Subtitles s;
+    std::string ass = kAssHeader;
+    ass += "Dialogue: 0,0:00:00.00,0:20:00.00,Default,,0,0,0,,Long line\n";  // 20 minutes
+    char buf[160];
+    for (int k = 0; k < 50; k++) {  // 50 short ones, each overlapping the next: [5+10k, 17+10k]
+        int a = 5 + 10 * k, b = a + 12;
+        std::snprintf(buf, sizeof buf, "Dialogue: 0,0:%02d:%02d.00,0:%02d:%02d.00,Default,,0,0,0,,Short %d\n", a / 60,
+                      a % 60, b / 60, b % 60, k);
+        ass += buf;
+    }
+    s.load(ass);
+    CHECK(s.size() == 51);
+    CHECK_EQ(s.at(1), "Long line");
+    CHECK_EQ(s.at(6), "Long line\nShort 0");
+    CHECK_EQ(s.at(16), "Long line\nShort 0\nShort 1");
+    CHECK_EQ(s.at(250.5), "Long line\nShort 24");
+    CHECK_EQ(s.at(496), "Long line\nShort 48\nShort 49");
+    CHECK_EQ(s.at(900), "Long line");  // fifty cues after it started
+    CHECK_EQ(s.at(1200), "Long line");
+    CHECK_EQ(s.at(1200.01), "");
+    // Every instant: the long line and each short cue that is showing.
+    bool all = true;
+    for (double t = 0; t < 1200; t += 0.25) {
+        std::string want = "Long line";
+        for (int k = 0; k < 50; k++)
+            if (t >= 5 + 10 * k && t <= 17 + 10 * k) want += "\nShort " + std::to_string(k);
+        all = all && s.at(t) == want;
+    }
+    CHECK(all);
+}
+
+static void test_selection() {
+    Subtitles s;
+    // Five distinct lines at once: the three newest, in start order.
+    for (int k = 0; k < 5; k++) s.add(k, 100, "L" + std::to_string(k));
+    CHECK_EQ(s.at(50), "L2\nL3\nL4");
+    // Dialogue is kept ahead of positioned signs, even when it started first.
+    Subtitles t;
+    t.add(0, 100, "Dialogue");
+    for (int k = 1; k <= 4; k++) t.add(k, 100, "Sign " + std::to_string(k), true);
+    CHECK_EQ(t.at(50), "Dialogue\nSign 3\nSign 4");
+    // Layered typesetting with the same text shows once.
+    Subtitles u;
+    u.load(std::string(kAssHeader) +
+           "Dialogue: 0,0:00:01.00,0:00:05.00,Sign,,0,0,0,,{\\pos(5,5)\\bord5}Station\n"
+           "Dialogue: 1,0:00:01.00,0:00:05.00,Sign,,0,0,0,,{\\pos(5,5)}Station\n"
+           "Dialogue: 0,0:00:02.00,0:00:04.00,Default,,0,0,0,,Talking\n");
+    CHECK_EQ(u.at(3), "Station\nTalking");
+}
+
+static void test_strip_ass() {
+    bool sign = true;
+    CHECK_EQ(Subtitles::strip_ass("0,0,Default,,0,0,0,,Hello, world", &sign), "Hello, world");
+    CHECK(!sign);
+    CHECK_EQ(Subtitles::strip_ass("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hi, there"), "Hi, there");
+    CHECK_EQ(Subtitles::strip_ass("  dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Lower"), "Lower");
+    CHECK_EQ(Subtitles::strip_ass("0,0,Default,,0,0,0,,{\\p1}m 0 0 l 100 0 100 100 0 100"), "");
+    CHECK_EQ(Subtitles::strip_ass("Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\\p1}m 0 0 l 100 0"), "");
+    CHECK_EQ(Subtitles::strip_ass("3,0,Sign,,0,0,0,,{\\an8\\pos(640,40)}Top{\\i1}\\Nsign", &sign), "Top\nsign");
+    CHECK(sign);
+    CHECK_EQ(Subtitles::strip_ass("0,0,Default,,0,0,0,,a\\hb &amp; <i>c</i> {x}d"), "a b & c d");
+    CHECK_EQ(Subtitles::strip_ass("0,0,Default,,0,0,0,,{\\pbo5}Not a drawing"), "Not a drawing");
+    CHECK_EQ(Subtitles::strip_ass("0,0,Default,,0,0,0,,"), "");
+    CHECK_EQ(Subtitles::strip_ass("plain text, no fields"), "plain text, no fields");
+}
+
+static void test_add() {
+    Subtitles s;
+    s.add(1, 2, "A");
+    s.add(1, 2, "A");  // re-demuxed after a seek
+    CHECK(s.size() == 1);
+    s.add(1, 3, "B");
+    CHECK(s.size() == 2);
+    s.add(0.5, 4, "Earlier");  // out of order
+    s.add(1.5, 1.8, "Later");
+    s.add(1, 2, "");
+    CHECK(s.size() == 4);
+    CHECK_EQ(s.at(1.6), "A\nB\nLater");
+    CHECK_EQ(s.at(2.5), "Earlier\nB");
+    CHECK_EQ(s.at(3.5), "Earlier");
+    s.clear();
+    CHECK(s.size() == 0);
+    CHECK_EQ(s.at(1.6), "");
+
+    // The cap: the newest cues stay, a seek back still gets its lines.
+    for (int k = 0; k < 25000; k++) s.add(k, k + 0.5, "cue " + std::to_string(k));
+    CHECK(s.size() <= Subtitles::kMaxAdded);
+    CHECK(s.size() >= Subtitles::kMaxAdded * 7 / 8);
+    CHECK_EQ(s.at(24999.2), "cue 24999");
+    CHECK_EQ(s.at(0.2), "");  // dropped
+    s.add(0, 0.5, "cue 0");
+    CHECK_EQ(s.at(0.2), "cue 0");
+    for (int k = 1; k < 4000; k++) s.add(k, k + 0.5, "cue " + std::to_string(k));
+    CHECK_EQ(s.at(0.2), "cue 0");  // added after the others, so not the oldest
+    CHECK(s.size() <= Subtitles::kMaxAdded);
+
+    // swap
+    Subtitles other;
+    other.load("1\n00:00:01,000 --> 00:00:02,000\nSwapped\n");
+    s.swap(other);
+    CHECK_EQ(s.at(1.5), "Swapped");
+    CHECK(other.size() > 1000);
+}
+
+// at() agrees with a brute-force scan on random overlapping cues added out of order.
+static void test_random_against_reference() {
+    std::mt19937 rng(1234);
+    std::uniform_real_distribution<double> start(0, 3000), shortlen(0.5, 8), longlen(60, 600), prob(0, 1);
+    struct C {
+        double a, b;
+        std::string text;
+        bool sign;
+    };
+    std::vector<C> ref;
+    Subtitles s;
+    for (int k = 0; k < 6000; k++) {
+        double a = start(rng), len = prob(rng) < 0.01 ? longlen(rng) : shortlen(rng);
+        bool sign = prob(rng) < 0.3;
+        std::string text = prob(rng) < 0.05 && !ref.empty() ? ref[rng() % ref.size()].text : "t" + std::to_string(k);
+        ref.push_back({a, a + len, text, sign});
+        s.add(a, a + len, text, sign);
+    }
+    std::stable_sort(ref.begin(), ref.end(), [](const C& x, const C& y) { return x.a < y.a; });
+    int compared = 0, mismatched = 0;
+    for (int q = 0; q < 4000; q++) {
+        double t = prob(rng) * 3100;
+        std::vector<size_t> active;
+        for (size_t i = ref.size(); i-- > 0;)
+            if (ref[i].a <= t && t <= ref[i].b) active.push_back(i);
+        if (active.size() > (size_t)Subtitles::kMaxCandidates) continue;
+        std::vector<size_t> chosen;
+        for (int signs = 0; signs < 2; signs++)
+            for (size_t i : active) {
+                if ((int)chosen.size() >= Subtitles::kMaxLines || ref[i].sign != (signs == 1)) continue;
+                bool dup = false;
+                for (size_t j : chosen) dup = dup || ref[j].text == ref[i].text;
+                if (!dup) chosen.push_back(i);
+            }
+        std::sort(chosen.begin(), chosen.end());
+        std::string want;
+        for (size_t j = 0; j < chosen.size(); j++) want += (j ? "\n" : "") + ref[chosen[j]].text;
+        compared++;
+        if (s.at(t) != want) mismatched++;
+    }
+    CHECK(compared > 3500);
+    CHECK(mismatched == 0);
+}
+
+static void test_threads() {
+    Subtitles s;
+    std::atomic<bool> done{false};
+    std::thread writer([&] {
+        for (int k = 0; k < 30000; k++) s.add(k * 0.1, k * 0.1 + 2, "w" + std::to_string(k % 5000));
+        done = true;
+    });
+    size_t reads = 0;
+    while (!done) {
+        s.at(reads % 3000 * 0.1);
+        reads++;
+    }
+    writer.join();
+    CHECK(s.size() <= Subtitles::kMaxAdded);
+    CHECK(!s.at(2999.9).empty());
+}
+
+static void test_large_file() {
+    // ~60k events, 5+ MB, like a heavily typeset episode: dialogue, positioned signs,
+    // drawings, karaoke comments, a long watermark.
+    std::string ass = kAssHeader;
+    ass.reserve(8 << 20);
+    ass += "Dialogue: 0,0:00:00.00,0:24:00.00,Default,,0,0,0,,{\\an9\\pos(1900,20)}Fansub watermark\r\n";
+    char buf[320];
+    int n = 0;
+    for (int k = 0; (int)ass.size() < (6 << 20); k++, n++) {
+        int cs = k * 2;  // centiseconds
+        int a = cs, b = cs + 300 + (k % 7) * 40;
+        auto hms = [](int c, char* out) {
+            std::snprintf(out, 16, "%d:%02d:%02d.%02d", c / 360000, c / 6000 % 60, c / 100 % 60, c % 100);
+        };
+        char ta[16], tb[16];
+        hms(a, ta);
+        hms(b, tb);
+        switch (k % 4) {
+            case 0:
+                std::snprintf(buf, sizeof buf,
+                              "Dialogue: 0,%s,%s,Default,Speaker,0,0,0,,{\\i1}Line %d{\\i0}, with, commas\\Nand "
+                              "a second line\r\n",
+                              ta, tb, k);
+                break;
+            case 1:
+                std::snprintf(buf, sizeof buf,
+                              "Dialogue: 5,%s,%s,Sign,,0,0,0,,{\\an7\\pos(%d,%d)\\fscx120\\blur1\\t(0,500,\\alpha&HFF&)}"
+                              "Sign %d\r\n",
+                              ta, tb, k % 1280, k % 720, k);
+                break;
+            case 2:
+                std::snprintf(buf, sizeof buf,
+                              "Dialogue: 2,%s,%s,Mask,,0,0,0,,{\\an7\\pos(0,0)\\p1}m 0 0 l 1920 0 1920 1080 0 1080 "
+                              "b 10 20 30 40 50 60{\\p0}\r\n",
+                              ta, tb);
+                break;
+            default:
+                std::snprintf(buf, sizeof buf,
+                              "Comment: 0,%s,%s,OP,,0,0,0,karaoke,{\\k25}ka{\\k30}mi{\\k20}sa{\\k40}ma %d\r\n", ta,
+                              tb, k);
+        }
+        ass += buf;
+    }
+    Subtitles s;
+    auto t0 = std::chrono::steady_clock::now();
+    s.load(ass);
+    double load_ms = ms_since(t0);
+    size_t cues = s.size();
+    t0 = std::chrono::steady_clock::now();
+    size_t chars = 0;
+    const int lookups = 100000;
+    for (int q = 0; q < lookups; q++) chars += s.at((q * 7919 % 1440000) / 1000.0).size();
+    double at_us = ms_since(t0) * 1000.0 / lookups;
+    std::printf("large ASS: %.2f MB, %d events, %zu cues kept, load %.1f ms, at() %.2f us avg\n",
+                ass.size() / 1048576.0, n + 1, cues, load_ms, at_us);
+    CHECK(ass.size() > (5u << 20));
+    CHECK(n > 50000);
+    CHECK(cues == 1 + (size_t)(n + 3) / 4 + (size_t)(n + 2) / 4);  // watermark + dialogue + signs
+    CHECK(load_ms < 300);
+    CHECK(at_us < 50);
+    CHECK(chars > 0);
+    std::string mid = s.at(600.001);
+    // Dozens of lines show at once here: three dialogue lines win over the signs.
+    CHECK(mid.find("with, commas\nand a second line") != std::string::npos);
+    CHECK(std::count(mid.begin(), mid.end(), '\n') == 5);
+    CHECK(mid.find("Sign") == std::string::npos && mid.find("m 0 0") == std::string::npos);
+    CHECK_EQ(s.at(1300), "Fansub watermark");  // started 21 minutes and ~60k events earlier
+
+    // A large SRT for comparison.
+    std::string srt;
+    srt.reserve(6 << 20);
+    for (int k = 0; (int)srt.size() < (5 << 20); k++) {
+        int a = k * 2000, b = a + 1500;
+        std::snprintf(buf, sizeof buf, "%d\r\n%02d:%02d:%02d,%03d --> %02d:%02d:%02d,%03d\r\n<i>Line %d</i>\r\n\r\n",
+                      k + 1, a / 3600000, a / 60000 % 60, a / 1000 % 60, a % 1000, b / 3600000, b / 60000 % 60,
+                      b / 1000 % 60, b % 1000, k);
+        srt += buf;
+    }
+    t0 = std::chrono::steady_clock::now();
+    s.load(srt);
+    double srt_ms = ms_since(t0);
+    std::printf("large SRT: %.2f MB, %zu cues, load %.1f ms\n", srt.size() / 1048576.0, s.size(), srt_ms);
+    CHECK(srt_ms < 300);
+    CHECK_EQ(s.at(2000.5), "Line 1000");
+
+    // Hostile input stays linear: a megabyte of bare CRs, of unclosed braces, of '<'.
+    std::string hostile = "1\n00:00:01,000 --> 00:00:02,000\n" + std::string(1 << 20, '{') + std::string("\\") +
+                          std::string(1 << 20, '<') + "\n" + std::string(1 << 20, '\r') + "\n" + kAssHeader +
+                          "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,," + std::string(1 << 20, '{') + "x\n";
+    t0 = std::chrono::steady_clock::now();
+    s.load(hostile);
+    std::string bits = Subtitles::strip_ass("0,0,Default,,0,0,0,," + std::string(1 << 20, '{') + "y");
+    double hostile_ms = ms_since(t0);
+    std::printf("hostile 5 MB: %.1f ms\n", hostile_ms);
+    CHECK(hostile_ms < 300);
+    CHECK(bits.size() == (1u << 20) + 1);
+}
+
+int main() {
+    test_srt();
+    test_vtt();
+    test_crlf_bom_encodings();
+    test_ass_standard();
+    test_ass_columns();
+    test_overlap_long_cue();
+    test_selection();
+    test_strip_ass();
+    test_add();
+    test_random_against_reference();
+    test_threads();
+    test_large_file();
+    std::printf("%s: %d checks, %d failed\n", g_failed ? "FAIL" : "PASS", g_checks, g_failed);
+    return g_failed ? 1 : 0;
+}
