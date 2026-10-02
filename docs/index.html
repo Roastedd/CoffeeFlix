@@ -6,6 +6,7 @@
 <title>CoffeeFlix for Wii U</title>
 <meta name="description" content="YouTube, Jellyfin, Twitch, radio, podcasts and your own media in one app for the Wii U. No accounts, nothing to set up.">
 <meta name="theme-color" content="#120E17">
+<script>document.documentElement.classList.add("js")</script>
 <meta property="og:title" content="CoffeeFlix for Wii U">
 <meta property="og:description" content="YouTube, Jellyfin, Twitch, radio, podcasts and your own media in one app for the Wii U.">
 <meta property="og:type" content="website">
@@ -65,7 +66,8 @@ a { color: inherit; }
 .nav nav a { color: var(--text-2); text-decoration: none; font-size: 15px; font-weight: 600; }
 .nav nav a:hover { color: var(--text); }
 .nav .btn { padding: 9px 16px; font-size: 15px; }
-@media (max-width: 900px) { .nav nav { display: none; } .nav .btn { margin-left: auto; } }
+.nav nav + .kofi-btn { margin-left: 4px; }
+@media (max-width: 900px) { .nav nav { display: none; } .nav .kofi-btn { margin-left: auto; } }
 
 /* buttons */
 .btn {
@@ -156,6 +158,8 @@ footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--t
 footer .wrap { display: grid; gap: 10px; }
 footer a { color: var(--text-2); }
 </style>
+<link rel="stylesheet" href="assets/juicy.css">
+<script src="assets/juicy.js" defer></script>
 </head>
 <body>
 
@@ -169,30 +173,35 @@ footer a { color: var(--text-2); }
       <a href="#install">Install</a>
       <a href="#faq">FAQ</a>
     </nav>
+    <a class="kofi-btn small" href="https://ko-fi.com/ubecatstudio" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8zm12 1h2a3 3 0 0 1 0 6h-2v-2h2a1 1 0 0 0 0-2h-2V9zM8 2h2v3H8V2zm4 0h2v3h-2V2z"/></svg><span>Support</span></a>
     <a class="btn primary" href="#install">Download</a>
   </div>
 </header>
 
 <main id="top">
   <div class="hero">
+    <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="wrap">
-      <span class="eyebrow">Homebrew for the Wii U</span>
-      <h1>Everything you watch and listen to, <span class="grad">on your Wii U.</span></h1>
-      <p class="lede">CoffeeFlix brings YouTube, Jellyfin, Twitch, internet radio, podcasts and your own videos, music, photos and books together in one fast app made for the TV and the GamePad. No accounts, no ads, nothing to set up.</p>
-      <div class="cta">
+      <span class="eyebrow rise" style="--i:0">Homebrew for the Wii U</span>
+      <h1 class="rise" style="--i:1">Everything you watch and listen to, <span class="grad shimmer">on your Wii U.</span></h1>
+      <p class="lede rise" style="--i:2">CoffeeFlix brings YouTube, Jellyfin, Twitch, internet radio, podcasts and your own videos, music, photos and books together in one fast app made for the TV and the GamePad. No accounts, no ads, nothing to set up.</p>
+      <div class="cta rise" style="--i:3">
         <a class="btn primary" href="https://github.com/Roastedd/CoffeeFlix/releases/latest/download/coffeeflix.zip">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1zM5 19a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1z"/></svg>
           Download for Wii U
         </a>
         <a class="btn" href="#install">How to install</a>
         <a class="btn" href="features.html">Vote on features</a>
-        <a class="btn" href="https://ko-fi.com/ubecatstudio">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.6 5c2 0 3.4 1.1 4.4 2.5C12 6.1 13.4 5 15.4 5 19 5 21 8.6 19.6 11.8 17.5 16.4 12 21 12 21z"/></svg>
-          Support on Ko-fi
-        </a>
+        <a class="kofi-btn" href="https://ko-fi.com/ubecatstudio" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8zm12 1h2a3 3 0 0 1 0 6h-2v-2h2a1 1 0 0 0 0-2h-2V9zM8 2h2v3H8V2zm4 0h2v3h-2V2z"/></svg>Buy me a coffee</a>
       </div>
-      <p class="meta"><b id="version">Version 2.0</b> · Free for noncommercial use · Needs the Aroma homebrew environment</p>
-      <div class="tv"><img src="assets/shots/home.jpg" alt="The CoffeeFlix home screen: a featured video with recommendations below it" width="1280" height="720"></div>
+      <p class="meta rise" style="--i:4"><b id="version">Version 2.0</b> · Free for noncommercial use · Needs the Aroma homebrew environment</p>
+      <div class="tv rise" style="--i:5"><img src="assets/shots/home.jpg" alt="The CoffeeFlix home screen: a featured video with recommendations below it" width="1280" height="720"></div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="marquee" aria-label="What it plays: YouTube, Jellyfin, Twitch, internet radio, podcasts, your own videos, music, photos, comics, books, SMB shares and DLNA servers">
+      <ul aria-hidden="true"><li><i></i>YouTube</li><li><i></i>Jellyfin</li><li><i></i>Twitch</li><li><i></i>Internet radio</li><li><i></i>Podcasts</li><li><i></i>Your videos</li><li><i></i>Music &amp; photos</li><li><i></i>Comics &amp; EPUB</li><li><i></i>SMB shares</li><li><i></i>DLNA servers</li><li><i></i>YouTube</li><li><i></i>Jellyfin</li><li><i></i>Twitch</li><li><i></i>Internet radio</li><li><i></i>Podcasts</li><li><i></i>Your videos</li><li><i></i>Music &amp; photos</li><li><i></i>Comics &amp; EPUB</li><li><i></i>SMB shares</li><li><i></i>DLNA servers</li></ul>
     </div>
   </div>
 
@@ -307,6 +316,37 @@ footer a { color: var(--text-2); }
     </div>
   </section>
 
+  <section class="support" aria-labelledby="support-title">
+    <div class="wrap">
+      <div class="support-card">
+          <div class="cup" aria-hidden="true">
+            <svg viewBox="0 0 112 124">
+              <defs><linearGradient id="cup-fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffa24c"/><stop offset="1" stop-color="#ff4f7b"/></linearGradient></defs>
+              <ellipse cx="49" cy="116" rx="46" ry="6" fill="rgba(255,255,255,.09)"/>
+              <g class="steam"><path d="M38 34c-8-8 8-14 0-24"/><path d="M58 34c-8-8 8-14 0-24"/><path d="M78 34c-8-8 8-14 0-24"/></g>
+              <g class="body">
+                <path d="M84 56h6a16 16 0 0 1 0 32h-9v-9h9a7 7 0 0 0 0-14h-6z" fill="#ff8a5c"/>
+                <path d="M14 46h70v34a30 30 0 0 1-30 30H44a30 30 0 0 1-30-30V46z" fill="url(#cup-fill)"/>
+                <ellipse cx="49" cy="46" rx="35" ry="8" fill="#4a2414"/>
+                <ellipse cx="49" cy="46.5" rx="29" ry="5" fill="#8a4a28"/>
+                <path d="M49 98c-12-8-16-14-12-20 3-4 9-3 12 2 3-5 9-6 12-2 4 6 0 12-12 20z" fill="#fff" opacity=".92"/>
+              </g>
+            </svg>
+          </div>
+          <div>
+            <span class="eyebrow">Keep it brewing</span>
+            <h2 id="support-title">Like CoffeeFlix? Buy me a coffee.</h2>
+            <p>CoffeeFlix is free, with no ads and no accounts, and I build it in my spare time. If it has become part of your Wii U setup, a coffee on Ko-fi keeps the updates coming. Thank you!</p>
+            <p class="support-note">Ideas and bug reports help just as much: <a href="https://github.com/Roastedd/CoffeeFlix/issues">open an issue on GitHub</a>.</p>
+          </div>
+          <div class="support-act">
+            <a class="kofi-btn" href="https://ko-fi.com/ubecatstudio" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8zm12 1h2a3 3 0 0 1 0 6h-2v-2h2a1 1 0 0 0 0-2h-2V9zM8 2h2v3H8V2zm4 0h2v3h-2V2z"/></svg>Buy me a coffee</a>
+            <small>Opens Ko-fi in a new tab</small>
+          </div>
+        </div>
+    </div>
+  </section>
+
   <section id="faq">
     <div class="wrap">
       <h2>Questions</h2>
@@ -341,7 +381,7 @@ footer a { color: var(--text-2); }
 <footer>
   <div class="wrap">
     <div><a class="brand" href="#top"><img src="assets/icon.png" alt="" width="24" height="24" style="width:24px;height:24px"><b>Coffee<span>Flix</span></b></a></div>
-    <div>Enjoying CoffeeFlix? <a href="https://ko-fi.com/ubecatstudio">Support it on Ko-fi</a>.</div>
+    <div>Enjoying CoffeeFlix? <a href="https://ko-fi.com/ubecatstudio" target="_blank" rel="noopener">Buy me a coffee on Ko-fi</a> ☕</div>
     <div>Have an idea? <a href="features.html">Vote for features or suggest one</a>.</div>
     <div>Free for noncommercial use under the <a href="https://github.com/Roastedd/CoffeeFlix/blob/master/LICENSE.md">PolyForm Noncommercial License 1.0.0</a>. Includes open-source software listed in <a href="https://github.com/Roastedd/CoffeeFlix/blob/master/content/licenses/NOTICES.txt">NOTICES</a>.</div>
     <div>CoffeeFlix is not affiliated with or endorsed by Nintendo, Google/YouTube, Twitch, Jellyfin or SponsorBlock. All trademarks belong to their owners.</div>

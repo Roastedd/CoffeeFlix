@@ -6,6 +6,7 @@
   <title>What should CoffeeFlix do next? · CoffeeFlix for Wii U</title>
   <meta name="description" content="Help shape CoffeeFlix. See the most wanted features, vote with a thumbs-up on GitHub, and suggest your own idea.">
   <meta name="theme-color" content="#120e17">
+  <script>document.documentElement.classList.add("js")</script>
   <meta property="og:title" content="What should CoffeeFlix do next?">
   <meta property="og:description" content="Community ideas, shared votes. Choose what you’d love to see on your Wii U.">
   <meta property="og:type" content="website">
@@ -15,7 +16,9 @@
   <link rel="preload" href="assets/fonts/inter-regular.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/inter-bold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/features.css">
+  <link rel="stylesheet" href="assets/juicy.css">
   <script src="assets/features.js" defer></script>
+  <script src="assets/juicy.js" defer></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -30,20 +33,22 @@
       <nav aria-label="Page">
         <a class="back" href="./">← Back to the app</a>
         <a class="btn small" href="https://github.com/Roastedd/CoffeeFlix/issues/new?template=feature_request.yml">Suggest an idea <span aria-hidden="true">↗</span></a>
+        <a class="kofi-btn small" href="https://ko-fi.com/ubecatstudio" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8zm12 1h2a3 3 0 0 1 0 6h-2v-2h2a1 1 0 0 0 0-2h-2V9zM8 2h2v3H8V2zm4 0h2v3h-2V2z"/></svg><span>Support</span></a>
       </nav>
     </div>
   </header>
   <main>
     <section class="hero" aria-labelledby="page-title">
+      <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
       <div class="wrap">
-        <span class="eyebrow">The community wishlist</span>
-        <h1 id="page-title">What should <span class="grad">CoffeeFlix</span> do next?</h1>
-        <p class="lede">Browse the ideas and give your favorites a 👍 on GitHub. The most wanted show up first.</p>
-        <div class="hero-actions">
+        <span class="eyebrow rise" style="--i:0">The community wishlist</span>
+        <h1 id="page-title" class="rise" style="--i:1">What should <span class="grad shimmer">CoffeeFlix</span> do next?</h1>
+        <p class="lede rise" style="--i:2">Browse the ideas and give your favorites a 👍 on GitHub. The most wanted show up first.</p>
+        <div class="hero-actions rise" style="--i:3">
           <a class="btn primary" href="#requests">Vote on ideas <span aria-hidden="true">↓</span></a>
           <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues/new?template=feature_request.yml">Suggest an idea <span aria-hidden="true">↗</span></a>
         </div>
-        <ul class="stats" aria-label="At a glance">
+        <ul class="stats rise" style="--i:4" aria-label="At a glance">
           <li><b data-idea-count>9</b> ideas</li>
           <li><b data-total-votes>—</b> votes so far</li>
           <li><b>1 vote</b> per GitHub account</li>
@@ -215,6 +220,35 @@
         <div class="suggest-actions">
           <a class="btn primary" href="https://github.com/Roastedd/CoffeeFlix/issues/new?template=feature_request.yml">Suggest an idea <span aria-hidden="true">↗</span></a>
           <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues">Browse open issues <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
+      <section class="support" aria-labelledby="support-title">
+        <div class="support-card">
+          <div class="cup" aria-hidden="true">
+            <svg viewBox="0 0 112 124">
+              <defs><linearGradient id="cup-fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffa24c"/><stop offset="1" stop-color="#ff4f7b"/></linearGradient></defs>
+              <ellipse cx="49" cy="116" rx="46" ry="6" fill="rgba(255,255,255,.09)"/>
+              <g class="steam"><path d="M38 34c-8-8 8-14 0-24"/><path d="M58 34c-8-8 8-14 0-24"/><path d="M78 34c-8-8 8-14 0-24"/></g>
+              <g class="body">
+                <path d="M84 56h6a16 16 0 0 1 0 32h-9v-9h9a7 7 0 0 0 0-14h-6z" fill="#ff8a5c"/>
+                <path d="M14 46h70v34a30 30 0 0 1-30 30H44a30 30 0 0 1-30-30V46z" fill="url(#cup-fill)"/>
+                <ellipse cx="49" cy="46" rx="35" ry="8" fill="#4a2414"/>
+                <ellipse cx="49" cy="46.5" rx="29" ry="5" fill="#8a4a28"/>
+                <path d="M49 98c-12-8-16-14-12-20 3-4 9-3 12 2 3-5 9-6 12-2 4 6 0 12-12 20z" fill="#fff" opacity=".92"/>
+              </g>
+            </svg>
+          </div>
+          <div>
+            <span class="eyebrow">Keep it brewing</span>
+            <h2 id="support-title">Like CoffeeFlix? Buy me a coffee.</h2>
+            <p>CoffeeFlix is free, with no ads and no accounts, and I build it in my spare time. If it has become part of your Wii U setup, a coffee on Ko-fi keeps the updates coming. Thank you!</p>
+            <p class="support-note">Ideas and bug reports help just as much: <a href="https://github.com/Roastedd/CoffeeFlix/issues">open an issue on GitHub</a>.</p>
+          </div>
+          <div class="support-act">
+            <a class="kofi-btn" href="https://ko-fi.com/ubecatstudio" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8zm12 1h2a3 3 0 0 1 0 6h-2v-2h2a1 1 0 0 0 0-2h-2V9zM8 2h2v3H8V2zm4 0h2v3h-2V2z"/></svg>Buy me a coffee</a>
+            <small>Opens Ko-fi in a new tab</small>
+          </div>
         </div>
       </section>
 
