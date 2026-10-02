@@ -14,21 +14,27 @@ STATUSES = {
 esc = lambda value: html.escape(str(value), quote=True)
 
 
-def load_catalogue():
-    items = json.loads((ROOT / "docs/assets/feature-requests.json").read_text())
+def validate_catalogue(items):
     seen = set()
     for item in items:
         assert re.fullmatch(r"[a-z0-9-]+", item["id"]), f"Invalid feature id {item['id']!r}"
         assert item["id"] not in seen, f"Duplicate feature id {item['id']!r}"
+        for key in ("category", "title", "summary"):
+            assert isinstance(item.get(key), str) and item[key].strip(), f"{item['id']}: {key} can't be empty"
         assert item["status"] in STATUSES, f"Unknown status {item['status']!r}"
         assert isinstance(item.get("reply", ""), str), "reply must be text"
+        assert all(isinstance(line, str) for line in item.get("includes", [])), "includes must be a list of text lines"
         assert all(type(n) is int and n > 0 for n in item.get("issues", [])), "Issue numbers must be positive integers"
         seen.add(item["id"])
     return items
 
 
+def load_catalogue(root=ROOT):
+    return validate_catalogue(json.loads((root / "docs/assets/feature-requests.json").read_text()))
+
+
 def source_html(item):
-    parts = [esc(item["source"])]
+    parts = [esc(item["source"])] if item.get("source") else []
     parts += [f'<a href="{REPO_URL}/issues/{n}">GitHub #{n}</a>' for n in item.get("issues", [])]
     return " · ".join(parts)
 
@@ -37,14 +43,14 @@ def card_html(item, thread):
     includes = ""
     if item.get("includes"):
         includes = '\n            <ul class="includes">' + "".join(f"<li>{esc(line)}</li>" for line in item["includes"]) + "</ul>"
+    source = f'\n            <p class="source">{source_html(item)}</p>' if item.get("source") or item.get("issues") else ""
     reply = ""
     if item.get("reply"):
         reply = f'\n            <p class="reply"><b>Maintainer reply</b> {esc(item["reply"])}</p>'
     return f'''          <article class="card" id="{item['id']}" data-category="{esc(item['category'])}" data-status="{item['status']}" aria-labelledby="title-{item['id']}">
             <div class="card-head"><span class="category">{esc(item['category'])}</span><span class="badge" data-state="{item['status']}">{STATUSES[item['status']]}</span></div>
             <h3 id="title-{item['id']}">{esc(item['title'])}</h3>
-            <p class="summary">{esc(item['summary'])}</p>{includes}{reply}
-            <p class="source">{source_html(item)}</p>
+            <p class="summary">{esc(item['summary'])}</p>{includes}{reply}{source}
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
               <a class="vote-btn" href="{thread}" target="_blank" rel="noopener" aria-label="Vote for {esc(item['title'])} on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
@@ -69,12 +75,12 @@ def replace_region(page, name, body):
     return page
 
 
-def render():
-    items = load_catalogue()
-    issue = json.loads((ROOT / "docs/assets/feature-thread.json").read_text())["issue"]
+def render(root=ROOT):
+    items = load_catalogue(root)
+    issue = json.loads((root / "docs/assets/feature-thread.json").read_text())["issue"]
     assert type(issue) is int and issue > 0, "Invalid voting thread number"
     thread = f"{REPO_URL}/issues/{issue}"
-    path = ROOT / "docs/features.html"
+    path = root / "docs/features.html"
     page = path.read_text()
     page = replace_region(page, "FEATURE CARDS", "\n".join(card_html(item, thread) for item in items))
     page = replace_region(page, "CATEGORY PILLS", "            " + pills_html(items))

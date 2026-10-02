@@ -94,6 +94,13 @@ class SyncTests(unittest.TestCase):
         self.assertEqual([c["id"] for c, _ in edits], [thread[target["id"]]["id"]])
         self.assertIn("**Reply from the maintainer:** Thanks, looking at this <soon>.", edits[0][1])
 
+    def test_source_line_shows_only_issue_links_when_there_is_no_source_text(self):
+        base = {k: v for k, v in self.items[0].items() if k not in ("source", "issues")}
+        self.assertNotIn("Source", sync.feature_body(base))
+        body = sync.feature_body({**base, "issues": [11, 12]})
+        self.assertIn("**Source:** [GitHub #11](https://github.com/Roastedd/CoffeeFlix/issues/11) · [GitHub #12]", body)
+        self.assertNotIn("Reddit", body)
+
     def test_ideas_without_a_comment_are_posted(self):
         thread = self.thread()
         gone = self.items[2]["id"]
