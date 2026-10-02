@@ -25,7 +25,7 @@ spec.loader.exec_module(board)
 
 CATALOGUE = "docs/assets/feature-requests.json"
 PUBLISHED = (CATALOGUE, "docs/features.html")
-KEYS = ("id", "category", "title", "summary", "includes", "source", "issues", "status", "reply")
+KEYS = ("id", "category", "title", "summary", "includes", "source", "issues", "status", "shipped_in", "reply")
 
 
 def slug(text, taken):
@@ -64,8 +64,9 @@ def clean(ideas):
             includes = includes.splitlines()
         entry = {"id": idea_id, "category": text("category"), "title": title, "summary": text("summary"),
                  "includes": [line.strip() for line in includes if str(line).strip()],
-                 "source": text("source"), "issues": issues, "status": text("status"), "reply": text("reply")}
-        for key in ("source", "issues", "reply"):
+                 "source": text("source"), "issues": issues, "status": text("status"), "reply": text("reply"),
+                 "shipped_in": text("shipped_in").lstrip("vV")}
+        for key in ("source", "issues", "reply", "shipped_in"):
             if not entry[key]:
                 del entry[key]
         taken.add(idea_id)

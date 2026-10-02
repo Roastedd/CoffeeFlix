@@ -67,6 +67,14 @@ class Cleaning(unittest.TestCase):
                 admin.clean([bad])
             self.assertIn(text, str(caught.exception).lower())
 
+    def test_shipped_in_is_kept_cleaned_and_only_for_shipped_ideas(self):
+        out = admin.clean([{**self.base, "status": "shipped", "shipped_in": " v2.4.0 "}])[0]
+        self.assertEqual(out["shipped_in"], "2.4.0")
+        self.assertNotIn("shipped_in", admin.clean([{**self.base, "status": "shipped", "shipped_in": ""}])[0])
+        for bad in ({"status": "planned", "shipped_in": "2.4.0"}, {"status": "shipped", "shipped_in": "soon"}):
+            with self.assertRaises(ValueError):
+                admin.clean([{**self.base, **bad}])
+
     def test_existing_ids_are_kept(self):
         self.assertEqual(admin.clean([{**self.base, "id": "keep-me"}])[0]["id"], "keep-me")
 

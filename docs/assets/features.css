@@ -213,6 +213,17 @@ input::placeholder { color: var(--text-3); }
 }
 .vote-btn svg { width: 18px; height: 18px; flex: none; }
 .vote-btn:hover { background: var(--grad); border-color: transparent; color: #1a0f08; transform: translateY(-1px); }
+/* an idea that shipped: the card says so, and points to what it became */
+.card[data-status="shipped"] { border-color: rgba(127, 227, 180, 0.28); background: linear-gradient(180deg, rgba(127, 227, 180, 0.07), #16111c 60%); }
+a.badge { text-decoration: none; }
+a.badge[data-state="shipped"]:hover { filter: brightness(1.08); }
+.release-btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid rgba(127, 227, 180, 0.45); border-radius: 999px;
+  background: rgba(127, 227, 180, 0.1); color: #7fe3b4; font: 600 14.5px/1.2 Inter, system-ui, sans-serif; text-decoration: none; white-space: nowrap;
+  transition: background 0.18s, color 0.18s, transform 0.18s;
+}
+.release-btn svg { width: 18px; height: 18px; flex: none; }
+.release-btn:hover { background: #7fe3b4; border-color: transparent; color: #0f2a1d; transform: translateY(-1px); }
 .meter { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255, 255, 255, 0.05); }
 .meter i { display: block; width: var(--w, 0%); height: 100%; background: var(--grad); transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .empty { padding: 48px 20px; text-align: center; border: 1px dashed var(--line-2); border-radius: var(--radius); }
