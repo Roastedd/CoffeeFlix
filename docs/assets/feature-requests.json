@@ -9,7 +9,8 @@
       "Open straight to your favorite page at startup",
       "Set a display name for a personal greeting"
     ],
-    "status": "planned"
+    "status": "planned",
+    "reply": "This one is planned for an upcoming update."
   },
   {
     "id": "display-options",
@@ -37,7 +38,8 @@
     "title": "Autoplay the next episode",
     "summary": "Keep a series rolling: continue to the next Jellyfin episode automatically, with an option to turn it off.",
     "includes": [],
-    "status": "proposed"
+    "status": "planned",
+    "reply": "YouTube already keeps playing the next video, so bringing the same to Jellyfin should be a quick one."
   },
   {
     "id": "more-servers",
@@ -49,7 +51,8 @@
       "Calibre-Web and Kavita libraries, read in CoffeeFlix next to the local EPUB and CBZ reader"
     ],
     "issues": [11, 12],
-    "status": "needs-research"
+    "status": "needs-research",
+    "reply": "I'm checking what the Wii U can handle before promising anything here."
   },
   {
     "id": "youtube-account",
@@ -85,7 +88,8 @@
       "Collect channel points while you watch"
     ],
     "issues": [13],
-    "status": "needs-research"
+    "status": "needs-research",
+    "reply": "Signing in depends on what Twitch allows on a console, so I'm checking that first."
   },
   {
     "id": "twitch-watching",
