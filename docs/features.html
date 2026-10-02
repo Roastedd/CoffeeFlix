@@ -3,191 +3,235 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Feature voting · CoffeeFlix for Wii U</title>
-  <meta name="description" content="Help shape CoffeeFlix. Browse community feature requests and vote for your favorites with a thumbs-up on GitHub.">
+  <title>What should CoffeeFlix do next? · CoffeeFlix for Wii U</title>
+  <meta name="description" content="Help shape CoffeeFlix. See the most wanted features, vote with a thumbs-up on GitHub, and suggest your own idea.">
   <meta name="theme-color" content="#120e17">
-  <meta property="og:title" content="Help shape CoffeeFlix">
-  <meta property="og:description" content="Community ideas. Shared votes. Choose what you’d love to see on your Wii U.">
+  <meta property="og:title" content="What should CoffeeFlix do next?">
+  <meta property="og:description" content="Community ideas, shared votes. Choose what you’d love to see on your Wii U.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://roastedd.github.io/CoffeeFlix/assets/og.jpg">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="preload" href="assets/fonts/inter-regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/inter-bold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/features.css">
   <script src="assets/features.js" defer></script>
 </head>
 <body>
-  <a class="skip-link" href="#requests">Skip to feature requests</a>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="i-thumb" viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11a2 2 0 0 0-2-2h-6.3l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10a2 2 0 0 0 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><path d="M10 2a8 8 0 0 1 6.32 12.9l4.39 4.39-1.42 1.42-4.39-4.39A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path d="M3 7l4.5 4L12 4l4.5 7L21 7l-2 12H5L3 7zm2.7 10h12.6l.9-5.4-2.7 2.4L12 8.2 7.5 14l-2.7-2.4.9 5.4z"/></symbol>
+  </svg>
+  <a class="skip-link" href="#requests">Skip to the ideas</a>
   <header class="nav">
     <div class="wrap">
       <a class="brand" href="./"><img src="assets/icon.png" alt="" width="32" height="32"><b>Coffee<span>Flix</span></b></a>
-      <a class="back" href="./">← Back to the app</a>
+      <nav aria-label="Page">
+        <a class="back" href="./">← Back to the app</a>
+        <a class="btn small" href="https://github.com/Roastedd/CoffeeFlix/issues/new?template=feature_request.yml">Suggest an idea <span aria-hidden="true">↗</span></a>
+      </nav>
     </div>
   </header>
   <main>
-    <section class="hero wrap" aria-labelledby="page-title">
-      <span class="eyebrow">The community wishlist</span>
-      <h1 id="page-title">Help shape <span>CoffeeFlix.</span></h1>
-      <p class="lede">What would make your Wii U nights even better? Browse the ideas below and give your favorites a thumbs-up on GitHub.</p>
-      <div class="hero-actions">
-        <a class="btn primary" href="#requests">Explore the ideas <span aria-hidden="true">↓</span></a>
-        <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues/new?title=Feature%20request%3A%20&amp;body=I%20checked%20the%20feature%20voting%20page%20for%20similar%20ideas.%0A%0AWhat%20would%20you%20like%20CoffeeFlix%20to%20do%3F%0A%0AHow%20would%20you%20use%20it%3F">Suggest an idea <span aria-hidden="true">↗</span></a>
-      </div>
-      <p class="expectations">Votes help set priorities. Feasibility, maintenance and Wii U limits matter too. An idea here isn’t a promise or a release date.</p>
-    </section>
-    <div class="wrap">
-      <section class="how-to" aria-labelledby="how-title">
-        <div><span class="eyebrow">Make your vote count</span><h2 id="how-title">One thumbs-up. Your voice.</h2></div>
-        <ol>
-          <li><b>Choose an idea</b><span>Click “Vote on GitHub” on its card.</span></li>
-          <li><b>Sign in to GitHub</b><span>A free account keeps votes shared and unique.</span></li>
-          <li><b>Add a 👍 reaction</b><span>Use the smiley button on that feature’s comment.</span></li>
-        </ol>
-        <p>You can vote for several ideas. Click your 👍 again to withdraw a vote. Only 👍 reactions on the individual feature comments count. <a href="https://github.com/Roastedd/CoffeeFlix/issues/15">Open the full voting thread ↗</a></p>
-      </section>
-      <section class="requests" id="requests" aria-labelledby="requests-title">
-        <div class="section-heading"><div><span class="eyebrow">From the community</span><h2 id="requests-title">Small touches. Big possibilities.</h2></div><span class="idea-count">18 ideas</span></div>
-        <div class="toolbar" id="toolbar" hidden>
-          <label class="search">Find an idea<input id="search" type="search" placeholder="Search features…" autocomplete="off"></label>
-          <label>Category<select id="category"><option value="all">All categories</option><option>Personalization</option><option>Playback &amp; controls</option><option>Jellyfin</option><option>Network &amp; books</option><option>YouTube</option><option>Twitch</option><option>Platforms</option></select></label>
-          <label>Status<select id="status"><option value="all">All statuses</option><option value="proposed">Proposed</option><option value="needs-research">Needs research</option><option value="planned">Planned</option><option value="in-progress">In progress</option><option value="shipped">Shipped</option><option value="not-planned">Not planned</option></select></label>
-          <label>Sort by<select id="sort"><option value="votes">Most votes</option><option value="title">Name: A–Z</option><option value="category">Category</option></select></label>
+    <section class="hero" aria-labelledby="page-title">
+      <div class="wrap">
+        <span class="eyebrow">The community wishlist</span>
+        <h1 id="page-title">What should <span class="grad">CoffeeFlix</span> do next?</h1>
+        <p class="lede">Browse the ideas, give your favorites a 👍 on GitHub, and watch the most wanted rise to the top.</p>
+        <div class="hero-actions">
+          <a class="btn primary" href="#requests">Vote on ideas <span aria-hidden="true">↓</span></a>
+          <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues/new?template=feature_request.yml">Suggest an idea <span aria-hidden="true">↗</span></a>
         </div>
-        <div class="board-meta"><p id="results" role="status">18 community ideas</p><div class="refresh"><p id="vote-status" role="status">Vote totals load from GitHub. You can vote using the links below.</p><button class="text-button" id="refresh" type="button" hidden>Refresh votes</button></div></div>
-        <noscript><p class="notice">You can browse every idea and vote on GitHub. Enable JavaScript to filter ideas and see vote totals.</p></noscript>
-        <div class="feature-grid" id="feature-grid">
+        <ul class="stats" aria-label="At a glance">
+          <li><b data-idea-count>10</b> ideas</li>
+          <li><b data-total-votes>—</b> votes so far</li>
+          <li><b>1 vote</b> per GitHub account</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="wrap">
+      <section class="steps" aria-labelledby="how-title">
+        <h2 id="how-title" class="sr-only">How voting works</h2>
+        <ol>
+          <li><b>Find an idea</b><span>Browse the cards below or search for what you’d love to see.</span></li>
+          <li><b>Vote on GitHub</b><span>Tap <i>Vote</i>, then add a 👍 to that idea’s comment. A free account keeps it one vote each. <a href="https://github.com/Roastedd/CoffeeFlix/issues/16" data-thread-link>See the thread ↗</a></span></li>
+          <li><b>Suggest your own</b><span>New ideas need to be opened as a GitHub issue. That’s the only place they’re tracked.</span></li>
+        </ol>
+      </section>
+
+      <section class="top" id="top" aria-labelledby="top-title" hidden>
+        <div class="section-heading"><div><span class="eyebrow">Leaderboard</span><h2 id="top-title">Most wanted right now</h2></div></div>
+        <div class="podium" id="podium"></div>
+        <div class="top-empty" id="top-empty" hidden>
+          <svg aria-hidden="true"><use href="#i-crown"/></svg>
+          <div><b>The throne is empty.</b><p>No votes yet. Be the first to back an idea and it’ll show up here, with the top three kept up to date.</p></div>
+        </div>
+      </section>
+
+      <section class="requests" id="requests" aria-labelledby="requests-title">
+        <div class="section-heading"><div><span class="eyebrow">From the community</span><h2 id="requests-title">All ideas</h2></div><span class="idea-count"><span data-idea-count>10</span> ideas</span></div>
+        <div class="toolbar" id="toolbar" hidden>
+          <label class="search"><span class="sr-only">Find an idea</span><svg aria-hidden="true"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Search ideas…" autocomplete="off"></label>
+          <div class="pills" id="pills" role="group" aria-label="Filter by category">
+          <!-- BEGIN CATEGORY PILLS -->
+            <button class="pill" type="button" data-category="all" aria-pressed="true">All <span>10</span></button>
+            <button class="pill" type="button" data-category="Home &amp; settings" aria-pressed="false">Home &amp; settings <span>1</span></button>
+            <button class="pill" type="button" data-category="Display &amp; video" aria-pressed="false">Display &amp; video <span>1</span></button>
+            <button class="pill" type="button" data-category="Controls" aria-pressed="false">Controls <span>1</span></button>
+            <button class="pill" type="button" data-category="Jellyfin" aria-pressed="false">Jellyfin <span>1</span></button>
+            <button class="pill" type="button" data-category="Servers &amp; books" aria-pressed="false">Servers &amp; books <span>1</span></button>
+            <button class="pill" type="button" data-category="YouTube" aria-pressed="false">YouTube <span>2</span></button>
+            <button class="pill" type="button" data-category="Twitch" aria-pressed="false">Twitch <span>2</span></button>
+            <button class="pill" type="button" data-category="Platforms" aria-pressed="false">Platforms <span>1</span></button>
+          <!-- END CATEGORY PILLS -->
+          </div>
+          <div class="selects">
+            <label>Status<select id="status"><option value="all">All</option><option value="proposed">Proposed</option><option value="needs-research">Needs research</option><option value="planned">Planned</option><option value="in-progress">In progress</option><option value="shipped">Shipped</option><option value="not-planned">Not planned</option></select></label>
+            <label>Sort<select id="sort"><option value="votes">Most votes</option><option value="title">Name: A–Z</option><option value="category">Category</option></select></label>
+          </div>
+        </div>
+        <div class="board-meta"><p id="results" role="status">10 community ideas</p><div class="refresh"><p id="vote-status" role="status">Vote totals load from GitHub. You can vote using the buttons below.</p><button class="text-button" id="refresh" type="button" hidden>Refresh votes</button></div></div>
+        <noscript><p class="notice">You can browse every idea and vote on GitHub. Enable JavaScript to search, filter and see vote totals.</p></noscript>
+        <div class="feature-grid" id="feature-grid" data-thread="16">
           <!-- BEGIN FEATURE CARDS -->
-          <article class="feature-card" id="hide-sections" data-comment-id="5942245303" data-category="Personalization" data-status="proposed" aria-labelledby="title-hide-sections">
-            <div class="card-top"><span class="category">Personalization</span><span class="badge" data-state="proposed">Proposed</span></div>
-            <h3 id="title-hide-sections">Hide sections you don’t use</h3>
-            <p class="summary">Choose which services appear in the sidebar and on Home, so your app only shows what you use.</p>
-            <p class="source">Community feedback · Tornabro9514</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942245303" aria-label="Vote on GitHub for Hide sections you don’t use">Vote on GitHub ↗</a></div>
+          <article class="card" id="personalize-home" data-category="Home &amp; settings" data-status="planned" aria-labelledby="title-personalize-home">
+            <div class="card-head"><span class="category">Home &amp; settings</span><span class="badge" data-state="planned">Planned</span></div>
+            <h3 id="title-personalize-home">Make Home your own</h3>
+            <p class="summary">Shape the home screen around how you actually watch.</p>
+            <ul class="includes"><li>Hide the sections you don’t use</li><li>Open straight to your favorite page at startup</li><li>Set a display name for a personal greeting</li></ul>
+            <p class="source">Reddit community</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Make Home your own on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="startup-page" data-comment-id="5942247975" data-category="Personalization" data-status="proposed" aria-labelledby="title-startup-page">
-            <div class="card-top"><span class="category">Personalization</span><span class="badge" data-state="proposed">Proposed</span></div>
-            <h3 id="title-startup-page">Choose your startup page</h3>
-            <p class="summary">Open directly to your favorite section, such as local media, YouTube or Jellyfin, when CoffeeFlix starts.</p>
-            <p class="source">Community feedback · Tornabro9514</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942247975" aria-label="Vote on GitHub for Choose your startup page">Vote on GitHub ↗</a></div>
+          <article class="card" id="display-options" data-category="Display &amp; video" data-status="proposed" aria-labelledby="title-display-options">
+            <div class="card-head"><span class="category">Display &amp; video</span><span class="badge" data-state="proposed">Proposed</span></div>
+            <h3 id="title-display-options">Display options</h3>
+            <p class="summary">A quieter interface, and video that fits the TV you have.</p>
+            <ul class="includes"><li>Turn animated background effects off</li><li>Choose fit, stretch or letterbox in the player</li><li>4:3 output considered for CRTs and older TVs</li></ul>
+            <p class="source">Reddit community</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Display options on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="personal-greeting" data-comment-id="5942248632" data-category="Personalization" data-status="proposed" aria-labelledby="title-personal-greeting">
-            <div class="card-top"><span class="category">Personalization</span><span class="badge" data-state="proposed">Proposed</span></div>
-            <h3 id="title-personal-greeting">A display name and personal greeting</h3>
-            <p class="summary">Set a display name for the Home greeting, with more greeting phrases to make the app feel personal.</p>
-            <p class="source">Community feedback · Tornabro9514</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942248632" aria-label="Vote on GitHub for A display name and personal greeting">Vote on GitHub ↗</a></div>
-          </article>
-          <article class="feature-card" id="background-effects" data-comment-id="5942249217" data-category="Personalization" data-status="proposed" aria-labelledby="title-background-effects">
-            <div class="card-top"><span class="category">Personalization</span><span class="badge" data-state="proposed">Proposed</span></div>
-            <h3 id="title-background-effects">Turn background effects off</h3>
-            <p class="summary">Add a setting to disable animated background effects for a quieter interface.</p>
-            <p class="source">Community feedback · kkkkkkkklkkkk_9991</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942249217" aria-label="Vote on GitHub for Turn background effects off">Vote on GitHub ↗</a></div>
-          </article>
-          <article class="feature-card" id="controller-keyboard" data-comment-id="5942249847" data-category="Playback &amp; controls" data-status="proposed" aria-labelledby="title-controller-keyboard">
-            <div class="card-top"><span class="category">Playback &amp; controls</span><span class="badge" data-state="proposed">Proposed</span></div>
+          <article class="card" id="controller-keyboard" data-category="Controls" data-status="proposed" aria-labelledby="title-controller-keyboard">
+            <div class="card-head"><span class="category">Controls</span><span class="badge" data-state="proposed">Proposed</span></div>
             <h3 id="title-controller-keyboard">Type without the GamePad</h3>
-            <p class="summary">Use the on-screen keyboard with a Wii Remote or Pro Controller, including when the GamePad is unavailable.</p>
-            <p class="source">Community feedback · Far-Value-3368 and Rocpal</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942249847" aria-label="Vote on GitHub for Type without the GamePad">Vote on GitHub ↗</a></div>
+            <p class="summary">Use the on-screen keyboard with a Wii Remote or a Pro Controller, even when the GamePad isn’t within reach.</p>
+            <p class="source">Reddit community</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Type without the GamePad on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="aspect-ratio" data-comment-id="5942250456" data-category="Playback &amp; controls" data-status="proposed" aria-labelledby="title-aspect-ratio">
-            <div class="card-top"><span class="category">Playback &amp; controls</span><span class="badge" data-state="proposed">Proposed</span></div>
-            <h3 id="title-aspect-ratio">Video sizing for 4:3 TVs and CRTs</h3>
-            <p class="summary">Choose fit, stretch or letterbox in the player, with 4:3 output considered for older TVs.</p>
-            <p class="source">Community feedback · soniczx123 and iLiikePlayingWii</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942250456" aria-label="Vote on GitHub for Video sizing for 4:3 TVs and CRTs">Vote on GitHub ↗</a></div>
+          <article class="card" id="jellyfin-autoplay" data-category="Jellyfin" data-status="proposed" aria-labelledby="title-jellyfin-autoplay">
+            <div class="card-head"><span class="category">Jellyfin</span><span class="badge" data-state="proposed">Proposed</span></div>
+            <h3 id="title-jellyfin-autoplay">Autoplay the next episode</h3>
+            <p class="summary">Keep a series rolling: continue to the next Jellyfin episode automatically, with an option to turn it off.</p>
+            <p class="source">Reddit community</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Autoplay the next episode on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="jellyfin-autoplay" data-comment-id="5942251100" data-category="Jellyfin" data-status="proposed" aria-labelledby="title-jellyfin-autoplay">
-            <div class="card-top"><span class="category">Jellyfin</span><span class="badge" data-state="proposed">Proposed</span></div>
-            <h3 id="title-jellyfin-autoplay">Autoplay the next Jellyfin episode</h3>
-            <p class="summary">Continue to the next episode automatically when watching a series, with an option to turn it off.</p>
-            <p class="source">Community feedback · MikeDubbz</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942251100" aria-label="Vote on GitHub for Autoplay the next Jellyfin episode">Vote on GitHub ↗</a></div>
+          <article class="card" id="more-servers" data-category="Servers &amp; books" data-status="needs-research" aria-labelledby="title-more-servers">
+            <div class="card-head"><span class="category">Servers &amp; books</span><span class="badge" data-state="needs-research">Needs research</span></div>
+            <h3 id="title-more-servers">More servers and libraries</h3>
+            <p class="summary">Reach your media and books on more of the servers you already run at home.</p>
+            <ul class="includes"><li>Browse and play files over FTP, including a phone acting as your media server</li><li>Calibre-Web and Kavita libraries, read in CoffeeFlix next to the local EPUB and CBZ reader</li></ul>
+            <p class="source">Reddit community · <a href="https://github.com/Roastedd/CoffeeFlix/issues/11">GitHub #11</a> · <a href="https://github.com/Roastedd/CoffeeFlix/issues/12">GitHub #12</a></p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for More servers and libraries on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="ftp-streaming" data-comment-id="5942251747" data-category="Network &amp; books" data-status="needs-research" aria-labelledby="title-ftp-streaming">
-            <div class="card-top"><span class="category">Network &amp; books</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-ftp-streaming">Stream your media over FTP</h3>
-            <p class="summary">Browse and play files from an FTP server, including a phone acting as your home media server.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/12">GitHub issue #12 · thenintendofreak; community feedback ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942251747" aria-label="Vote on GitHub for Stream your media over FTP">Vote on GitHub ↗</a></div>
+          <article class="card" id="youtube-account" data-category="YouTube" data-status="needs-research" aria-labelledby="title-youtube-account">
+            <div class="card-head"><span class="category">YouTube</span><span class="badge" data-state="needs-research">Needs research</span></div>
+            <h3 id="title-youtube-account">YouTube account extras</h3>
+            <p class="summary">More from your signed-in YouTube account. Profile access and account compatibility need investigating.</p>
+            <ul class="includes"><li>Like and dislike videos while signed in</li><li>YouTube Kids profile support</li></ul>
+            <p class="source">Reddit community · <a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub #13</a></p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for YouTube account extras on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="book-servers" data-comment-id="5942252250" data-category="Network &amp; books" data-status="needs-research" aria-labelledby="title-book-servers">
-            <div class="card-top"><span class="category">Network &amp; books</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-book-servers">Calibre-Web and Kavita libraries</h3>
-            <p class="summary">Browse books and comics on your network and read them in CoffeeFlix, extending the local EPUB and CBZ reader.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/11">GitHub issue #11 · theEpicjosh ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942252250" aria-label="Vote on GitHub for Calibre-Web and Kavita libraries">Vote on GitHub ↗</a></div>
+          <article class="card" id="youtube-community" data-category="YouTube" data-status="needs-research" aria-labelledby="title-youtube-community">
+            <div class="card-head"><span class="category">YouTube</span><span class="badge" data-state="needs-research">Needs research</span></div>
+            <h3 id="title-youtube-community">Community add-ons for YouTube</h3>
+            <p class="summary">Bring two popular community projects to CoffeeFlix.</p>
+            <ul class="includes"><li>Return YouTube Dislike counts</li><li>DeArrow titles and thumbnails, with an option to see the originals</li></ul>
+            <p class="source">Reddit community · <a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub #13</a></p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Community add-ons for YouTube on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="youtube-reactions" data-comment-id="5942252938" data-category="YouTube" data-status="needs-research" aria-labelledby="title-youtube-reactions">
-            <div class="card-top"><span class="category">YouTube</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-youtube-reactions">Like and dislike YouTube videos</h3>
-            <p class="summary">Let signed-in YouTube users like and dislike videos from CoffeeFlix.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub issue #13 · Skyler-xiao ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942252938" aria-label="Vote on GitHub for Like and dislike YouTube videos">Vote on GitHub ↗</a></div>
+          <article class="card" id="twitch-account" data-category="Twitch" data-status="needs-research" aria-labelledby="title-twitch-account">
+            <div class="card-head"><span class="category">Twitch</span><span class="badge" data-state="needs-research">Needs research</span></div>
+            <h3 id="title-twitch-account">Twitch account and channel points</h3>
+            <p class="summary">Sign in to Twitch for account features. Feasibility and service support need checking.</p>
+            <ul class="includes"><li>Your followed channels</li><li>Collect channel points while you watch</li></ul>
+            <p class="source">Reddit community · <a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub #13</a></p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Twitch account and channel points on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="return-dislikes" data-comment-id="5942253584" data-category="YouTube" data-status="needs-research" aria-labelledby="title-return-dislikes">
-            <div class="card-top"><span class="category">YouTube</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-return-dislikes">Return YouTube Dislike integration</h3>
-            <p class="summary">Show estimated dislike counts using Return YouTube Dislike.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub issue #13 · Skyler-xiao ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942253584" aria-label="Vote on GitHub for Return YouTube Dislike integration">Vote on GitHub ↗</a></div>
+          <article class="card" id="twitch-watching" data-category="Twitch" data-status="needs-research" aria-labelledby="title-twitch-watching">
+            <div class="card-head"><span class="category">Twitch</span><span class="badge" data-state="needs-research">Needs research</span></div>
+            <h3 id="title-twitch-watching">Watch more on Twitch</h3>
+            <p class="summary">More ways to enjoy a stream, beyond the live video.</p>
+            <ul class="includes"><li>Past broadcasts (VODs) next to live streams</li><li>Chat with 7TV and BTTV emotes</li><li>Polls and predictions where possible</li></ul>
+            <p class="source">Reddit community · <a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub #13</a></p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Watch more on Twitch on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="feature-card" id="dearrow" data-comment-id="5942254272" data-category="YouTube" data-status="needs-research" aria-labelledby="title-dearrow">
-            <div class="card-top"><span class="category">YouTube</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-dearrow">DeArrow titles and thumbnails</h3>
-            <p class="summary">Offer community-written titles and thumbnails through DeArrow, with an option to use the originals.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub issue #13 · Skyler-xiao ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942254272" aria-label="Vote on GitHub for DeArrow titles and thumbnails">Vote on GitHub ↗</a></div>
-          </article>
-          <article class="feature-card" id="youtube-kids" data-comment-id="5942254874" data-category="YouTube" data-status="needs-research" aria-labelledby="title-youtube-kids">
-            <div class="card-top"><span class="category">YouTube</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-youtube-kids">YouTube Kids profile support</h3>
-            <p class="summary">Explore whether YouTube Kids profiles can be supported. Profile access and account compatibility need investigation.</p>
-            <p class="source">Community feedback · pastuleo23</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942254874" aria-label="Vote on GitHub for YouTube Kids profile support">Vote on GitHub ↗</a></div>
-          </article>
-          <article class="feature-card" id="twitch-login" data-comment-id="5942255536" data-category="Twitch" data-status="needs-research" aria-labelledby="title-twitch-login">
-            <div class="card-top"><span class="category">Twitch</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-twitch-login">Sign in to Twitch</h3>
-            <p class="summary">Connect a Twitch account and access account features, such as your followed channels.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub issue #13 · Skyler-xiao ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942255536" aria-label="Vote on GitHub for Sign in to Twitch">Vote on GitHub ↗</a></div>
-          </article>
-          <article class="feature-card" id="twitch-vods" data-comment-id="5942256119" data-category="Twitch" data-status="needs-research" aria-labelledby="title-twitch-vods">
-            <div class="card-top"><span class="category">Twitch</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-twitch-vods">Watch Twitch VODs</h3>
-            <p class="summary">Browse and play past Twitch broadcasts alongside live streams.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub issue #13 · Skyler-xiao ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942256119" aria-label="Vote on GitHub for Watch Twitch VODs">Vote on GitHub ↗</a></div>
-          </article>
-          <article class="feature-card" id="twitch-points" data-comment-id="5942256854" data-category="Twitch" data-status="needs-research" aria-labelledby="title-twitch-points">
-            <div class="card-top"><span class="category">Twitch</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-twitch-points">Automatically collect Twitch channel points</h3>
-            <p class="summary">Explore collecting available channel point bonuses while watching signed in. Feasibility and service support need checking.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub issue #13 · Skyler-xiao ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942256854" aria-label="Vote on GitHub for Automatically collect Twitch channel points">Vote on GitHub ↗</a></div>
-          </article>
-          <article class="feature-card" id="twitch-chat" data-comment-id="5942257565" data-category="Twitch" data-status="needs-research" aria-labelledby="title-twitch-chat">
-            <div class="card-top"><span class="category">Twitch</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-twitch-chat">Twitch chat, emotes and polls</h3>
-            <p class="summary">Read chat with 7TV and BTTV emotes, and explore support for polls and predictions where possible.</p>
-            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub issue #13 · Skyler-xiao ↗</a></p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942257565" aria-label="Vote on GitHub for Twitch chat, emotes and polls">Vote on GitHub ↗</a></div>
-          </article>
-          <article class="feature-card" id="wii-port" data-comment-id="5942258162" data-category="Platforms" data-status="needs-research" aria-labelledby="title-wii-port">
-            <div class="card-top"><span class="category">Platforms</span><span class="badge" data-state="needs-research">Needs research</span></div>
-            <h3 id="title-wii-port">Explore a Wii version</h3>
-            <p class="summary">Investigate a smaller version for the original Wii. Hardware limits would affect the features and video quality it could support.</p>
-            <p class="source">Community feedback · therynn1</p>
-            <div class="card-bottom"><span class="vote-total"><span class="thumb" aria-hidden="true">👍</span><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></span><a class="vote-link" href="https://github.com/Roastedd/CoffeeFlix/issues/15#issuecomment-5942258162" aria-label="Vote on GitHub for Explore a Wii version">Vote on GitHub ↗</a></div>
+          <article class="card" id="wii-port" data-category="Platforms" data-status="needs-research" aria-labelledby="title-wii-port">
+            <div class="card-head"><span class="category">Platforms</span><span class="badge" data-state="needs-research">Needs research</span></div>
+            <h3 id="title-wii-port">A version for the original Wii</h3>
+            <p class="summary">Investigate a smaller build for the Wii. Hardware limits would shape the features and video quality it could support.</p>
+            <p class="source">Reddit community</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for A version for the original Wii on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
           </article>
           <!-- END FEATURE CARDS -->
         </div>
         <div class="empty" id="empty" hidden><h3>No matching ideas</h3><p>Try another search or reset the filters to see the full wishlist.</p><button class="btn" id="reset" type="button">Reset filters</button></div>
-        <p class="status-key"><b>Proposed</b> means a community suggestion. <b>Needs research</b> means feasibility still needs checking. Planned, In progress and Shipped are used when work is accepted, underway or released.</p>
-        <p class="status-key"><b>Also requested: Homebrew App Store availability.</b> This is listed as coming soon on the <a href="./#install">installation page</a>.</p>
+        <p class="status-key"><b>Proposed</b> means a community suggestion. <b>Needs research</b> means feasibility still needs checking. <b>Planned</b>, <b>In progress</b> and <b>Shipped</b> are used when work is accepted, underway or released. Votes help set priorities, but feasibility, upkeep and Wii U limits matter too: an idea here isn’t a promise or a release date.</p>
+        <p class="status-key"><b>Also requested: Homebrew App Store availability.</b> It’s listed as coming soon on the <a href="./#install">installation page</a>.</p>
       </section>
+
+      <section class="suggest" aria-labelledby="suggest-title">
+        <div>
+          <span class="eyebrow">Got an idea of your own?</span>
+          <h2 id="suggest-title">Open a GitHub issue.</h2>
+          <p>Ideas, feature requests and bug reports are tracked as GitHub issues, and that’s the only place they’re considered. A free GitHub account is all you need. If your idea fits, it joins this board for everyone to vote on.</p>
+        </div>
+        <div class="suggest-actions">
+          <a class="btn primary" href="https://github.com/Roastedd/CoffeeFlix/issues/new?template=feature_request.yml">Suggest an idea <span aria-hidden="true">↗</span></a>
+          <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues">Browse open issues <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
       <section class="bugs" aria-labelledby="bugs-title">
         <span class="eyebrow">Something not working?</span>
         <h2 id="bugs-title">Fixes don’t need to win a vote.</h2>
@@ -196,10 +240,10 @@
           <li><a href="https://github.com/Roastedd/CoffeeFlix/issues/14">Jellyfin libraries going off-screen <span>Issue #14 ↗</span></a></li>
           <li><a href="https://github.com/Roastedd/CoffeeFlix/issues/new?title=Bug%3A%20Freeze%20when%20closing%20after%20video%20playback&amp;body=App%20version%3A%0AEnvironment%20%28Aroma%20or%20Tiramisu%29%3A%0ASteps%20to%20reproduce%3A%0AExpected%20behavior%3A%0AActual%20behavior%3A%0A%0APlease%20attach%20coffeeflix-previous.log%20from%20the%20app%20folder%20on%20your%20SD%20card%20if%20available.">Freeze when closing after playing a video <span>Reported by the community · add details ↗</span></a></li>
         </ul>
-        <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues/new?title=Bug%3A%20&amp;body=App%20version%3A%0ASteps%20to%20reproduce%3A%0AExpected%20behavior%3A%0AActual%20behavior%3A%0A%0APlease%20attach%20the%20CoffeeFlix%20log%20if%20available.">Report a bug ↗</a>
+        <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues/new?title=Bug%3A%20&amp;body=App%20version%3A%0ASteps%20to%20reproduce%3A%0AExpected%20behavior%3A%0AActual%20behavior%3A%0A%0APlease%20attach%20the%20CoffeeFlix%20log%20if%20available.">Report a bug <span aria-hidden="true">↗</span></a>
       </section>
     </div>
   </main>
-  <footer><div class="wrap"><p>Made for the Wii U. Shaped by the people who use it.</p><div><a href="./">CoffeeFlix home</a><a href="https://github.com/Roastedd/CoffeeFlix/issues/15">Voting thread</a><a href="https://ko-fi.com/ubecatstudio">Support on Ko-fi</a></div></div></footer>
+  <footer><div class="wrap"><p>Made for the Wii U. Shaped by the people who use it.</p><div><a href="./">CoffeeFlix home</a><a href="https://github.com/Roastedd/CoffeeFlix/issues/16" data-thread-link>Voting thread</a><a href="https://ko-fi.com/ubecatstudio">Support on Ko-fi</a></div></div></footer>
 </body>
 </html>

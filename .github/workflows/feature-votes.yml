@@ -1,0 +1,50 @@
+name: Feature votes
+
+# Publishes the feature board's vote totals as a static file on the `votes` branch, so visitors
+# don't each spend GitHub's anonymous API limit. See docs/FEATURE_VOTING.md.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - docs/assets/feature-requests.json
+      - docs/assets/feature-thread.json
+      - tools/sync-feature-votes.py
+      - tools/render-feature-board.py
+      - .github/workflows/feature-votes.yml
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: feature-votes
+
+jobs:
+  votes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update voting comments and read the totals
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/sync-feature-votes.py --sync-comments --out "$RUNNER_TEMP/votes.json"
+
+      # One throwaway commit force-pushed to an orphan branch: no history piles up and master
+      # stays free of bot commits.
+      - name: Publish the snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir "$RUNNER_TEMP/publish"
+          cp "$RUNNER_TEMP/votes.json" "$RUNNER_TEMP/publish/"
+          cd "$RUNNER_TEMP/publish"
+          git init -q -b votes
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add votes.json
+          git commit -q -m "Update feature votes"
+          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" votes

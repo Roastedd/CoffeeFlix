@@ -1,34 +1,47 @@
 # Maintaining the feature voting page
 
-The public board is `docs/features.html`. It is a static GitHub Pages page, linked from the homepage. The shared votes live in [issue #15](https://github.com/Roastedd/CoffeeFlix/issues/15): each feature has one maintainer-authored comment, and its 👍 reaction count is that feature's total. Reactions on the issue itself or the original reports do not count. No tokens, server or paid voting service are needed.
+The public board is `docs/features.html`, a static GitHub Pages page linked from the homepage. Votes are 👍 reactions on comments in one GitHub issue (the *voting thread*, named in `docs/assets/feature-thread.json`). Each idea has exactly one comment, found by a hidden `<!-- coffeeflix-feature: idea-id -->` marker. Reactions on the issue itself, on the original reports or on any other comment do not count. No tokens, servers or paid voting services are needed.
+
+Voters need a free GitHub account, so every vote belongs to a real account (one 👍 per account per idea) and you can see who voted on GitHub. Ideas themselves only come in as GitHub issues (the page links to the *Feature idea* issue form in `.github/ISSUE_TEMPLATE/`); you then add the ones you accept to the catalogue.
+
+`docs/assets/feature-requests.json` is the single source of truth for every idea's wording, category, source and status. Ideas are bundled: one card can list several related requests under `includes`, and the votes go to the bundle. A GitHub Action (`.github/workflows/feature-votes.yml`, script `tools/sync-feature-votes.py`) does the rest.
+
+## What the Action does
+
+It runs every 15 minutes (GitHub may delay scheduled runs), when you run it by hand from the Actions tab, and when the catalogue or thread file changes on `master`. Each run:
+
+1. **Posts a voting comment** for every idea that has none, as `github-actions[bot]`.
+2. **Rewrites a comment** whose title, summary, status or source no longer match the catalogue. Edits keep the comment, so its votes survive.
+3. **Publishes `votes.json`**, a snapshot of the 👍 counts and comment links, to the `votes` branch (one throwaway commit, force-pushed each run, so no history builds up and `master` gets no bot commits). The board reads this file, which avoids GitHub's 60-requests-an-hour limit for anonymous API calls.
+
+It never deletes comments. Comments only count if `Roastedd` or `github-actions[bot]` wrote them, and the earliest comment for an idea wins, so a look-alike comment from someone else cannot hijack a total.
 
 ## Add an idea
 
-1. Check the catalogue and original issues for duplicates. Bug reports belong in the issue tracker, separate from feature voting.
-2. Add one comment to issue #15 with the feature title, a short explanation, its category, source and instructions to add a 👍 reaction. Include these hidden markers:
+1. Check the board and the open issues for duplicates. Bug reports belong in the issue tracker, separate from voting. If the new request fits an existing card, add it to that card's `includes` instead of creating another card.
+2. Add an entry to `docs/assets/feature-requests.json` with a unique lowercase `id` (letters, digits and hyphens), `category`, `title`, a one-line `summary`, an optional `includes` list (short bullet points), `source` (for example `Reddit community`), optional `issues` (CoffeeFlix issue numbers to link, like `[13]`) and `status`.
+3. Run `python3 tools/render-feature-board.py` and commit the catalogue and `docs/features.html`. Category filters and counts are generated for you. Push to `master`. The Action posts the comment within a minute or so, and the card gets its exact vote link as soon as the snapshot updates.
 
-   ```html
-   <!-- coffeeflix-feature: unique-feature-id -->
-   <!-- coffeeflix-status: proposed -->
-   ```
+## Update a status or merge ideas
 
-3. Add the entry to `docs/assets/feature-requests.json`. Copy the numeric comment ID from the comment's permalink (`#issuecomment-ID`) into `commentId`. Each feature must have a unique ID and comment ID. Keep the existing comment when wording changes so votes survive.
-4. Run `python3 tools/render-feature-board.py` from the repository and commit the updated catalogue and `docs/features.html`. The page needs no build step at deployment. If adding a category, also add it to the category select in the HTML.
+Edit the idea's `status` in the catalogue (`proposed`, `needs-research`, `planned`, `in-progress`, `shipped`, `not-planned`), run the render script, commit and push. The Action rewrites the comment to match. Use Planned, In progress and Shipped only when work is accepted, underway or released; votes are not a schedule or a commitment.
 
-## Update a status
+To merge ideas, add the pieces to one entry's `includes` and delete the other entries from the catalogue. Delete the leftover comments in the thread by hand; the Action never deletes. Votes on a deleted comment are gone, so merge before an idea has votes you care about.
 
-Edit the original voting comment's `coffeeflix-status` marker and its visible status text. Supported values are `proposed`, `needs-research`, `planned`, `in-progress`, `shipped` and `not-planned`. Update the catalogue's `status` too and regenerate the page so offline visitors see the same state. Use Planned, In progress and Shipped only when accepted, underway or released; votes are not a schedule or a commitment.
+## Setting up the voting thread (and if it is ever deleted)
 
-The page uses status markers only from the existing registered comments authored by `Roastedd`. Other community comments cannot create cards or alter their statuses. Source and feature text are escaped when generating HTML.
+Open one empty issue (for example "CoffeeFlix feature voting"), put its number in `docs/assets/feature-thread.json`, run the render script and push. The Action posts a comment for every idea. **Do not delete the issue**: GitHub cannot restore a deleted issue, and every vote on it goes with it. If that happens, open a new one, update the number, render and push; votes start from zero. Do not lock the thread either, since locking can stop people from reacting.
 
 ## Counts and availability
 
-The browser reads the public GitHub issue-comments API, including pagination, and displays only `reactions["+1"]` for registered comment IDs. Counts are fetched on page load and with Refresh votes. Public results are cached in the visitor's browser for five minutes to reduce API usage; no personal or account data is stored. The refresh button is for checking votes after returning from GitHub.
+Page loads read the snapshot, which can be up to about 15 minutes behind. **Refresh votes** asks GitHub directly, so a new vote shows up straight away; if GitHub is rate limited it keeps the newest totals it has. If the snapshot is more than two hours old (for example the Action stopped) the page asks GitHub itself, and if that fails it shows the old snapshot with its timestamp. It never substitutes a zero for a failure: unknown counts show an em dash. Public results are cached in the visitor's browser for five minutes; no personal or account data is stored.
 
-If GitHub is offline or rate limited, the page retains saved counts with a notice, or shows an em dash when no count is available. It never substitutes a zero for an API failure. If a voting comment is deleted, the card links to the full thread and shows an unavailable count. Avoid deleting voting comments. If discussion grows beyond 1,000 comments, the fetch deliberately reports unavailable totals rather than silently publishing incomplete counts; consider a fresh thread and update the API/thread constants and generator together.
+GitHub pauses scheduled workflows in a public repository after 60 days without repository activity; run the workflow by hand from the Actions tab to resume it. If the thread grows beyond 1,000 comments the script refuses to publish incomplete totals; start a fresh thread as above.
 
-Static cards and voting links remain usable without JavaScript. The page also has search, category/status filters, vote/name/category sorting, keyboard focus styles and reduced-motion support.
+Cards and a "Vote on GitHub" link to the thread stay usable without JavaScript. With JavaScript the page also shows the **Most wanted** top three (hidden until there is at least one vote, and never shown from unavailable counts), search, category pills, a status filter, vote/name/category sorting, and it refreshes the totals when a visitor returns from voting on GitHub. It has keyboard focus styles and reduced-motion support.
 
 ## Check changes
 
-With Node and Playwright available, run `node tools/test-feature-voting.cjs`. If Playwright is provided outside the project, set `NODE_PATH` to its parent `node_modules` directory. The checks use a local server and mock GitHub responses; they do not cast votes. They cover counts, comment permalinks, filters, trusted status updates, pagination, missing comments, offline/rate-limited responses, JavaScript disabled and mobile layouts.
+- `python3 tools/test-sync-feature-votes.py` checks the Action's script against an in-memory thread.
+- `node tools/test-feature-voting.cjs` drives the page in a browser with Playwright (set `NODE_PATH` to its parent `node_modules` directory if it lives outside the project). Both use mock GitHub responses and never cast a vote.
+- `python3 tools/sync-feature-votes.py --sync-comments --dry-run --out /tmp/votes.json` previews what the Action would post or change, reading only public data.
