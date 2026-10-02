@@ -1,0 +1,215 @@
+/* The extra polish shared by the home page and the feature board: moving light behind the hero,
+   things that rise into view, cards that catch the light, and the Ko-fi support spots.
+   Everything here is decoration. Nothing needs it, and it all stands down for reduced motion. */
+
+:root {
+  --kofi: #ff5e5b;
+  --kofi-2: #ff9a56;
+  --kofi-grad: linear-gradient(105deg, #ff9a56, #ff5e5b 55%, #ff4f8b);
+  --glow: 0 18px 50px -14px rgba(255, 94, 91, 0.65);
+}
+
+/* ---------- aurora behind the hero ---------- */
+.aurora { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.aurora i {
+  position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%;
+  filter: blur(70px); opacity: 0.5; mix-blend-mode: screen; will-change: transform;
+}
+.aurora i:nth-child(1) { left: -12vmax; top: -22vmax; background: radial-gradient(circle, #ff9a3c, transparent 65%); animation: drift-a 22s ease-in-out infinite alternate; }
+.aurora i:nth-child(2) { right: -14vmax; top: -26vmax; background: radial-gradient(circle, #ff4f7b, transparent 65%); animation: drift-b 26s ease-in-out infinite alternate; }
+.aurora i:nth-child(3) { left: 28%; top: -10vmax; width: 34vmax; height: 34vmax; background: radial-gradient(circle, #8a5cff, transparent 68%); opacity: 0.28; animation: drift-c 30s ease-in-out infinite alternate; }
+@keyframes drift-a { to { transform: translate(9vmax, 6vmax) scale(1.12); } }
+@keyframes drift-b { to { transform: translate(-8vmax, 8vmax) scale(0.94); } }
+@keyframes drift-c { to { transform: translate(-6vmax, 5vmax) scale(1.2); } }
+
+/* a headline that slowly shimmers */
+.hero h1 .grad.shimmer, .shimmer {
+  background: linear-gradient(100deg, #ffa24c 0%, #ff5f6d 35%, #ffd08a 50%, #ff5f6d 65%, #ffa24c 100%);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer 7s linear infinite;
+}
+@keyframes shimmer { to { background-position: -250% 0; } }
+
+/* the first thing you see rises in, one piece after another */
+.rise { opacity: 0; transform: translateY(18px); animation: rise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; animation-delay: calc(var(--i, 0) * 90ms + 60ms); }
+@keyframes rise { to { opacity: 1; transform: none; } }
+
+/* ---------- scrolling into view ---------- */
+.js .reveal { opacity: 0; transform: translateY(26px) scale(0.985); transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); transition-delay: calc(var(--d, 0) * 70ms); }
+.js .reveal.in { opacity: 1; transform: none; }
+
+/* ---------- buttons that feel pressed ---------- */
+.btn { position: relative; overflow: hidden; }
+.btn:active { transform: translateY(0) scale(0.97); }
+.btn.primary::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-120%);
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
+}
+.btn.primary:hover::after { transform: translateX(120%); transition: transform 0.7s ease; }
+
+/* ---------- the Ko-fi button ---------- */
+.kofi-btn {
+  position: relative; display: inline-flex; align-items: center; gap: 10px; overflow: hidden;
+  padding: 14px 24px; border: 0; border-radius: 999px; background: var(--kofi-grad); color: #2a0b0a;
+  font: 700 16px/1.2 Inter, system-ui, sans-serif; text-decoration: none; cursor: pointer;
+  box-shadow: var(--glow), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.18s cubic-bezier(0.3, 1.6, 0.5, 1), box-shadow 0.2s, filter 0.2s;
+}
+.kofi-btn svg { width: 22px; height: 22px; flex: none; fill: currentColor; transform-origin: 50% 90%; }
+.kofi-btn:hover { transform: translateY(-2px) scale(1.04); filter: brightness(1.07); box-shadow: 0 22px 56px -12px rgba(255, 94, 91, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+.kofi-btn:hover svg { animation: cup-wiggle 0.7s ease; }
+.kofi-btn:active { transform: scale(0.96); }
+.kofi-btn::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-120%);
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
+  animation: kofi-sheen 4.5s ease-in-out 1.5s infinite;
+}
+@keyframes kofi-sheen { 0%, 62% { transform: translateX(-120%); } 82%, 100% { transform: translateX(120%); } }
+@keyframes cup-wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 55% { transform: rotate(12deg); } 80% { transform: rotate(-6deg); } }
+.kofi-btn.small { padding: 9px 16px; font-size: 14.5px; box-shadow: 0 8px 24px -10px rgba(255, 94, 91, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+.kofi-btn.small svg { width: 18px; height: 18px; }
+
+/* ---------- the support card ---------- */
+.support { margin-top: 72px; }
+section.support { margin: 0; padding: 40px 0 24px; }
+.hero { isolation: isolate; }
+.support-card {
+  position: relative; isolation: isolate; overflow: hidden; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 32px;
+  padding: 40px 44px; border: 1px solid transparent; border-radius: 26px;
+  background:
+    radial-gradient(520px 260px at 0% 0%, rgba(255, 94, 91, 0.22), transparent 70%) padding-box,
+    radial-gradient(420px 240px at 100% 100%, rgba(255, 154, 86, 0.16), transparent 70%) padding-box,
+    linear-gradient(#1b1319, #17111b) padding-box,
+    var(--kofi-grad) border-box;
+}
+.support-card .eyebrow { color: var(--kofi-2); }
+.support-card h2 { margin-top: 6px; font-size: clamp(26px, 3.6vw, 36px); line-height: 1.12; letter-spacing: -0.025em; }
+.support-card p { margin-top: 12px; max-width: 34em; color: var(--text-2); }
+.support-card .support-note { margin-top: 10px; font-size: 14px; color: var(--text-3); }
+.support-act { display: grid; justify-items: center; gap: 10px; }
+.support-act small { color: var(--text-3); font-size: 13px; }
+
+/* a cup of coffee with steam, drawn in SVG */
+.cup { position: relative; width: 140px; height: 155px; flex: none; }
+.cup svg { width: 100%; height: 100%; overflow: visible; }
+.cup .steam path { fill: none; stroke: rgba(255, 220, 190, 0.7); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 26 40; animation: steam 3.2s ease-in-out infinite; opacity: 0; }
+.cup .steam path:nth-child(2) { animation-delay: 0.9s; }
+.cup .steam path:nth-child(3) { animation-delay: 1.8s; }
+@keyframes steam {
+  0% { stroke-dashoffset: 40; opacity: 0; transform: translateY(8px); }
+  30% { opacity: 0.9; }
+  100% { stroke-dashoffset: -16; opacity: 0; transform: translateY(-14px); }
+}
+.cup .body { filter: drop-shadow(0 16px 24px rgba(255, 94, 91, 0.35)); animation: cup-bob 5s ease-in-out infinite; transform-origin: 50% 100%; }
+@keyframes cup-bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-4px) rotate(1.5deg); } }
+
+/* ---------- a floating thank-you pill ---------- */
+.kofi-float {
+  position: fixed; right: 18px; bottom: 18px; z-index: 40; display: flex; align-items: center; gap: 2px;
+  padding: 4px 4px 4px 4px; border-radius: 999px; background: rgba(20, 14, 22, 0.82); border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 18px 50px -16px rgba(0, 0, 0, 0.9);
+  transform: translateY(140%); opacity: 0; transition: transform 0.5s cubic-bezier(0.2, 1.2, 0.4, 1), opacity 0.4s; pointer-events: none;
+}
+.kofi-float.on { transform: none; opacity: 1; pointer-events: auto; }
+.kofi-float .close {
+  width: 30px; height: 30px; border: 0; border-radius: 50%; background: none; color: var(--text-3); font: 400 20px/1 Inter, sans-serif; cursor: pointer;
+}
+.kofi-float .close:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+
+/* ---------- cards that catch the light ---------- */
+.tilt { transform-style: preserve-3d; }
+.tilt::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0; transition: opacity 0.25s;
+  background: radial-gradient(360px circle at var(--mx, 50%) var(--my, 0%), rgba(255, 190, 120, 0.16), transparent 60%);
+}
+.tilt:hover::before { opacity: 1; }
+.tilt > :not(.meter) { position: relative; z-index: 1; }
+.tilt.is-tilting { transition: transform 0.08s linear, border-color 0.18s, box-shadow 0.18s; }
+
+/* things that are done or number one get a little shine */
+.badge[data-state="shipped"] { position: relative; overflow: hidden; }
+.badge[data-state="shipped"]::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-120%);
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.7) 50%, transparent 70%); animation: kofi-sheen 3.6s ease-in-out infinite;
+}
+.rank-1 .medal { animation: medal-glow 2.6s ease-in-out infinite; }
+.rank-1 .medal svg { animation: crown-tip 3.6s ease-in-out infinite; transform-origin: 50% 100%; }
+@keyframes medal-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 162, 76, 0.55); } 50% { box-shadow: 0 0 0 9px rgba(255, 162, 76, 0); } }
+@keyframes crown-tip { 0%, 80%, 100% { transform: rotate(0); } 88% { transform: rotate(-12deg); } 94% { transform: rotate(8deg); } }
+
+/* a vote meter that glints as it fills */
+.meter i { position: relative; overflow: hidden; }
+.meter i::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent); animation: kofi-sheen 3.4s ease-in-out infinite;
+}
+
+/* a total that just changed */
+.bump { display: inline-block; animation: bump 0.7s cubic-bezier(0.3, 1.8, 0.5, 1); }
+@keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.35); color: var(--accent); } 100% { transform: scale(1); } }
+
+/* the thumbs-up pops when it's pressed */
+.vote-btn { position: relative; }
+.vote-btn svg { transition: transform 0.25s cubic-bezier(0.3, 1.8, 0.5, 1); }
+.vote-btn:hover svg { transform: rotate(-14deg) scale(1.22); }
+.vote-btn.pop { animation: vote-pop 0.45s cubic-bezier(0.3, 1.8, 0.5, 1); }
+@keyframes vote-pop { 0% { transform: scale(1); } 40% { transform: scale(1.14); } 100% { transform: scale(1); } }
+
+/* ---------- bits that fly out of a click ---------- */
+.confetti { position: fixed; left: 0; top: 0; z-index: 90; pointer-events: none; font-size: 20px; line-height: 1; will-change: transform, opacity; }
+
+/* ---------- a strip of what it plays ---------- */
+.marquee { position: relative; overflow: hidden; padding: 6px 0; margin-top: 8px; mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); }
+.marquee ul { display: flex; gap: 12px; width: max-content; margin: 0; padding: 0; list-style: none; animation: marquee 38s linear infinite; }
+.marquee:hover ul { animation-play-state: paused; }
+.marquee li {
+  display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px; border: 1px solid var(--line); border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035); color: var(--text-2); font-weight: 600; font-size: 15px; white-space: nowrap;
+}
+.marquee li i { width: 8px; height: 8px; border-radius: 50%; background: var(--grad); flex: none; }
+@keyframes marquee { to { transform: translateX(-50%); } }
+
+/* ---------- the TV on the home page ---------- */
+.tv { position: relative; transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.tv::before {
+  content: ""; position: absolute; inset: -40px -60px; z-index: -1; border-radius: 40px; opacity: 0.55;
+  background: radial-gradient(60% 60% at 30% 40%, rgba(255, 150, 70, 0.4), transparent 70%), radial-gradient(60% 60% at 75% 60%, rgba(255, 70, 110, 0.35), transparent 70%);
+  filter: blur(40px); animation: tv-breathe 7s ease-in-out infinite alternate;
+}
+@keyframes tv-breathe { to { opacity: 0.85; transform: scale(1.04); } }
+
+/* feature cards on the home page */
+.grid .card { position: relative; transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
+.grid .card:hover { border-color: rgba(255, 162, 76, 0.4); box-shadow: 0 22px 50px -26px rgba(255, 120, 80, 0.55); }
+.card .icon { transition: transform 0.3s cubic-bezier(0.3, 1.8, 0.5, 1), box-shadow 0.3s; }
+.card:hover .icon { transform: translateY(-3px) rotate(-6deg) scale(1.08); box-shadow: 0 10px 24px -8px rgba(255, 162, 76, 0.7); }
+.gallery figure { position: relative; overflow: hidden; border-radius: 14px; }
+.gallery img { transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.gallery figure:hover img { transform: scale(1.05); }
+.gallery figcaption {
+  position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 36px 16px 14px; color: #fff;
+  background: linear-gradient(to top, rgba(8, 5, 10, 0.9), transparent); transform: translateY(40%); opacity: 0; transition: transform 0.35s, opacity 0.35s;
+}
+.gallery figure:hover figcaption, .gallery figure:focus-within figcaption { transform: none; opacity: 1; }
+@media (hover: none) { .gallery figcaption { position: static; padding: 0; margin-top: 8px; transform: none; opacity: 1; background: none; color: var(--text-3); } }
+
+/* ---------- small screens ---------- */
+@media (max-width: 860px) {
+  .support-card { grid-template-columns: 1fr; justify-items: start; padding: 30px 26px; gap: 22px; }
+  .support-act { justify-items: start; }
+  .cup { width: 88px; height: 98px; }
+}
+@media (max-width: 520px) {
+  .kofi-float .kofi-btn { padding: 10px 14px; }
+  .nav .kofi-btn span { display: none; }
+  .nav .kofi-btn { padding: 9px 12px; }
+}
+
+/* ---------- for anyone who'd rather things held still ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .aurora i, .shimmer, .kofi-btn::after, .btn.primary::after, .cup .body, .cup .steam path, .marquee ul, .tv::before,
+  .badge[data-state="shipped"]::after, .meter i::after, .bump, .rank-1 .medal, .rank-1 .medal svg, .rise { animation: none !important; }
+  .rise, .js .reveal { opacity: 1; transform: none; transition: none; }
+  .cup .steam path { opacity: 0.5; }
+  .kofi-float { transition: none; }
+}
