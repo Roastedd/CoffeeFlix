@@ -21,6 +21,7 @@ def load_catalogue():
         assert re.fullmatch(r"[a-z0-9-]+", item["id"]), f"Invalid feature id {item['id']!r}"
         assert item["id"] not in seen, f"Duplicate feature id {item['id']!r}"
         assert item["status"] in STATUSES, f"Unknown status {item['status']!r}"
+        assert isinstance(item.get("reply", ""), str), "reply must be text"
         assert all(type(n) is int and n > 0 for n in item.get("issues", [])), "Issue numbers must be positive integers"
         seen.add(item["id"])
     return items
@@ -36,10 +37,13 @@ def card_html(item, thread):
     includes = ""
     if item.get("includes"):
         includes = '\n            <ul class="includes">' + "".join(f"<li>{esc(line)}</li>" for line in item["includes"]) + "</ul>"
+    reply = ""
+    if item.get("reply"):
+        reply = f'\n            <p class="reply"><b>Maintainer reply</b> {esc(item["reply"])}</p>'
     return f'''          <article class="card" id="{item['id']}" data-category="{esc(item['category'])}" data-status="{item['status']}" aria-labelledby="title-{item['id']}">
             <div class="card-head"><span class="category">{esc(item['category'])}</span><span class="badge" data-state="{item['status']}">{STATUSES[item['status']]}</span></div>
             <h3 id="title-{item['id']}">{esc(item['title'])}</h3>
-            <p class="summary">{esc(item['summary'])}</p>{includes}
+            <p class="summary">{esc(item['summary'])}</p>{includes}{reply}
             <p class="source">{source_html(item)}</p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>

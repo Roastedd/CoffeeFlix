@@ -105,7 +105,7 @@ h1 { margin-top: 14px; max-width: 16em; text-wrap: balance; font-size: clamp(38p
 .steps a { color: var(--accent); }
 
 /* sections */
-.top, .requests, .suggest, .bugs { margin-top: 72px; }
+.top, .requests, .suggest { margin-top: 72px; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
 .section-heading h2 { margin-top: 6px; font-size: clamp(28px, 4vw, 38px); line-height: 1.12; letter-spacing: -0.025em; }
 .idea-count { color: var(--text-3); font-size: 15px; white-space: nowrap; }
@@ -195,6 +195,8 @@ input::placeholder { color: var(--text-3); }
 .includes { display: grid; gap: 8px; padding: 0; list-style: none; font-size: 14.5px; }
 .includes li { position: relative; padding-left: 22px; color: var(--text-2); line-height: 1.5; }
 .includes li::before { content: ""; position: absolute; left: 3px; top: 0.55em; width: 8px; height: 8px; border-radius: 50%; background: var(--grad); }
+.reply { margin: 2px 0 0; padding: 12px 14px; border-left: 3px solid var(--accent, #c8884a); border-radius: 0 10px 10px 0; background: rgba(255, 255, 255, 0.04); color: var(--text-2); font-size: 14.5px; line-height: 1.5; }
+.reply b { display: block; margin-bottom: 2px; color: var(--text); font-size: 12.5px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
 .source { color: var(--text-3); font-size: 13px; }
 .source a { text-underline-offset: 3px; }
 .source a:hover { color: var(--text); }
@@ -231,17 +233,6 @@ input::placeholder { color: var(--text-3); }
 .suggest h2 { margin-top: 6px; font-size: clamp(28px, 4vw, 38px); line-height: 1.12; letter-spacing: -0.025em; }
 .suggest p { margin-top: 12px; color: var(--text-2); }
 .suggest-actions { display: flex; flex-wrap: wrap; gap: 12px; }
-
-/* bugs */
-.bugs h2 { margin-top: 6px; font-size: clamp(24px, 3.4vw, 30px); letter-spacing: -0.02em; }
-.bugs > p { margin-top: 8px; color: var(--text-2); }
-.bugs ul { display: grid; gap: 10px; margin: 20px 0 22px; padding: 0; list-style: none; }
-.bugs li a {
-  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; padding: 14px 18px;
-  border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.025); text-decoration: none; transition: border-color 0.18s;
-}
-.bugs li a:hover { border-color: var(--line-2); }
-.bugs li a span { color: var(--text-3); font-size: 14px; }
 
 footer { margin-top: 96px; padding: 32px 0 44px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 14.5px; }
 footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px 28px; }

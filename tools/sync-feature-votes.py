@@ -97,6 +97,7 @@ def feature_body(item):
     includes = ""
     if item.get("includes"):
         includes = "\n\n**Includes:**\n\n" + "\n".join(f"- {line}" for line in item["includes"])
+    reply = f"\n\n**Reply from the maintainer:** {item['reply']}" if item.get("reply") else ""
     return f"""<!-- coffeeflix-feature: {item['id']} -->
 <!-- coffeeflix-status: {item['status']} -->
 
@@ -108,7 +109,7 @@ def feature_body(item):
 
 **Status:** {STATUSES[item['status']]}
 
-**Source:** {source}
+**Source:** {source}{reply}
 
 **Vote:** add a 👍 reaction to this comment. You can support several ideas and withdraw a vote by clicking your 👍 again. Votes help set priorities; they are not a promise of implementation."""
 
