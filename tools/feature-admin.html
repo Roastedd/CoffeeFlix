@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoffeeFlix feature board editor</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b090e; --surface: #1a1520; --surface-2: #231c2b; --line: rgba(255,255,255,.1); --text: #f6f4f8; --text-2: #b9b4c0; --text-3: #8a8592; --accent: #ffa24c; --bad: #ff7a7a; --good: #7be0a4; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(11,9,14,.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 960px; margin: 0 auto; padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+  .bar h1 { margin: 0; font-size: 17px; letter-spacing: -.01em; flex: 1 1 220px; }
+  .bar a { color: var(--text-2); font-size: 14px; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); padding: 8px 14px; }
+  button:hover:not(:disabled) { border-color: rgba(255,255,255,.3); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #1b1006; font-weight: 650; }
+  button.danger { color: var(--bad); }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  main { max-width: 960px; margin: 0 auto; padding: 20px 20px 80px; }
+  #message { min-height: 24px; margin: 0 0 14px; font-size: 14.5px; white-space: pre-wrap; }
+  #message.ok { color: var(--good); } #message.err { color: var(--bad); }
+  .note { color: var(--text-3); font-size: 14px; margin: 0 0 18px; }
+  .idea { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 16px; }
+  .top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-top: 14px; }
+  .grid .wide { grid-column: 1 / -1; }
+  label { display: block; font-size: 12.5px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
+  label small { text-transform: none; letter-spacing: 0; color: var(--text-3); }
+  input, select, textarea { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea { min-height: 70px; resize: vertical; }
+  .reply textarea { border-color: rgba(255,162,76,.35); }
+  .tools { display: flex; gap: 6px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Feature board editor</h1>
+    <a id="live" href="https://roastedd.github.io/CoffeeFlix/features.html" target="_blank" rel="noopener">View the live page ↗</a>
+    <a id="thread" href="#" target="_blank" rel="noopener">Voting thread ↗</a>
+    <button type="button" id="add">Add idea</button>
+    <button type="button" id="save">Save</button>
+    <button type="button" id="publish" class="primary">Publish to website</button>
+  </div>
+</header>
+<main>
+  <p id="message" role="status"></p>
+  <p class="note">Save writes your changes to this computer. Publish saves, then puts them on the website. The order here is the order cards appear when ideas have the same number of votes.</p>
+  <div id="ideas"></div>
+</main>
+<script>
+(() => {
+  const token = new URLSearchParams(location.search).get("t") || "";
+  const $ = id => document.getElementById(id);
+  const msg = $("message");
+  let ideas = [], statuses = [], saved = "";
+
+  const say = (text, kind = "") => { msg.textContent = text; msg.className = kind; };
+  const call = async (path, body) => {
+    const res = await fetch(path, body === undefined ? { headers: { "X-Token": token } }
+      : { method: "POST", headers: { "X-Token": token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Something went wrong.");
+    return data;
+  };
+  const wire = data => {
+    ideas = data.ideas.map(i => ({ ...i, includes: (i.includes || []).join("\n"), issues: (i.issues || []).join(", ") }));
+    statuses = data.statuses; saved = JSON.stringify(ideas);
+    $("thread").href = data.thread;
+    draw();
+  };
+
+  const field = (idea, key, label, kind = "input", extra = {}) => {
+    const wrap = document.createElement("div");
+    wrap.className = (extra.wide ? "wide " : "") + (extra.cls || "");
+    const l = document.createElement("label"); l.innerHTML = label;
+    const el = document.createElement(kind);
+    el.value = idea[key] || "";
+    if (extra.list) el.setAttribute("list", extra.list);
+    if (extra.placeholder) el.placeholder = extra.placeholder;
+    el.addEventListener("input", () => { idea[key] = el.value; });
+    wrap.append(l, el);
+    return { wrap, el };
+  };
+
+  const draw = () => {
+    const root = $("ideas"); root.textContent = "";
+    const cats = [...new Set(ideas.map(i => i.category).filter(Boolean))];
+    const dl = document.createElement("datalist"); dl.id = "cats";
+    dl.append(...cats.map(c => Object.assign(document.createElement("option"), { value: c })));
+    root.append(dl);
+    ideas.forEach((idea, index) => {
+      const card = document.createElement("section"); card.className = "idea";
+      const top = document.createElement("div"); top.className = "top";
+      const title = document.createElement("input"); title.className = "title"; title.value = idea.title || "";
+      title.placeholder = "Title"; title.setAttribute("aria-label", "Title"); title.style.cssText = "flex:1 1 260px;font-size:18px;font-weight:650";
+      title.addEventListener("input", () => { idea.title = title.value; });
+      const status = document.createElement("select"); status.setAttribute("aria-label", "Status"); status.style.width = "auto";
+      status.append(...statuses.map(s => Object.assign(document.createElement("option"), { value: s.value, textContent: s.label })));
+      status.value = idea.status; status.addEventListener("change", () => { idea.status = status.value; });
+      const tools = document.createElement("div"); tools.className = "tools";
+      const btn = (text, label, fn, cls = "") => { const b = document.createElement("button"); b.type = "button"; b.className = "small " + cls; b.textContent = text; b.setAttribute("aria-label", label); b.addEventListener("click", fn); return b; };
+      const up = btn("↑", "Move up", () => move(index, -1)); up.disabled = index === 0;
+      const down = btn("↓", "Move down", () => move(index, 1)); down.disabled = index === ideas.length - 1;
+      tools.append(up, down, btn("Remove", `Remove ${idea.title || "idea"}`, () => remove(index), "danger"));
+      top.append(title, status, tools);
+      const grid = document.createElement("div"); grid.className = "grid";
+      grid.append(
+        field(idea, "category", "Category", "input", { list: "cats" }).wrap,
+        field(idea, "issues", "GitHub issue numbers <small>(optional, like 11, 12)</small>").wrap,
+        field(idea, "summary", "Summary <small>(one or two sentences)</small>", "textarea", { wide: true }).wrap,
+        field(idea, "includes", "What’s included <small>(one per line, optional)</small>", "textarea", { wide: true }).wrap,
+        field(idea, "reply", "Your reply <small>(optional — shows on the card and in the GitHub comment)</small>", "textarea", { wide: true, cls: "reply" }).wrap);
+      card.append(top, grid);
+      root.append(card);
+    });
+    if (!ideas.length) root.append(Object.assign(document.createElement("p"), { className: "note", textContent: "No ideas yet. Use Add idea." }));
+  };
+
+  const move = (i, by) => { [ideas[i], ideas[i + by]] = [ideas[i + by], ideas[i]]; draw(); };
+  const remove = i => {
+    if (!confirm(`Remove “${ideas[i].title || "this idea"}” from the board?\n\nIts voting comment stays in the GitHub thread; delete that on GitHub if you want it gone (its votes go with it).`)) return;
+    ideas.splice(i, 1); draw();
+  };
+  $("add").addEventListener("click", () => {
+    ideas.unshift({ category: "", title: "", summary: "", includes: "", issues: "", reply: "", status: "proposed" });
+    draw(); $("ideas").querySelector(".title").focus();
+  });
+
+  const run = async (path, working, done) => {
+    document.querySelectorAll("header button").forEach(b => { b.disabled = true; });
+    say(working);
+    try {
+      const data = await call(path, { ideas });
+      wire(data);
+      done(data);
+    } catch (error) { say(error.message, "err"); }
+    finally { document.querySelectorAll("header button").forEach(b => { b.disabled = false; }); }
+  };
+  $("save").addEventListener("click", () => run("/api/save", "Saving…", () => say("Saved on this computer and the page rebuilt. Publish when you’re happy.", "ok")));
+  $("publish").addEventListener("click", () => run("/api/publish", "Publishing…", data => say(data.message, data.ok ? "ok" : "err")));
+  addEventListener("beforeunload", e => { if (JSON.stringify(ideas) !== saved) e.preventDefault(); });
+
+  call("/api/state").then(wire).catch(error => say(error.message, "err"));
+})();
+</script>
+</body>
+</html>

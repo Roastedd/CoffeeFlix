@@ -9,7 +9,6 @@
       "Open straight to your favorite page at startup",
       "Set a display name for a personal greeting"
     ],
-    "source": "Reddit community",
     "status": "planned"
   },
   {
@@ -22,7 +21,6 @@
       "Choose fit, stretch or letterbox in the player",
       "4:3 output considered for CRTs and older TVs"
     ],
-    "source": "Reddit community",
     "status": "proposed"
   },
   {
@@ -31,7 +29,6 @@
     "title": "Type without the GamePad",
     "summary": "Use the on-screen keyboard with a Wii Remote or a Pro Controller, even when the GamePad isn’t within reach.",
     "includes": [],
-    "source": "Reddit community",
     "status": "proposed"
   },
   {
@@ -40,7 +37,6 @@
     "title": "Autoplay the next episode",
     "summary": "Keep a series rolling: continue to the next Jellyfin episode automatically, with an option to turn it off.",
     "includes": [],
-    "source": "Reddit community",
     "status": "proposed"
   },
   {
@@ -52,7 +48,6 @@
       "Browse and play files over FTP, including a phone acting as your media server",
       "Calibre-Web and Kavita libraries, read in CoffeeFlix next to the local EPUB and CBZ reader"
     ],
-    "source": "Reddit community",
     "issues": [11, 12],
     "status": "needs-research"
   },
@@ -65,7 +60,6 @@
       "Like and dislike videos while signed in",
       "YouTube Kids profile support"
     ],
-    "source": "Reddit community",
     "issues": [13],
     "status": "needs-research"
   },
@@ -78,7 +72,6 @@
       "Return YouTube Dislike counts",
       "DeArrow titles and thumbnails, with an option to see the originals"
     ],
-    "source": "Reddit community",
     "issues": [13],
     "status": "needs-research"
   },
@@ -91,7 +84,6 @@
       "Your followed channels",
       "Collect channel points while you watch"
     ],
-    "source": "Reddit community",
     "issues": [13],
     "status": "needs-research"
   },
@@ -105,7 +97,6 @@
       "Chat with 7TV and BTTV emotes",
       "Polls and predictions where possible"
     ],
-    "source": "Reddit community",
     "issues": [13],
     "status": "needs-research"
   },
@@ -115,7 +106,6 @@
     "title": "A version for the original Wii",
     "summary": "Investigate a smaller build for the Wii. Hardware limits would shape the features and video quality it could support.",
     "includes": [],
-    "source": "Reddit community",
     "status": "needs-research"
   }
 ]

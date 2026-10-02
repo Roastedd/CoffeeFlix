@@ -93,7 +93,8 @@ def index_comments(comments):
 
 
 def feature_body(item):
-    source = " · ".join([item["source"], *(f"[GitHub #{n}](https://github.com/{REPO}/issues/{n})" for n in item.get("issues", []))])
+    source = " · ".join(([item["source"]] if item.get("source") else []) + [f"[GitHub #{n}](https://github.com/{REPO}/issues/{n})" for n in item.get("issues", [])])
+    source = f"\n\n**Source:** {source}" if source else ""
     includes = ""
     if item.get("includes"):
         includes = "\n\n**Includes:**\n\n" + "\n".join(f"- {line}" for line in item["includes"])
@@ -107,9 +108,7 @@ def feature_body(item):
 
 **Category:** {item['category']}
 
-**Status:** {STATUSES[item['status']]}
-
-**Source:** {source}{reply}
+**Status:** {STATUSES[item['status']]}{source}{reply}
 
 **Vote:** add a 👍 reaction to this comment. You can support several ideas and withdraw a vote by clicking your 👍 again. Votes help set priorities; they are not a promise of implementation."""
 
