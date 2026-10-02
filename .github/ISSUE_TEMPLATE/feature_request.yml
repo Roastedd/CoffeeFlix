@@ -1,0 +1,40 @@
+name: Feature idea
+description: Suggest something you'd like CoffeeFlix to do
+title: "Feature idea: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape CoffeeFlix! Ideas are only considered when they are opened as an issue here. Check the [feature board](https://roastedd.github.io/CoffeeFlix/features.html#requests) first. If your idea is already there, give it a 👍 on GitHub instead of opening a new one.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like CoffeeFlix to do?
+      description: Describe the idea in a sentence or two.
+    validations:
+      required: true
+  - type: textarea
+    id: use
+    attributes:
+      label: How would you use it?
+      description: What does it let you do that you can't today?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      options:
+        - Home and settings
+        - Video playback
+        - YouTube
+        - Twitch
+        - Jellyfin
+        - Radio, podcasts or books
+        - Something else
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before you submit
+      options:
+        - label: I checked the feature board and this idea isn't there yet.
+          required: true

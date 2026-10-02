@@ -1,173 +1,121 @@
 [
   {
-    "id": "hide-sections",
-    "category": "Personalization",
-    "title": "Hide sections you don’t use",
-    "summary": "Choose which services appear in the sidebar and on Home, so your app only shows what you use.",
-    "source": "Community feedback · Tornabro9514",
-    "status": "proposed",
-    "commentId": 5942245303
+    "id": "personalize-home",
+    "category": "Home & settings",
+    "title": "Make Home your own",
+    "summary": "Shape the home screen around how you actually watch.",
+    "includes": [
+      "Hide the sections you don’t use",
+      "Open straight to your favorite page at startup",
+      "Set a display name for a personal greeting"
+    ],
+    "source": "Reddit community",
+    "status": "planned"
   },
   {
-    "id": "startup-page",
-    "category": "Personalization",
-    "title": "Choose your startup page",
-    "summary": "Open directly to your favorite section, such as local media, YouTube or Jellyfin, when CoffeeFlix starts.",
-    "source": "Community feedback · Tornabro9514",
-    "status": "proposed",
-    "commentId": 5942247975
-  },
-  {
-    "id": "personal-greeting",
-    "category": "Personalization",
-    "title": "A display name and personal greeting",
-    "summary": "Set a display name for the Home greeting, with more greeting phrases to make the app feel personal.",
-    "source": "Community feedback · Tornabro9514",
-    "status": "proposed",
-    "commentId": 5942248632
-  },
-  {
-    "id": "background-effects",
-    "category": "Personalization",
-    "title": "Turn background effects off",
-    "summary": "Add a setting to disable animated background effects for a quieter interface.",
-    "source": "Community feedback · kkkkkkkklkkkk_9991",
-    "status": "proposed",
-    "commentId": 5942249217
+    "id": "display-options",
+    "category": "Display & video",
+    "title": "Display options",
+    "summary": "A quieter interface, and video that fits the TV you have.",
+    "includes": [
+      "Turn animated background effects off",
+      "Choose fit, stretch or letterbox in the player",
+      "4:3 output considered for CRTs and older TVs"
+    ],
+    "source": "Reddit community",
+    "status": "proposed"
   },
   {
     "id": "controller-keyboard",
-    "category": "Playback & controls",
+    "category": "Controls",
     "title": "Type without the GamePad",
-    "summary": "Use the on-screen keyboard with a Wii Remote or Pro Controller, including when the GamePad is unavailable.",
-    "source": "Community feedback · Far-Value-3368 and Rocpal",
-    "status": "proposed",
-    "commentId": 5942249847
-  },
-  {
-    "id": "aspect-ratio",
-    "category": "Playback & controls",
-    "title": "Video sizing for 4:3 TVs and CRTs",
-    "summary": "Choose fit, stretch or letterbox in the player, with 4:3 output considered for older TVs.",
-    "source": "Community feedback · soniczx123 and iLiikePlayingWii",
-    "status": "proposed",
-    "commentId": 5942250456
+    "summary": "Use the on-screen keyboard with a Wii Remote or a Pro Controller, even when the GamePad isn’t within reach.",
+    "includes": [],
+    "source": "Reddit community",
+    "status": "proposed"
   },
   {
     "id": "jellyfin-autoplay",
     "category": "Jellyfin",
-    "title": "Autoplay the next Jellyfin episode",
-    "summary": "Continue to the next episode automatically when watching a series, with an option to turn it off.",
-    "source": "Community feedback · MikeDubbz",
-    "status": "proposed",
-    "commentId": 5942251100
+    "title": "Autoplay the next episode",
+    "summary": "Keep a series rolling: continue to the next Jellyfin episode automatically, with an option to turn it off.",
+    "includes": [],
+    "source": "Reddit community",
+    "status": "proposed"
   },
   {
-    "id": "ftp-streaming",
-    "category": "Network & books",
-    "title": "Stream your media over FTP",
-    "summary": "Browse and play files from an FTP server, including a phone acting as your home media server.",
-    "source": "GitHub issue #12 · thenintendofreak; community feedback",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/12",
-    "status": "needs-research",
-    "commentId": 5942251747
+    "id": "more-servers",
+    "category": "Servers & books",
+    "title": "More servers and libraries",
+    "summary": "Reach your media and books on more of the servers you already run at home.",
+    "includes": [
+      "Browse and play files over FTP, including a phone acting as your media server",
+      "Calibre-Web and Kavita libraries, read in CoffeeFlix next to the local EPUB and CBZ reader"
+    ],
+    "source": "Reddit community",
+    "issues": [11, 12],
+    "status": "needs-research"
   },
   {
-    "id": "book-servers",
-    "category": "Network & books",
-    "title": "Calibre-Web and Kavita libraries",
-    "summary": "Browse books and comics on your network and read them in CoffeeFlix, extending the local EPUB and CBZ reader.",
-    "source": "GitHub issue #11 · theEpicjosh",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/11",
-    "status": "needs-research",
-    "commentId": 5942252250
-  },
-  {
-    "id": "youtube-reactions",
+    "id": "youtube-account",
     "category": "YouTube",
-    "title": "Like and dislike YouTube videos",
-    "summary": "Let signed-in YouTube users like and dislike videos from CoffeeFlix.",
-    "source": "GitHub issue #13 · Skyler-xiao",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/13",
-    "status": "needs-research",
-    "commentId": 5942252938
+    "title": "YouTube account extras",
+    "summary": "More from your signed-in YouTube account. Profile access and account compatibility need investigating.",
+    "includes": [
+      "Like and dislike videos while signed in",
+      "YouTube Kids profile support"
+    ],
+    "source": "Reddit community",
+    "issues": [13],
+    "status": "needs-research"
   },
   {
-    "id": "return-dislikes",
+    "id": "youtube-community",
     "category": "YouTube",
-    "title": "Return YouTube Dislike integration",
-    "summary": "Show estimated dislike counts using Return YouTube Dislike.",
-    "source": "GitHub issue #13 · Skyler-xiao",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/13",
-    "status": "needs-research",
-    "commentId": 5942253584
+    "title": "Community add-ons for YouTube",
+    "summary": "Bring two popular community projects to CoffeeFlix.",
+    "includes": [
+      "Return YouTube Dislike counts",
+      "DeArrow titles and thumbnails, with an option to see the originals"
+    ],
+    "source": "Reddit community",
+    "issues": [13],
+    "status": "needs-research"
   },
   {
-    "id": "dearrow",
-    "category": "YouTube",
-    "title": "DeArrow titles and thumbnails",
-    "summary": "Offer community-written titles and thumbnails through DeArrow, with an option to use the originals.",
-    "source": "GitHub issue #13 · Skyler-xiao",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/13",
-    "status": "needs-research",
-    "commentId": 5942254272
-  },
-  {
-    "id": "youtube-kids",
-    "category": "YouTube",
-    "title": "YouTube Kids profile support",
-    "summary": "Explore whether YouTube Kids profiles can be supported. Profile access and account compatibility need investigation.",
-    "source": "Community feedback · pastuleo23",
-    "status": "needs-research",
-    "commentId": 5942254874
-  },
-  {
-    "id": "twitch-login",
+    "id": "twitch-account",
     "category": "Twitch",
-    "title": "Sign in to Twitch",
-    "summary": "Connect a Twitch account and access account features, such as your followed channels.",
-    "source": "GitHub issue #13 · Skyler-xiao",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/13",
-    "status": "needs-research",
-    "commentId": 5942255536
+    "title": "Twitch account and channel points",
+    "summary": "Sign in to Twitch for account features. Feasibility and service support need checking.",
+    "includes": [
+      "Your followed channels",
+      "Collect channel points while you watch"
+    ],
+    "source": "Reddit community",
+    "issues": [13],
+    "status": "needs-research"
   },
   {
-    "id": "twitch-vods",
+    "id": "twitch-watching",
     "category": "Twitch",
-    "title": "Watch Twitch VODs",
-    "summary": "Browse and play past Twitch broadcasts alongside live streams.",
-    "source": "GitHub issue #13 · Skyler-xiao",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/13",
-    "status": "needs-research",
-    "commentId": 5942256119
-  },
-  {
-    "id": "twitch-points",
-    "category": "Twitch",
-    "title": "Automatically collect Twitch channel points",
-    "summary": "Explore collecting available channel point bonuses while watching signed in. Feasibility and service support need checking.",
-    "source": "GitHub issue #13 · Skyler-xiao",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/13",
-    "status": "needs-research",
-    "commentId": 5942256854
-  },
-  {
-    "id": "twitch-chat",
-    "category": "Twitch",
-    "title": "Twitch chat, emotes and polls",
-    "summary": "Read chat with 7TV and BTTV emotes, and explore support for polls and predictions where possible.",
-    "source": "GitHub issue #13 · Skyler-xiao",
-    "sourceUrl": "https://github.com/Roastedd/CoffeeFlix/issues/13",
-    "status": "needs-research",
-    "commentId": 5942257565
+    "title": "Watch more on Twitch",
+    "summary": "More ways to enjoy a stream, beyond the live video.",
+    "includes": [
+      "Past broadcasts (VODs) next to live streams",
+      "Chat with 7TV and BTTV emotes",
+      "Polls and predictions where possible"
+    ],
+    "source": "Reddit community",
+    "issues": [13],
+    "status": "needs-research"
   },
   {
     "id": "wii-port",
     "category": "Platforms",
-    "title": "Explore a Wii version",
-    "summary": "Investigate a smaller version for the original Wii. Hardware limits would affect the features and video quality it could support.",
-    "source": "Community feedback · therynn1",
-    "status": "needs-research",
-    "commentId": 5942258162
+    "title": "A version for the original Wii",
+    "summary": "Investigate a smaller build for the Wii. Hardware limits would shape the features and video quality it could support.",
+    "includes": [],
+    "source": "Reddit community",
+    "status": "needs-research"
   }
 ]
