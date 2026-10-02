@@ -38,8 +38,7 @@
     "title": "Autoplay the next episode",
     "summary": "Keep a series rolling: continue to the next Jellyfin episode automatically, with an option to turn it off.",
     "includes": [],
-    "status": "planned",
-    "reply": "YouTube already keeps playing the next video, so bringing the same to Jellyfin should be a quick one."
+    "status": "shipped"
   },
   {
     "id": "more-servers",
