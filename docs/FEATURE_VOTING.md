@@ -4,29 +4,48 @@ The public board is `docs/features.html`, a static GitHub Pages page linked from
 
 Voters need a free GitHub account, so every vote belongs to a real account (one 👍 per account per idea) and you can see who voted on GitHub. Ideas themselves only come in as GitHub issues (the page links to the *Feature idea* issue form in `.github/ISSUE_TEMPLATE/`); you then add the ones you accept to the catalogue.
 
-`docs/assets/feature-requests.json` is the single source of truth for every idea's wording, category, source and status. Ideas are bundled: one card can list several related requests under `includes`, and the votes go to the bundle. A GitHub Action (`.github/workflows/feature-votes.yml`, script `tools/sync-feature-votes.py`) does the rest.
+`docs/assets/feature-requests.json` is the single source of truth for every idea's wording, category, source, status and optional reply. Ideas are bundled: one card can list several related requests under `includes`, and the votes go to the bundle. A GitHub Action (`.github/workflows/feature-votes.yml`, script `tools/sync-feature-votes.py`) does the rest.
 
 ## What the Action does
 
 It runs every 15 minutes (GitHub may delay scheduled runs), when you run it by hand from the Actions tab, and when the catalogue or thread file changes on `master`. Each run:
 
 1. **Posts a voting comment** for every idea that has none, as `github-actions[bot]`.
-2. **Rewrites a comment** whose title, summary, status or source no longer match the catalogue. Edits keep the comment, so its votes survive.
+2. **Rewrites a comment** whose title, summary, status, source or reply no longer match the catalogue. Edits keep the comment, so its votes survive.
 3. **Publishes `votes.json`**, a snapshot of the 👍 counts and comment links, to the `votes` branch (one throwaway commit, force-pushed each run, so no history builds up and `master` gets no bot commits). The board reads this file, which avoids GitHub's 60-requests-an-hour limit for anonymous API calls.
 
 It never deletes comments. Comments only count if `Roastedd` or `github-actions[bot]` wrote them, and the earliest comment for an idea wins, so a look-alike comment from someone else cannot hijack a total.
 
 ## Add an idea
 
-1. Check the board and the open issues for duplicates. Bug reports belong in the issue tracker, separate from voting. If the new request fits an existing card, add it to that card's `includes` instead of creating another card.
-2. Add an entry to `docs/assets/feature-requests.json` with a unique lowercase `id` (letters, digits and hyphens), `category`, `title`, a one-line `summary`, an optional `includes` list (short bullet points), `source` (for example `Reddit community`), optional `issues` (CoffeeFlix issue numbers to link, like `[13]`) and `status`.
+1. Check the board and the open issues for duplicates. If the new request fits an existing card, add it to that card's `includes` instead of creating another card.
+2. Add an entry to `docs/assets/feature-requests.json` with a unique lowercase `id` (letters, digits and hyphens), `category`, `title`, a one-line `summary`, an optional `includes` list (short bullet points), `source` (for example `Reddit community`), optional `issues` (CoffeeFlix issue numbers to link, like `[13]`), `status` and an optional `reply`.
 3. Run `python3 tools/render-feature-board.py` and commit the catalogue and `docs/features.html`. Category filters and counts are generated for you. Push to `master`. The Action posts the comment within a minute or so, and the card gets its exact vote link as soon as the snapshot updates.
 
-## Update a status or merge ideas
+## Change a status
 
-Edit the idea's `status` in the catalogue (`proposed`, `needs-research`, `planned`, `in-progress`, `shipped`, `not-planned`), run the render script, commit and push. The Action rewrites the comment to match. Use Planned, In progress and Shipped only when work is accepted, underway or released; votes are not a schedule or a commitment.
+Each card shows a badge from its `status` field. Edit it in the catalogue, run the render script, commit and push; the Action rewrites the comment to match.
 
-To merge ideas, add the pieces to one entry's `includes` and delete the other entries from the catalogue. Delete the leftover comments in the thread by hand; the Action never deletes. Votes on a deleted comment are gone, so merge before an idea has votes you care about.
+| `status` | Badge | Meaning |
+| --- | --- | --- |
+| `proposed` | Proposed | Suggested by the community |
+| `needs-research` | Needs research | Feasibility is being checked |
+| `planned` | Planned | Accepted for a future update |
+| `in-progress` | In progress | Being built now |
+| `shipped` | Shipped | Released |
+| `not-planned` | Not planned | Won't be done |
+
+Use Planned, In progress and Shipped only when work is accepted, underway or released; votes are not a schedule or a commitment.
+
+## Reply to an idea
+
+Add a `"reply"` line to the idea in the catalogue (for example `"reply": "Thanks, I'll look at this after the next release."`), render and push. The text shows on the card as a *Maintainer reply* and is added to the voting comment on GitHub. Delete the line to remove it. Plain text only.
+
+## Remove or merge ideas
+
+To remove an idea, delete its entry from the catalogue, run the render script and push. The card disappears from the board. Its old comment stays in the voting thread because the Action never deletes; delete it by hand if you want it gone (votes on it go with it, and it is only a comment, not the issue). To retire an idea but keep it visible, set its `status` to `not-planned` instead.
+
+To merge ideas, add the pieces to one entry's `includes` and delete the other entries. Votes on a deleted comment are gone, so merge before an idea has votes you care about. The linked CoffeeFlix issues (`issues`) are separate GitHub issues; close them rather than deleting them, because a deleted issue cannot be restored.
 
 ## Setting up the voting thread (and if it is ever deleted)
 

@@ -84,6 +84,16 @@ class SyncTests(unittest.TestCase):
         self.assertIn(f"**Status:** {sync.STATUSES[target['status']]}", edits[0][1])
         self.assertIn(f"coffeeflix-status: {target['status']}", edits[0][1])
 
+    def test_a_reply_is_added_to_the_comment_and_only_that_one(self):
+        thread = self.thread()
+        target = self.items[1]
+        replied = {**target, "reply": "Thanks, looking at this <soon>."}
+        self.assertNotIn("Reply", sync.feature_body(target))
+        create, edits = sync.plan([self.items[0], replied, *self.items[2:]], thread)
+        self.assertEqual(create, [])
+        self.assertEqual([c["id"] for c, _ in edits], [thread[target["id"]]["id"]])
+        self.assertIn("**Reply from the maintainer:** Thanks, looking at this <soon>.", edits[0][1])
+
     def test_ideas_without_a_comment_are_posted(self):
         thread = self.thread()
         gone = self.items[2]["id"]

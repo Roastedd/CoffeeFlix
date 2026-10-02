@@ -35,7 +35,7 @@
     summary: card.querySelector(".summary").textContent,
     category: card.dataset.category,
     status: card.dataset.status,
-    searchText: [...card.querySelectorAll(".category, h3, .summary, .includes li")].map(node => node.textContent).join(" ").toLowerCase(),
+    searchText: [...card.querySelectorAll(".category, h3, .summary, .includes li, .reply")].map(node => node.textContent).join(" ").toLowerCase(),
     link: card.querySelector(".vote-btn"),
     count: card.querySelector("[data-votes]"),
     label: card.querySelector("[data-vote-label]"),
