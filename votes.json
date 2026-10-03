@@ -1,0 +1,41 @@
+{
+ "generatedAt": "2026-10-03T16:48:07Z",
+ "features": {
+  "personalize-home": {
+   "commentId": 5943208549,
+   "votes": 2
+  },
+  "display-options": {
+   "commentId": 5943208805,
+   "votes": 1
+  },
+  "controller-keyboard": {
+   "commentId": 5943209093,
+   "votes": 1
+  },
+  "jellyfin-autoplay": {
+   "commentId": 5943209354,
+   "votes": 1
+  },
+  "more-servers": {
+   "commentId": 5943209624,
+   "votes": 1
+  },
+  "youtube-account": {
+   "commentId": 5943209927,
+   "votes": 2
+  },
+  "youtube-community": {
+   "commentId": 5943210197,
+   "votes": 2
+  },
+  "twitch-account": {
+   "commentId": 5943210469,
+   "votes": 1
+  },
+  "twitch-watching": {
+   "commentId": 5943210759,
+   "votes": 0
+  }
+ }
+}
