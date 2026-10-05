@@ -1,0 +1,39 @@
+name: Promote approved release
+
+on:
+  schedule:
+    # Sunday afternoon in Los Angeles: 14:17 PDT / 13:17 PST.
+    - cron: '17 21 * * 0'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the approved candidate (leave off to verify only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-release-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.repository == 'Roastedd/CoffeeFlix' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify and optionally publish the approved draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish }}
+          SCHEDULED: ${{ github.event_name == 'schedule' }}
+        run: |
+          args=()
+          if [ "$SCHEDULED" = true ]; then args+=(--scheduled); fi
+          if [ "$PUBLISH" = true ]; then args+=(--publish); fi
+          python3 tools/release-bundle.py promote "${args[@]}"

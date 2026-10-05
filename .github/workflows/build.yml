@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -17,6 +17,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check release tooling and roadmap
+        run: |
+          python3 tools/test-release-bundle.py
+          python3 tools/render-roadmap.py --check
 
       - name: Restore third-party libraries
         uses: actions/cache@v4
@@ -60,25 +65,46 @@ jobs:
           EOF
           (cd dist-tiramisu && zip -qr ../coffeeflix-tiramisu.zip wiiu)
 
+      - name: Record release candidate files
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python3 tools/release-bundle.py create --version "${GITHUB_REF_NAME#v}" --commit "$GITHUB_SHA"
+          python3 tools/release-bundle.py verify
+
       - uses: actions/upload-artifact@v4
         with:
           name: coffeeflix-${{ github.sha }}
           path: |
-            dist/
-            dist-tiramisu/
-
-      - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
             coffeeflix.zip
             coffeeflix.wuhb
             coffeeflix-tiramisu.zip
-          generate_release_notes: true
-          body: |
-            **Install:** extract `coffeeflix.zip` to the root of your SD card (or put `coffeeflix.wuhb` in `sd:/wiiu/apps/coffeeflix/`) and start CoffeeFlix from the Wii U Menu. Needs [Aroma](https://aroma.foryour.cafe).
+            release-manifest.json
+            SHA256SUMS.txt
+          if-no-files-found: error
 
-            **Tiramisu:** use `coffeeflix-tiramisu.zip` instead (extract it to the root of your SD card and start CoffeeFlix from the Homebrew Launcher). This build is new and less tested, so please report how it goes.
-
-            ☕ Enjoying CoffeeFlix? You can support it on [Ko-fi](https://ko-fi.com/ubecatstudio).
+  draft:
+    needs: build
+    if: github.repository == 'Roastedd/CoffeeFlix' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: draft-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: coffeeflix-${{ github.sha }}
+          path: candidate
+      - name: Verify packaged candidate
+        run: python3 tools/release-bundle.py verify --directory candidate
+      - name: Create a draft for testing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Creation fails if this release exists. Never overwrite reviewed assets on a rerun.
+          gh release create "$TAG" candidate/* --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --draft --title "CoffeeFlix $TAG" --generate-notes \
+            --notes-file .github/release-notes.md

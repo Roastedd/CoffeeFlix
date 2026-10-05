@@ -24,6 +24,7 @@ concurrency:
 
 jobs:
   votes:
+    if: github.repository == 'Roastedd/CoffeeFlix'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

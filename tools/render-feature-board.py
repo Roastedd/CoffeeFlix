@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render static voting cards from the catalogue; no build needed to serve the site."""
 import html
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -99,6 +100,10 @@ def render(root=ROOT):
     page, count = re.subn(rf'href="{re.escape(REPO_URL)}/issues/\d+"( data-thread-link)', f'href="{thread}"\\1', page)
     assert count >= 2, "Expected the how-to and footer voting thread links"
     page = re.sub(r"(<[a-z]+ data-idea-count>)\d+(</)", rf"\g<1>{len(items)}\g<2>", page)
+    roadmap_spec = importlib.util.spec_from_file_location("render_roadmap", Path(__file__).with_name("render-roadmap.py"))
+    roadmap = importlib.util.module_from_spec(roadmap_spec)
+    roadmap_spec.loader.exec_module(roadmap)
+    roadmap.render(root)
     path.write_text(page)
     print(f"Rendered {len(items)} feature cards.")
 
