@@ -1,21 +1,40 @@
 #roadmap { scroll-margin-top: 80px; }
 .roadmap-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 .roadmap-intro .sub { margin-bottom: 0; }
-.roadmap-updated { color: var(--text-2); font-size: 13px; margin: 24px 0 18px; }
-.roadmap-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
-.roadmap-column { min-width: 0; }
-.roadmap-column h3 { display: flex; align-items: center; gap: 9px; font-size: 15px; margin: 0 0 16px; }
-.roadmap-dot { width: 8px; height: 8px; border-radius: 50%; background: #ffa24c; flex: none; }
-[data-stage="in-testing"] .roadmap-dot { background: #b7a0ef; }
-[data-stage="planned"] .roadmap-dot { background: #a5b4c8; }
-[data-stage="shipped"] .roadmap-dot { background: #85d1a3; }
-.roadmap-card { border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-bottom: 12px; background: var(--surface); }
-.roadmap-platform { color: var(--accent); font-size: 12px; font-weight: 600; }
-.roadmap-card h4 { font-size: 17px; line-height: 1.4; margin: 10px 0; }
-.roadmap-card p, .roadmap-empty { font-size: 14px; line-height: 1.65; color: var(--text-2); margin: 0; }
-.roadmap-card a { display: inline-block; margin-top: 16px; font-size: 13px; font-weight: 600; text-underline-offset: 4px; }
-.roadmap-empty { border: 1px dashed var(--line); border-radius: 16px; padding: 20px; }
-.roadmap-policy { margin: 24px 0 0; color: var(--text-2); font-size: 14px; max-width: 80ch; }
-#roadmap a:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
-@media (max-width: 1000px) { .roadmap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 24px; } }
+.roadmap-updated { display: inline-block; margin: 24px 0 22px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.03); color: var(--text-3); font-size: 13.5px; }
+.roadmap-updated time { color: var(--text-2); font-weight: 600; }
+
+/* four stages, each with its own colour, reading left to right from "building" to "out now" */
+.roadmap-grid { --stage: #a5b4c8; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.roadmap-column { --stage: #a5b4c8; min-width: 0; padding: 18px 14px 6px; border: 1px solid var(--line); border-top: 3px solid var(--stage); border-radius: 20px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--stage) 7%, transparent), transparent 220px); }
+.roadmap-column[data-stage="in-progress"] { --stage: #ffa24c; }
+.roadmap-column[data-stage="in-testing"] { --stage: #b7a0ef; }
+.roadmap-column[data-stage="planned"] { --stage: #8db8ff; }
+.roadmap-column[data-stage="shipped"] { --stage: #7fe3b4; }
+.roadmap-column-head { margin: 0 6px 16px; }
+.roadmap-column h3 { display: flex; align-items: center; gap: 9px; font-size: 17px; letter-spacing: -0.01em; margin: 0; }
+.roadmap-column-head p { margin: 4px 0 0 17px; color: var(--text-3); font-size: 13.5px; }
+.roadmap-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--stage); box-shadow: 0 0 0 4px color-mix(in srgb, var(--stage) 22%, transparent); flex: none; }
+.roadmap-count { margin-left: auto; min-width: 24px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--stage) 16%, transparent);
+  color: var(--stage); font-size: 13px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+
+.roadmap-card { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 20px 20px 22px; margin-bottom: 14px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(180deg, var(--surface), #16111c);
+  transition: transform 0.18s, border-color 0.18s, box-shadow 0.18s; }
+.roadmap-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--stage) 45%, transparent); box-shadow: 0 16px 40px -20px rgba(0, 0, 0, 0.9); }
+.roadmap-column[data-stage="shipped"] .roadmap-card { background: linear-gradient(180deg, rgba(127, 227, 180, 0.07), #16111c 60%); border-color: rgba(127, 227, 180, 0.22); }
+.roadmap-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.roadmap-platform { padding: 3px 10px; border: 1px solid color-mix(in srgb, var(--stage) 35%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--stage) 10%, transparent); color: var(--stage); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.roadmap-card h4 { font-size: 18px; line-height: 1.3; letter-spacing: -0.015em; margin: 0; }
+.roadmap-card p, .roadmap-empty { font-size: 14.5px; line-height: 1.6; color: var(--text-2); margin: 0; }
+.roadmap-card a { align-self: flex-start; margin-top: 6px; padding: 8px 14px; border: 1px solid color-mix(in srgb, var(--stage) 45%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--stage) 10%, transparent); color: var(--stage); font-size: 13.5px; font-weight: 600; text-decoration: none;
+  transition: background 0.18s, color 0.18s, transform 0.18s; }
+.roadmap-card a:hover { background: var(--stage); border-color: transparent; color: #12100f; transform: translateY(-1px); }
+.roadmap-empty { margin: 0 0 14px; padding: 20px; text-align: center; border: 1px dashed var(--line-2); border-radius: var(--radius); color: var(--text-3); }
+.roadmap-policy { margin: 28px 0 0; padding: 16px 20px; border-left: 3px solid var(--accent); border-radius: 0 12px 12px 0; background: rgba(255, 255, 255, 0.04); color: var(--text-2); font-size: 15px; max-width: 80ch; }
+#roadmap a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+@media (max-width: 1000px) { .roadmap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .roadmap-grid { grid-template-columns: minmax(0, 1fr); } }
