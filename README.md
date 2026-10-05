@@ -87,7 +87,7 @@ If the Wii U's hardware decoder gives no picture, the player switches to a safer
 
 ## Building
 
-GitHub Actions builds every push ([build.yml](.github/workflows/build.yml)), and pushing a `v*` tag publishes a release.
+GitHub Actions builds every push ([build.yml](.github/workflows/build.yml)). Pushing a numeric `v*` tag prepares a **draft** release with a source manifest and checksums. Public release requires device testing and explicit approval; see [the release process](docs/RELEASING.md).
 
 To build it yourself, Docker is enough:
 

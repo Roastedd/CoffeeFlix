@@ -2,7 +2,7 @@
 """Edit the feature board in your browser: statuses, replies, wording, adding and removing ideas.
 
 Run `python3 tools/feature-admin.py`. It serves a page on this computer only, saves to
-docs/assets/feature-requests.json, rebuilds docs/features.html and can publish both.
+docs/assets/feature-requests.json, rebuilds the board and homepage roadmap, and can publish them.
 """
 import argparse
 import contextlib
@@ -24,7 +24,7 @@ board = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(board)
 
 CATALOGUE = "docs/assets/feature-requests.json"
-PUBLISHED = (CATALOGUE, "docs/features.html")
+PUBLISHED = (CATALOGUE, "docs/features.html", "docs/index.html")
 KEYS = ("id", "category", "title", "summary", "includes", "source", "issues", "status", "shipped_in", "reply")
 
 
@@ -100,13 +100,14 @@ def save(root, ideas):
     """Validate, write the catalogue and rebuild the page; put the old catalogue back if that fails."""
     items = clean(ideas)
     path = root / CATALOGUE
-    before = path.read_text()
+    before = {name: (root / name).read_text() for name in PUBLISHED}
     path.write_text(dump(items))
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             board.render(root)
     except Exception as error:
-        path.write_text(before)
+        for name, text in before.items():
+            (root / name).write_text(text)
         raise ValueError(f"Couldn't rebuild the page: {error}") from None
     return items
 

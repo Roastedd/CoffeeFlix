@@ -1,0 +1,73 @@
+{
+  "updated": "2026-10-04",
+  "items": [
+    {
+      "id": "startup-screen",
+      "title": "Pick your start screen",
+      "summary": "Choose where CoffeeFlix opens. This is included in the 2.4.3 supporter preview and has been tried on Wii U.",
+      "platforms": [
+        "Wii U"
+      ],
+      "status": "in-testing"
+    },
+    {
+      "id": "gamepad-default-view",
+      "title": "GamePad controls when you need them",
+      "summary": "Browse on both screens, then control playback from the GamePad. The 2.4.3 preview has passed its Wii U check.",
+      "platforms": [
+        "Wii U"
+      ],
+      "status": "in-testing"
+    },
+    {
+      "id": "android-phone",
+      "title": "CoffeeFlix on Android phones",
+      "summary": "I\u2019m making CoffeeFlix fit a phone, with bigger buttons and touch controls. Next up: checking the player and menus on real devices.",
+      "platforms": [
+        "Android phone"
+      ],
+      "status": "in-progress"
+    },
+    {
+      "id": "release-channels",
+      "title": "Small updates, tested first",
+      "summary": "I\u2019m keeping updates small so there\u2019s time to try things out and catch problems before they reach everyone.",
+      "platforms": [
+        "Wii U",
+        "Android"
+      ],
+      "status": "in-progress"
+    },
+    {
+      "id": "supporter-previews",
+      "title": "Supporter previews",
+      "summary": "The 2.4.3 Wii U preview is available on Ko-fi. One-time donors get this preview and its fixes; monthly supporters get each new preview.",
+      "platforms": [
+        "Wii U"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "android-tv",
+      "title": "Android TV and Fire TV",
+      "summary": "I\u2019ll test playback, updates and remote controls on TV devices before sharing a download.",
+      "platforms": [
+        "Android TV",
+        "Fire TV"
+      ],
+      "status": "planned"
+    },
+    {
+      "feature_id": "personalize-home",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "jellyfin-autoplay",
+      "platforms": [
+        "Wii U"
+      ]
+    }
+  ]
+}

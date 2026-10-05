@@ -27,7 +27,7 @@ class Workspace(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.repo, remote = self.tmp / "repo", self.tmp / "remote.git"
         (self.repo / "docs/assets").mkdir(parents=True)
-        for name in ("features.html", "assets/feature-requests.json", "assets/feature-thread.json"):
+        for name in ("features.html", "index.html", "assets/roadmap.json", "assets/feature-requests.json", "assets/feature-thread.json"):
             shutil.copy(ROOT / "docs" / name, self.repo / "docs" / name)
         (self.repo / "other.txt").write_text("unrelated\n")
         run(self.tmp, "git", "init", "-q", "--bare", "-b", "master", str(remote))
@@ -121,6 +121,7 @@ class Publishing(Workspace):
         (self.repo / "other.txt").write_text("my other work\n")
         ideas = self.editable()
         ideas[0]["reply"] = "Hello"
+        ideas[0]["title"] = "A new homepage title"
         admin.save(self.repo, ideas)
         self.assertTrue(admin.pending(self.repo))
         ok, message = admin.publish(self.repo)

@@ -21,3 +21,7 @@ logs/
 .vscode/
 .idea/
 __pycache__/
+
+# Generated release-candidate metadata (the approval lives in release/ instead)
+/release-manifest.json
+/SHA256SUMS.txt

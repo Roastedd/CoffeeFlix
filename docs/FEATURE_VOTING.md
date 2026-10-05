@@ -12,7 +12,7 @@ Voters need a free GitHub account, so every vote belongs to a real account (one 
 python3 tools/feature-admin.py
 ```
 
-This opens a page on your own computer (nobody else can reach it) where you can change an idea's status, write a reply, edit the wording, GitHub issue numbers and the "what's included" list, add ideas, remove ideas and reorder them. **Save** writes `docs/assets/feature-requests.json` and rebuilds `docs/features.html`; **Publish to website** does that and then commits just those two files and pushes `master`, which also triggers the voting Action. Nothing else in your working folder is touched. Stop it with Ctrl+C. The sections below describe the same changes done by hand in the catalogue.
+This opens a page on your own computer (nobody else can reach it) where you can change an idea's status, write a reply, edit the wording, GitHub issue numbers and the "what's included" list, add ideas, remove ideas and reorder them. **Save** writes `docs/assets/feature-requests.json` and rebuilds `docs/features.html` and the homepage roadmap; **Publish to website** does that and then commits the catalogue and both HTML files and pushes `master`, which also triggers the voting Action. Review those three files before publishing; unrelated edits to the homepage are included if present. Other files in your working folder are not committed. Stop it with Ctrl+C. The sections below describe the same changes done by hand in the catalogue.
 
 ## What the Action does
 
@@ -74,3 +74,9 @@ Cards and a "Vote on GitHub" link to the thread stay usable without JavaScript. 
 - `python3 tools/test-sync-feature-votes.py` checks the Action's script against an in-memory thread.
 - `node tools/test-feature-voting.cjs` drives the page in a browser with Playwright (set `NODE_PATH` to its parent `node_modules` directory if it lives outside the project). Both use mock GitHub responses and never cast a vote.
 - `python3 tools/sync-feature-votes.py --sync-comments --dry-run --out /tmp/votes.json` previews what the Action would post or change, reading only public data.
+
+## Homepage roadmap
+
+The roadmap references selected feature IDs from this catalogue. Rendering the board also
+refreshes their roadmap cards in `docs/index.html`; include that file when committing board
+changes. Platform milestones live in `docs/assets/roadmap.json`. See [RELEASING.md](RELEASING.md).
