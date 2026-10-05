@@ -1,6 +1,6 @@
 # CoffeeFlix releases
 
-Developer → supporter preview → public stable. Each platform can move at its own pace.
+Developer → supporter preview → public stable. This pipeline currently covers Wii U only.
 CoffeeFlix stays free. Supporters get selected upcoming features early, without a promised
 number of days. Critical fixes can go directly to everyone.
 
@@ -9,12 +9,12 @@ number of days. Critical fixes can go directly to everyone.
 - Build and test locally first. Begin supporter delivery with Ko-fi downloads at **ubecatstudio**.
 - Keep previews and unreleased source in private development storage. A public branch or
   public Actions artifact does not provide supporter-only access.
-- Use manual draft releases for the first few cycles. `release/approved.json` starts with
-  `automatic: false` and `candidate: null`: nothing is approved or scheduled for publication.
+- Automatic promotion is enabled under the agreed release policy. `candidate: null` means
+  no release can publish until a specific candidate has complete evidence and pinned hashes.
 - The weekly workflow is prepared for Sunday at 21:17 UTC (2:17 PM Los Angeles during
   daylight saving time, 1:17 PM in winter). GitHub can delay scheduled runs.
-- After successful manual releases, enable `automatic` explicitly. A week with no approved
-  candidate produces no release. Run the workflow manually for an urgent fix.
+- A scheduled run with no approved candidate produces no release. The private release
+  automation reviews changes and prepares evidence before selecting a candidate.
 - Monthly supporters receive each new preview through ubecatstudio’s Ko-fi. One-time donors
   receive the current preview and its fixes through manual delivery after donation verification,
   with no second payment. The 2.4.3 Aroma preview passed its user-reported Wii U smoke test.
