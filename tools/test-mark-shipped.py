@@ -30,6 +30,13 @@ with tempfile.TemporaryDirectory() as d:
     ids = [e["feature_id"] for e in road["items"]]
     assert ids == ["old2", "a", "b"], ids              # b added, oldest card dropped, kept 3
     assert cat["old1"]["status"] == "shipped"          # still on the feature board
+    road = json.loads((root / "docs/assets/roadmap.json").read_text())
+    road["items"].append({"id": "solo", "title": "Solo", "summary": "Roadmap only.", "platforms": ["Wii U"], "status": "in-testing"})
+    (root / "docs/assets/roadmap.json").write_text(json.dumps(road))
+    ms.mark(root, "2.4.5", ["solo"], 9, date(2026, 10, 17))
+    solo = [e for e in json.loads((root / "docs/assets/roadmap.json").read_text())["items"] if e.get("id") == "solo"][0]
+    assert solo["status"] == "shipped" and solo["shipped_in"] == "2.4.5"   # roadmap-only items ship too
+    ms.mark(root, "2.4.5", ["solo"], 9, date(2026, 10, 17))                  # and a repeat changes nothing
     try:
         ms.mark(root, "2.4.5", ["nope"], 3, date(2026, 10, 17))
         raise AssertionError("unknown id accepted")

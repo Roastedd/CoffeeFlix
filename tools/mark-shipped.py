@@ -26,13 +26,15 @@ def mark(root, version, ids, keep, today):
     cat_path, road_path = root / "docs/assets/feature-requests.json", root / "docs/assets/roadmap.json"
     catalogue, roadmap = json.loads(cat_path.read_text()), json.loads(road_path.read_text())
     by_id = {i["id"]: i for i in catalogue}
-    missing = [i for i in ids if i not in by_id]
+    inline = {e["id"]: e for e in roadmap["items"] if "id" in e}  # roadmap-only items
+    missing = [i for i in ids if i not in by_id and i not in inline]
     if missing:
-        raise SystemExit(f"Not on the feature board: {', '.join(missing)}")
+        raise SystemExit(f"Not on the feature board or roadmap: {', '.join(missing)}")
     on_road = {e.get("feature_id") for e in roadmap["items"]}
     for ident in ids:
-        by_id[ident]["status"], by_id[ident]["shipped_in"] = "shipped", version
-        if ident not in on_road:
+        target = by_id.get(ident) or inline[ident]
+        target["status"], target["shipped_in"] = "shipped", version
+        if ident in by_id and ident not in on_road:
             roadmap["items"].append({"feature_id": ident, "platforms": by_id[ident].get("platforms") or ["Wii U"]})
     shipped = [e for e in roadmap["items"]
                if (by_id[e["feature_id"]]["status"] if "feature_id" in e else e.get("status")) == "shipped"]
