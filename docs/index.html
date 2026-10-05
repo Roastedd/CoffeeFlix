@@ -292,48 +292,60 @@ footer a { color: var(--text-2); }
       <p class="roadmap-updated">Roadmap reviewed <time datetime="2026-10-04">October 4, 2026</time></p>
       <div class="roadmap-grid">
         <div class="roadmap-column" data-stage="in-progress">
-          <h3><span class="roadmap-dot" aria-hidden="true"></span>In progress</h3>
+          <div class="roadmap-column-head">
+            <h3><span class="roadmap-dot" aria-hidden="true"></span>In progress<span class="roadmap-count">1</span></h3>
+            <p>Being built right now</p>
+          </div>
           <article class="roadmap-card" aria-labelledby="roadmap-release-channels">
-            <span class="roadmap-platform">Wii U</span>
+            <div class="roadmap-card-head"><span class="roadmap-platform">Wii U</span></div>
             <h4 id="roadmap-release-channels">Small updates, tested first</h4>
             <p>I’m keeping updates small so there’s time to try things out and catch problems before they reach everyone.</p>
 
           </article>
         </div>
         <div class="roadmap-column" data-stage="in-testing">
-          <h3><span class="roadmap-dot" aria-hidden="true"></span>In testing</h3>
+          <div class="roadmap-column-head">
+            <h3><span class="roadmap-dot" aria-hidden="true"></span>In testing<span class="roadmap-count">2</span></h3>
+            <p>Working, being tried out</p>
+          </div>
           <article class="roadmap-card" aria-labelledby="roadmap-startup-screen">
-            <span class="roadmap-platform">Wii U</span>
+            <div class="roadmap-card-head"><span class="roadmap-platform">Wii U</span></div>
             <h4 id="roadmap-startup-screen">Pick your start screen</h4>
             <p>Choose where CoffeeFlix opens. This is included in the 2.4.3 supporter preview and has been tried on Wii U.</p>
 
           </article>
           <article class="roadmap-card" aria-labelledby="roadmap-gamepad-default-view">
-            <span class="roadmap-platform">Wii U</span>
+            <div class="roadmap-card-head"><span class="roadmap-platform">Wii U</span></div>
             <h4 id="roadmap-gamepad-default-view">GamePad controls when you need them</h4>
             <p>Browse on both screens, then control playback from the GamePad. The 2.4.3 preview has passed its Wii U check.</p>
 
           </article>
         </div>
         <div class="roadmap-column" data-stage="planned">
-          <h3><span class="roadmap-dot" aria-hidden="true"></span>Planned</h3>
+          <div class="roadmap-column-head">
+            <h3><span class="roadmap-dot" aria-hidden="true"></span>Planned<span class="roadmap-count">1</span></h3>
+            <p>Up next</p>
+          </div>
           <article class="roadmap-card" aria-labelledby="roadmap-personalize-home">
-            <span class="roadmap-platform">Wii U</span>
+            <div class="roadmap-card-head"><span class="roadmap-platform">Wii U</span></div>
             <h4 id="roadmap-personalize-home">Make Home your own</h4>
             <p>Shape the home screen around how you actually watch.</p>
             <a href="features.html#personalize-home">Feature details <span aria-hidden="true">↗</span></a>
           </article>
         </div>
         <div class="roadmap-column" data-stage="shipped">
-          <h3><span class="roadmap-dot" aria-hidden="true"></span>Released</h3>
+          <div class="roadmap-column-head">
+            <h3><span class="roadmap-dot" aria-hidden="true"></span>Released<span class="roadmap-count">2</span></h3>
+            <p>Out now</p>
+          </div>
           <article class="roadmap-card" aria-labelledby="roadmap-supporter-previews">
-            <span class="roadmap-platform">Wii U</span>
+            <div class="roadmap-card-head"><span class="roadmap-platform">Wii U</span></div>
             <h4 id="roadmap-supporter-previews">Supporter previews</h4>
             <p>The 2.4.3 Wii U preview is available on Ko-fi. One-time donors get this preview and its fixes; monthly supporters get each new preview.</p>
 
           </article>
           <article class="roadmap-card" aria-labelledby="roadmap-jellyfin-autoplay">
-            <span class="roadmap-platform">Wii U</span>
+            <div class="roadmap-card-head"><span class="roadmap-platform">Wii U</span></div>
             <h4 id="roadmap-jellyfin-autoplay">Autoplay the next episode</h4>
             <p>Keep a series rolling: continue to the next Jellyfin episode automatically, with an option to turn it off.</p>
             <a href="https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.4.0">Released in 2.4.0 <span aria-hidden="true">↗</span></a>
