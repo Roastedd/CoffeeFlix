@@ -20,21 +20,11 @@
       "status": "in-testing"
     },
     {
-      "id": "android-phone",
-      "title": "CoffeeFlix on Android phones",
-      "summary": "I\u2019m making CoffeeFlix fit a phone, with bigger buttons and touch controls. Next up: checking the player and menus on real devices.",
-      "platforms": [
-        "Android phone"
-      ],
-      "status": "in-progress"
-    },
-    {
       "id": "release-channels",
       "title": "Small updates, tested first",
       "summary": "I\u2019m keeping updates small so there\u2019s time to try things out and catch problems before they reach everyone.",
       "platforms": [
-        "Wii U",
-        "Android"
+        "Wii U"
       ],
       "status": "in-progress"
     },
@@ -46,16 +36,6 @@
         "Wii U"
       ],
       "status": "shipped"
-    },
-    {
-      "id": "android-tv",
-      "title": "Android TV and Fire TV",
-      "summary": "I\u2019ll test playback, updates and remote controls on TV devices before sharing a download.",
-      "platforms": [
-        "Android TV",
-        "Fire TV"
-      ],
-      "status": "planned"
     },
     {
       "feature_id": "personalize-home",
