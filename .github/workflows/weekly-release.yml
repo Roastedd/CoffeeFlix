@@ -37,3 +37,11 @@ jobs:
           if [ "$SCHEDULED" = true ]; then args+=(--scheduled); fi
           if [ "$PUBLISH" = true ]; then args+=(--publish); fi
           python3 tools/release-bundle.py promote "${args[@]}"
+
+  roadmap:
+    needs: promote
+    if: github.repository == 'Roastedd/CoffeeFlix' && github.ref == 'refs/heads/master' && (github.event_name == 'schedule' || inputs.publish)
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/roadmap-shipped.yml
