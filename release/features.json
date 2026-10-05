@@ -1,0 +1,4 @@
+{
+  "_comment": "Feature-board ids each release brings, by version. Generated from CoffeeUnlocked: python3 tools/release-manifest.py features-json. When a version goes public, tools/mark-shipped.py moves these to Released.",
+  "2.4.3": ["startup-screen", "gamepad-default-view"]
+}

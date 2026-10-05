@@ -1,0 +1,40 @@
+name: Roadmap from votes
+
+# Once a week: the most-voted planned ideas become a pull request that adds them to the roadmap.
+# Nothing is published until the pull request is merged. See tools/propose-roadmap.py.
+# Needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  propose:
+    if: github.repository == 'Roastedd/CoffeeFlix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the latest vote totals
+        run: curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/votes/votes.json" -o "$RUNNER_TEMP/votes.json"
+
+      - name: Propose roadmap entries
+        run: python3 tools/propose-roadmap.py --votes "$RUNNER_TEMP/votes.json" --body-file "$RUNNER_TEMP/body.md"
+
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -f "$RUNNER_TEMP/body.md" ] || { echo "Nothing to propose."; exit 0; }
+          if git diff --quiet; then echo "Only suggestions this week, no roadmap change."; exit 0; fi
+          branch="roadmap-votes-$(date +%Y-%m-%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -qam "Roadmap: add most-voted planned ideas"
+          git push -q origin "$branch"
+          gh pr create --title "Roadmap: most-voted planned ideas" --body-file "$RUNNER_TEMP/body.md" --base master --head "$branch"
