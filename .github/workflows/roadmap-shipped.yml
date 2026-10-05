@@ -1,0 +1,63 @@
+name: Roadmap after a release
+
+# When a version goes public, the features it brought (release/features.json) move to Released on the
+# roadmap and feature board, as a pull request. Nothing changes until that is merged.
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to mark shipped, like 2.4.4 (default is the latest public release)
+        required: false
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: roadmap-shipped
+
+jobs:
+  roadmap:
+    if: github.repository == 'Roastedd/CoffeeFlix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Work out the version and its features
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          version="${REQUESTED:-}"
+          [ -n "$version" ] || version="$(gh release view --json tagName --jq .tagName)"
+          version="${version#v}"
+          ids="$(python3 -c "import json,sys; print(' '.join(json.load(open('release/features.json')).get(sys.argv[1], [])))" "$version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ids=$ids" >> "$GITHUB_OUTPUT"
+          [ -n "$ids" ] || echo "No features recorded for $version."
+
+      - name: Mark them shipped
+        if: steps.release.outputs.ids != ''
+        run: python3 tools/mark-shipped.py "${{ steps.release.outputs.version }}" ${{ steps.release.outputs.ids }}
+
+      - name: Open a pull request
+        if: steps.release.outputs.ids != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if git diff --quiet; then echo "Already up to date."; exit 0; fi
+          branch="roadmap-shipped-$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -qam "Roadmap: $VERSION is public"
+          git push -q origin "$branch"
+          gh pr create --base master --head "$branch" --title "Roadmap: $VERSION is public" \
+            --body "Moves the features in $VERSION to Released. Merge to publish on the website, or close to skip."
