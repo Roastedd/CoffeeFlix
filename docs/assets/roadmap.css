@@ -8,9 +8,9 @@
 .roadmap-grid { --stage: #a5b4c8; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; align-items: start; }
 .roadmap-column { --stage: #a5b4c8; min-width: 0; padding: 18px 14px 6px; border: 1px solid var(--line); border-top: 3px solid var(--stage); border-radius: 20px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--stage) 7%, transparent), transparent 220px); }
+.roadmap-column[data-stage="planned"] { --stage: #8db8ff; }
 .roadmap-column[data-stage="in-progress"] { --stage: #ffa24c; }
 .roadmap-column[data-stage="in-testing"] { --stage: #b7a0ef; }
-.roadmap-column[data-stage="planned"] { --stage: #8db8ff; }
 .roadmap-column[data-stage="shipped"] { --stage: #7fe3b4; }
 .roadmap-column-head { margin: 0 6px 16px; }
 .roadmap-column h3 { display: flex; align-items: center; gap: 9px; font-size: 17px; letter-spacing: -0.01em; margin: 0; }
