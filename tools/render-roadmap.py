@@ -9,6 +9,12 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = {"in-progress": "In progress", "in-testing": "In testing", "planned": "Planned", "shipped": "Released"}
+STAGE_NOTES = {
+    "in-progress": "Being built right now",
+    "in-testing": "Working, being tried out",
+    "planned": "Up next",
+    "shipped": "Out now",
+}
 PLATFORMS = {"Wii U", "Android", "Android phone", "Android TV", "Fire TV"}
 esc = lambda value: html.escape(str(value), quote=True)
 
@@ -40,16 +46,20 @@ def render(root=ROOT, check=False):
                 raise ValueError(f"Invalid released version: {ident}")
             link = f'<a href="https://github.com/Roastedd/CoffeeFlix/releases/tag/v{version}">Released in {version} <span aria-hidden="true">↗</span></a>'
         groups[item["status"]].append(f'''          <article class="roadmap-card" aria-labelledby="roadmap-{ident}">
-            <span class="roadmap-platform">{esc(platforms)}</span>
+            <div class="roadmap-card-head"><span class="roadmap-platform">{esc(platforms)}</span></div>
             <h4 id="roadmap-{ident}">{esc(item['title'])}</h4>
             <p>{esc(item['summary'])}</p>
             {link}
           </article>''')
     columns = []
     for stage, label in STAGES.items():
-        cards = "\n".join(groups[stage]) or '<p class="roadmap-empty">No items at this stage right now.</p>'
+        cards = "\n".join(groups[stage]) or '<p class="roadmap-empty">Nothing here right now.</p>'
+        count = len(groups[stage])
         columns.append(f'''        <div class="roadmap-column" data-stage="{stage}">
-          <h3><span class="roadmap-dot" aria-hidden="true"></span>{label}</h3>
+          <div class="roadmap-column-head">
+            <h3><span class="roadmap-dot" aria-hidden="true"></span>{label}<span class="roadmap-count">{count}</span></h3>
+            <p>{STAGE_NOTES[stage]}</p>
+          </div>
 {cards}
         </div>''')
     content = f'''      <p class="roadmap-updated">Roadmap reviewed <time datetime="{updated.isoformat()}">{updated.strftime('%B')} {updated.day}, {updated.year}</time></p>

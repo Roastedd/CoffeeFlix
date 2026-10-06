@@ -4,7 +4,9 @@ name: Feature votes
 # don't each spend GitHub's anonymous API limit. See docs/FEATURE_VOTING.md.
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # Off the :00/:15 marks, where GitHub's scheduler is busiest. A run that waits for a runner past the
+    # next tick is cancelled by the concurrency group below, which shows up as a failed run.
+    - cron: "7,37 * * * *"
   workflow_dispatch:
   push:
     branches: [master]
@@ -26,6 +28,7 @@ jobs:
   votes:
     if: github.repository == 'Roastedd/CoffeeFlix'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
