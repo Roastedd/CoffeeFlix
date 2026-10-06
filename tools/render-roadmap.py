@@ -8,7 +8,8 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-STAGES = {"in-progress": "In progress", "in-testing": "In testing", "planned": "Planned", "shipped": "Released"}
+# Left to right, the way work moves: decided, being built, being tried, out.
+STAGES = {"planned": "Planned", "in-progress": "In progress", "in-testing": "In testing", "shipped": "Released"}
 STAGE_NOTES = {
     "in-progress": "Being built right now",
     "in-testing": "Working, being tried out",
