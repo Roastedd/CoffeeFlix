@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-04",
+  "updated": "2026-10-05",
   "items": [
     {
       "id": "startup-screen",
@@ -45,6 +45,12 @@
     },
     {
       "feature_id": "jellyfin-autoplay",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "youtube-account",
       "platforms": [
         "Wii U"
       ]
