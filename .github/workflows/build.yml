@@ -21,6 +21,7 @@ jobs:
       - name: Check release tooling and roadmap
         run: |
           python3 tools/test-release-bundle.py
+          python3 tools/test-intake-feature.py
           python3 tools/render-roadmap.py --check
 
       - name: Restore third-party libraries

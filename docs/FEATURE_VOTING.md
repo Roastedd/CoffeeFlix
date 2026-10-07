@@ -24,6 +24,12 @@ It runs every 15 minutes (GitHub may delay scheduled runs), when you run it by h
 
 It never deletes comments. Comments only count if `Roastedd` or `github-actions[bot]` wrote them, and the earliest comment for an idea wins, so a look-alike comment from someone else cannot hijack a total.
 
+## New ideas arrive as pull requests
+
+When someone opens a *Feature idea* issue, `.github/workflows/feature-intake.yml` runs `tools/intake-feature.py`, which opens a pull request adding a draft `proposed` card (title, one-line summary, category from the form's "Which part of the app?" answer, and the issue link). The pull request body lists existing cards that look similar, so you can merge the request into one of them instead. **Merge to put the idea on the board**, edit the card on the pull request's branch first if the wording or category needs work, or close it to skip. Nothing public changes until you merge; the voting Action then posts the card's comment, and `feature-intake-merged.yml` thanks the person on their issue with a link to vote. Text from strangers is stripped of links, mentions and markup before it goes in a card.
+
+To catch up on ideas that arrived earlier, run *Feature intake* from the Actions tab with the issue number blank. Like the weekly roadmap pull request, it needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests". Tests: `python3 tools/test-intake-feature.py`.
+
 ## Add an idea
 
 1. Check the board and the open issues for duplicates. If the new request fits an existing card, add it to that card's `includes` instead of creating another card.

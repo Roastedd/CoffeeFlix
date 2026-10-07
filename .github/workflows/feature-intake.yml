@@ -1,0 +1,65 @@
+name: Feature intake
+
+# A new "Feature idea" issue becomes a pull request that adds a draft card to the feature board.
+# Nothing is published until that pull request is merged. See tools/intake-feature.py.
+# Needs Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to add (leave empty to catch up on every open idea not yet on the board)
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: feature-intake
+
+jobs:
+  intake:
+    if: github.repository == 'Roastedd/CoffeeFlix' && (github.event_name == 'workflow_dispatch' || contains(github.event.issue.labels.*.name, 'enhancement'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Work out which issues to add
+        id: issues
+        env:
+          # The issue's own text is never put on a command line; only its number is.
+          EVENT_ISSUE: ${{ github.event.issue.number }}
+          INPUT_ISSUE: ${{ inputs.issue }}
+        run: |
+          numbers="${EVENT_ISSUE:-$INPUT_ISSUE}"
+          [ -n "$numbers" ] || numbers="$(python3 tools/intake-feature.py --pending)"
+          case "$numbers" in *[!0-9\ ]*) echo "Unexpected issue list: $numbers"; exit 1 ;; esac
+          echo "numbers=$numbers" >> "$GITHUB_OUTPUT"
+          echo "Issues: ${numbers:-none}"
+
+      - name: Open a pull request for each
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBERS: ${{ steps.issues.outputs.numbers }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for n in $NUMBERS; do
+            branch="feature-intake-$n"
+            if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+              echo "#$n: $branch already exists."; continue
+            fi
+            git checkout -q master
+            python3 tools/intake-feature.py --issue "$n" --title-file "$RUNNER_TEMP/title.txt" --body-file "$RUNNER_TEMP/body.md" || continue
+            [ -f "$RUNNER_TEMP/body.md" ] || continue
+            git checkout -q -b "$branch"
+            git commit -qam "Feature board: draft card for #$n"
+            git push -q origin "$branch"
+            gh pr create --base master --head "$branch" --title "$(cat "$RUNNER_TEMP/title.txt")" --body-file "$RUNNER_TEMP/body.md"
+            rm -f "$RUNNER_TEMP/title.txt" "$RUNNER_TEMP/body.md"
+          done

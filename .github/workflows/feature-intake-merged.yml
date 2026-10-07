@@ -1,0 +1,25 @@
+name: Feature intake merged
+
+# When a draft card's pull request is merged, tell the person who suggested it where to vote.
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+
+permissions:
+  issues: write
+
+jobs:
+  thank:
+    if: github.repository == 'Roastedd/CoffeeFlix' && github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'feature-intake-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comment on the idea
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          n="${BRANCH#feature-intake-}"
+          case "$n" in ''|*[!0-9]*) exit 0 ;; esac
+          gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "Thanks! This is now on the [feature board](https://roastedd.github.io/CoffeeFlix/features.html). Give it a 👍 there to help it climb. Votes are what the roadmap draws from."
