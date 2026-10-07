@@ -103,5 +103,13 @@
     ],
     "issues": [13],
     "status": "needs-research"
+  },
+  {
+    "id": "navidrome-support",
+    "category": "Servers & books",
+    "title": "Navidrome and Subsonic music servers",
+    "summary": "Play your own music library from a Navidrome or other Subsonic-compatible server.",
+    "issues": [17],
+    "status": "proposed"
   }
 ]
