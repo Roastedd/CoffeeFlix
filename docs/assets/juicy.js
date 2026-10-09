@@ -8,7 +8,7 @@
 
   // ---- rising into view ----
   const targets = [...document.querySelectorAll(
-    ".grid .card, .gallery figure, .steps li, .support-card, .community-callout, .suggest, details, .section-heading, .podium-card, .roadmap-card, .marquee")];
+    ".grid .card, .gallery figure, .steps li, .support-card, .community-callout, .suggest, details, .section-heading, .podium-card, .roadmap-card, .marquee, .update")];
   targets.forEach((node, i) => { node.classList.add("reveal"); node.style.setProperty("--d", String(i % 4)); });
   if ("IntersectionObserver" in window && !calm) {
     const seen = new IntersectionObserver(entries => {
