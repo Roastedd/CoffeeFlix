@@ -7,6 +7,7 @@
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
+#include "services/navidrome.hpp"
 #include "services/podcasts.hpp"
 #include "services/radio.hpp"
 #include "services/twitch.hpp"
@@ -90,6 +91,29 @@ public:
                 else app::push(make_jellyfin_item(it));
             };
             y += shelf(id(g, "jf"), x0, y, s, &page_) + 10;
+        }
+        if (!nd_songs_.empty() || nd_loading_) {
+            any = true;
+            ShelfSpec s;
+            s.title = tr("Navidrome music");
+            s.count = (int)nd_songs_.size();
+            s.loading = nd_loading_;
+            s.shape = CARD_WIDE;
+            s.item_w = 280;
+            s.item = [this](int i) {
+                const navidrome::Song& sg = nd_songs_[i];
+                CardInfo c;
+                c.image = navidrome::cover_art_url(sg.cover_art.empty() ? sg.album_id : sg.cover_art, 300);
+                c.title = sg.title;
+                c.subtitle = sg.artist.empty() ? sg.album : sg.artist;
+                c.icon = ic::LIBRARY_MUSIC;
+                c.badge = util::format_duration(sg.duration);
+                return c;
+            };
+            s.on_click = [this](int i) {
+                play_audio(navidrome::make_source(nd_songs_[i]));
+            };
+            y += shelf(id(g, "nd_songs"), x0, y, s, &page_) + 10;
         }
         if (!yt_.empty() || yt_loading_) {
             any = true;
@@ -194,7 +218,7 @@ public:
             };
             y += shelf(id(g, "pods"), x0, y, s, &page_) + 10;
         }
-        loading = jf_loading_ || yt_loading_ || tw_loading_ || radio_loading_ || pods_loading_;
+        loading = jf_loading_ || nd_loading_ || yt_loading_ || tw_loading_ || radio_loading_ || pods_loading_;
         if (!any && !loading) {
             empty_state(Rect(x0, y, W - x0 - 60, 260), ic::SEARCH, tr("No results"),
                         errors_.empty() ? tr("Try different words.") : errors_.c_str());
@@ -218,17 +242,24 @@ private:
         scope_.reset();
         errors_.clear();
         jf_.clear();
+        nd_songs_.clear();
         yt_.clear();
         ytc_.clear();
         tw_.clear();
         radio_.clear();
         pods_.clear();
         jf_loading_ = jellyfin::signed_in();
+        nd_loading_ = navidrome::signed_in();
         yt_loading_ = tw_loading_ = radio_loading_ = pods_loading_ = true;
         if (jf_loading_)
             scope_.run<jellyfin::List>([q] { return jellyfin::search(q); }, [this](jellyfin::List l) {
                 jf_ = std::move(l.items);
                 jf_loading_ = false;
+            });
+        if (nd_loading_)
+            scope_.run<navidrome::List>([q] { return navidrome::search(q, 20); }, [this](navidrome::List l) {
+                nd_songs_ = std::move(l.songs);
+                nd_loading_ = false;
             });
         scope_.run<youtube::Results>([q] { return youtube::search(q); }, [this](youtube::Results r) {
             yt_ = std::move(r.items);
@@ -255,12 +286,13 @@ private:
 
     std::string query_, errors_;
     std::vector<jellyfin::Item> jf_;
+    std::vector<navidrome::Song> nd_songs_;
     std::vector<youtube::Video> yt_;
     std::vector<youtube::Channel> ytc_;
     std::vector<twitch::Stream> tw_;
     std::vector<radio::Station> radio_;
     std::vector<podcasts::Show> pods_;
-    bool jf_loading_ = false, yt_loading_ = false, tw_loading_ = false, radio_loading_ = false, pods_loading_ = false;
+    bool jf_loading_ = false, nd_loading_ = false, yt_loading_ = false, tw_loading_ = false, radio_loading_ = false, pods_loading_ = false;
     tasks::Scope scope_;
     Page page_;
 };

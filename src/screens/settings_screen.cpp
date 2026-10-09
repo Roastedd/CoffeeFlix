@@ -13,6 +13,7 @@
 #include "screens/send_logs.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
+#include "services/navidrome.hpp"
 #include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 #include "screens/youtube_common.hpp"
@@ -222,6 +223,16 @@ public:
                                                   (a.server_name.empty() ? a.server : a.server_name).c_str())
                                       : tr("Not connected");
             if (value_row(iid, Rect(x0, top, w, 64), "Jellyfin", v.c_str(), ic::VIDEO_LIBRARY, g)) jellyfin_account_menu();
+            track(iid, top, 64);
+        }
+        {
+            Id iid = id(g, "nd");
+            float top = row_h(64);
+            const navidrome::Account& a = navidrome::account();
+            std::string v = a.valid() ? util::fmt(tr("%s on %s"), a.user_name.c_str(),
+                                                  (a.server_name.empty() ? a.server : a.server_name).c_str())
+                                      : tr("Not connected");
+            if (value_row(iid, Rect(x0, top, w, 64), "Navidrome", v.c_str(), ic::LIBRARY_MUSIC, g)) navidrome_account_menu();
             track(iid, top, 64);
         }
         {

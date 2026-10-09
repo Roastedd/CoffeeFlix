@@ -38,6 +38,19 @@ constexpr int IO_TIMEOUT = 20;                      // seconds, per request
 constexpr size_t MAX_IDLE = 4;
 constexpr double IDLE_TTL = 240;                    // servers drop idle sessions eventually
 
+template <typename Stat>
+bool is_hidden_or_system(const Stat& st) {
+#if defined(SMB2_FILE_ATTRIBUTE_HIDDEN) && defined(SMB2_FILE_ATTRIBUTE_SYSTEM)
+    if constexpr (requires { st.smb2_attributes; }) {
+        return (st.smb2_attributes & (SMB2_FILE_ATTRIBUTE_HIDDEN | SMB2_FILE_ATTRIBUTE_SYSTEM)) != 0;
+    } else {
+        return false;
+    }
+#else
+    return false;
+#endif
+}
+
 std::mutex g_m;
 std::vector<Conn*> g_idle;
 
@@ -53,7 +66,7 @@ bool request_error(int rc) {
 
 // errno for a call that returned NULL (opendir, open).
 int last_error(smb2_context* ctx) {
-    int nt = smb2_get_nterror(ctx);
+    int nt = smb2_get_nterror(ctx); // <-- This is causing the linker error if missing
     return nt ? -nterror_to_errno((uint32_t)nt) : -EIO;
 }
 
@@ -330,7 +343,7 @@ bool list_dir(const std::string& url, std::vector<DirEntry>& out, std::string& e
         if (!dir) return last_error(ctx);
         while (smb2dirent* de = smb2_readdir(ctx, dir)) {
             if (!de->name || de->name[0] == '.' || de->name[0] == 0) continue;
-            if (de->st.smb2_attributes & (SMB2_FILE_ATTRIBUTE_HIDDEN | SMB2_FILE_ATTRIBUTE_SYSTEM)) continue;
+            if (is_hidden_or_system(de->st)) continue;
             DirEntry e;
             e.name = de->name;
             e.is_dir = de->st.smb2_type == SMB2_TYPE_DIRECTORY;

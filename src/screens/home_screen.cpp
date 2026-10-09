@@ -11,6 +11,7 @@
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
+#include "services/navidrome.hpp"
 #include "services/podcasts.hpp"
 #include "services/radio.hpp"
 #include "services/twitch.hpp"
@@ -157,6 +158,30 @@ HomeItem from_station(const radio::Station& s) {
     return h;
 }
 
+HomeItem from_navidrome_album(const navidrome::Album& al) {
+    HomeItem h;
+    h.icon = ic::ALBUM;
+    h.service = "Navidrome";
+    h.title = al.name;
+    h.subtitle = al.artist;
+    h.description = al.genre;
+    h.image = h.hero = navidrome::cover_art_url(al.cover_art.empty() ? al.id : al.cover_art, 500);
+    if (al.song_count > 0) h.badge = util::fmt(tr("%d tracks"), al.song_count);
+    h.live = false;
+    h.open = [al] {
+        tasks::submit(tasks::API, [id = al.id]() -> std::function<void()> {
+            navidrome::List l = navidrome::get_album(id);
+            if (l.songs.empty()) return nullptr;
+            std::vector<player::Source> q;
+            for (auto& s : l.songs) q.push_back(navidrome::make_source(s));
+            return [q = std::move(q)]() mutable {
+                screens::play_audio_queue(std::move(q), 0);
+            };
+        });
+    };
+    return h;
+}
+
 class HomeScreen : public app::Screen {
 public:
     HomeScreen() { refresh(); }
@@ -297,6 +322,8 @@ private:
             {"YouTube", tr("Search and watch"), ic::SMART_DISPLAY, app::SEC_YOUTUBE, 0xE53935},
             {"Jellyfin", jellyfin::signed_in() ? tr("Your library") : tr("Connect your server"), ic::VIDEO_LIBRARY,
              app::SEC_JELLYFIN, 0x7E57C2},
+            {"Navidrome", navidrome::signed_in() ? tr("Your music library") : tr("Connect your server"), ic::LIBRARY_MUSIC,
+             app::SEC_NAVIDROME, 0x00ACC1},
             {"Twitch", tr("Live streams"), ic::LIVE_TV, app::SEC_TWITCH, 0x9146FF},
             {tr("Radio"), tr("40,000 stations"), ic::RADIO, app::SEC_RADIO, 0xFB8C00},
             {tr("Podcasts"), tr("Shows and episodes"), ic::PODCASTS, app::SEC_PODCASTS, 0xD81B60},
@@ -323,6 +350,7 @@ private:
         dirty_ = true;
         scope_.reset();
         jf_loading_ = jellyfin::signed_in();
+        nd_loading_ = navidrome::signed_in();
         tw_loading_ = !store::favs("twitch").empty();
         yt_loading_ = true;
         if (jf_loading_) {
@@ -334,6 +362,14 @@ private:
                     jf_loading_ = false;
                     dirty_ = true;
                 });
+        }
+        if (nd_loading_) {
+            scope_.run<navidrome::List>([] { return navidrome::get_album_list("recent", 12); },
+                                        [this](navidrome::List l) {
+                nd_albums_ = std::move(l.albums);
+                nd_loading_ = false;
+                dirty_ = true;
+            });
         }
         if (tw_loading_) {
             scope_.run<twitch::Streams>([] { return twitch::followed(); }, [this](twitch::Streams s) {
@@ -376,6 +412,12 @@ private:
         for (auto& it : jf_next_) next.items.push_back(from_jellyfin(it));
         rows_.push_back(std::move(next));
 
+        if (!nd_albums_.empty() || nd_loading_) {
+            Row nd_row{N_("Recently added to Navidrome"), CARD_SQUARE, 180, {}, nd_loading_};
+            for (auto& al : nd_albums_) nd_row.items.push_back(from_navidrome_album(al));
+            rows_.push_back(std::move(nd_row));
+        }
+
         Row live{N_("Live on Twitch"), CARD_WIDE, 300, {}, tw_loading_};
         for (auto& s : tw_live_) live.items.push_back(from_twitch(s));
         rows_.push_back(std::move(live));
@@ -391,10 +433,11 @@ private:
 
     std::vector<Row> rows_;
     std::vector<jellyfin::Item> jf_resume_, jf_next_;
+    std::vector<navidrome::Album> nd_albums_;
     std::vector<twitch::Stream> tw_live_;
     std::vector<youtube::Video> yt_;
     bool yt_personal_ = false;
-    bool jf_loading_ = false, tw_loading_ = false, yt_loading_ = false;
+    bool jf_loading_ = false, nd_loading_ = false, tw_loading_ = false, yt_loading_ = false;
     bool dirty_ = true;
     int focus_row_ = -1, focus_col_ = -1;
     std::string hero_url_, prev_hero_;

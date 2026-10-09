@@ -16,6 +16,7 @@ std::unique_ptr<app::Screen> make_home();
 std::unique_ptr<app::Screen> make_search();
 std::unique_ptr<app::Screen> make_youtube();
 std::unique_ptr<app::Screen> make_jellyfin();
+std::unique_ptr<app::Screen> make_navidrome();
 std::unique_ptr<app::Screen> make_twitch();
 std::unique_ptr<app::Screen> make_radio();
 std::unique_ptr<app::Screen> make_podcasts();
@@ -48,12 +49,15 @@ bool now_playing_on_top();
 std::unique_ptr<app::Screen> make_photo_viewer(std::vector<std::string> paths, int index);
 std::unique_ptr<app::Screen> make_youtube_search(const std::string& query);
 std::unique_ptr<app::Screen> make_jellyfin_search(const std::string& query);
+std::unique_ptr<app::Screen> make_navidrome_search(const std::string& query);
 std::unique_ptr<app::Screen> make_radio_search(const std::string& query);
 std::unique_ptr<app::Screen> make_podcast_search(const std::string& query);
 std::unique_ptr<app::Screen> make_twitch_search(const std::string& query);
 std::unique_ptr<app::Screen> make_jellyfin_item(const jellyfin::Item& item);
 // The Jellyfin accounts menu: switch, add another, sign out (opens sign-in when there are none).
 void jellyfin_account_menu();
+// The Navidrome accounts menu: switch, add another, sign out (opens sign-in when there are none).
+void navidrome_account_menu();
 std::unique_ptr<app::Screen> make_podcast_show(const std::string& feed_url, const std::string& title,
                                                const std::string& author, const std::string& artwork);
 
