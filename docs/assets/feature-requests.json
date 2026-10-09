@@ -109,7 +109,21 @@
     "category": "Servers & books",
     "title": "Navidrome and Subsonic music servers",
     "summary": "Play your own music library from a Navidrome or other Subsonic-compatible server.",
+    "includes": [],
     "issues": [17],
     "status": "proposed"
+  },
+  {
+    "id": "dvd-playback",
+    "category": "Discs & files",
+    "title": "DVD playback",
+    "summary": "Watch DVDs in CoffeeFlix, from a USB DVD drive or from a ripped copy on your SD card or network. Whether the Wii U lets apps read a USB drive still has to be found out.",
+    "includes": [
+      "Play a ripped DVD (a VIDEO_TS folder or an ISO) from the SD card or a network share, with its menus",
+      "Play a disc from a USB DVD drive, if the Wii U allows it",
+      "Upscale the 480p picture to the TV’s resolution"
+    ],
+    "status": "needs-research",
+    "reply": "I’m checking whether the Wii U lets apps read a USB DVD drive, and what DVD menus and copy protection would take. Playing ripped DVD files may come first."
   }
 ]
