@@ -98,7 +98,7 @@ tools/docker-build.sh DEBUG=1    # debug build
 
 With devkitPro installed (`wut`, `wiiu-sdl2*`, `wiiu-curl`, `ppc-jansson`, `ppc-tinyxml2`, `ppc-giflib`, `ppc-libzip`, `ppc-libjpeg-turbo`), run `tools/build-deps.sh` once and then `make`. `WIIU_IP=192.168.x.x tools/deploy.sh` copies a build to a Wii U running an FTP server.
 
-FFmpeg-wiiu is patched during the build; the patches are in [tools/patches](tools/patches).
+FFmpeg-wiiu is pinned as a Git submodule in `external/FFmpeg-wiiu`. The dependency build initializes it if needed.
 
 ### Choosing a developer build
 
