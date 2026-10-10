@@ -1,3 +1,0 @@
-[submodule "ffmpeg-wiiu"]
-	path = external/FFmpeg-wiiu
-	url = https://github.com/siahisaforker/FFmpeg-wiiu.git

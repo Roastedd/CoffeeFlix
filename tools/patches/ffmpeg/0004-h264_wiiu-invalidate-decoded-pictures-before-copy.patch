@@ -1,0 +1,12 @@
+diff --git a/libavcodec/h264_wiiu.c b/libavcodec/h264_wiiu.c
+--- a/libavcodec/h264_wiiu.c
++++ b/libavcodec/h264_wiiu.c
+@@ -365,7 +365,7 @@
+         start = av_gettime_relative();
+ 
+         // The picture was written by the decoder, not through the CPU cache.
+-        DCFlushRange(out->framebuffer, size);
++        DCInvalidateRange(out->framebuffer, size);
+ 
+         frame = av_frame_alloc();
+         if (!frame)
