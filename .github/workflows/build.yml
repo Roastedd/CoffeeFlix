@@ -17,8 +17,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Check release tooling and roadmap
         run: |
@@ -30,7 +28,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps/install
-          key: deps-${{ hashFiles('tools/build-deps.sh', 'tools/patches/**', '.gitmodules', 'external/FFmpeg-wiiu/libavcodec/h264_wiiu.c', 'external/FFmpeg-wiiu/libavcodec/h264_wiiu.h', 'external/FFmpeg-wiiu/libavcodec/wiiu_frame_targets.h', 'external/FFmpeg-wiiu/libavformat/tcp.c') }}
+          key: deps-${{ hashFiles('tools/build-deps.sh', 'tools/patches/**') }}
           # Start from an older cache: per-library stamps rebuild only what changed.
           restore-keys: deps-
 

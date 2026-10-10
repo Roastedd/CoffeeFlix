@@ -27,6 +27,8 @@ else
     export PATH="$DEVKITPPC/bin:$PATH"
 fi
 
+FFMPEG_REPO="https://github.com/GaryOderNichts/FFmpeg-wiiu.git"
+FFMPEG_REV="24997bdb3e5a3bc666f05e1497b0c102390f9ae0"
 # libsmb2 master after 6.2 (2024), which misses a year of PDU validation fixes.
 LIBSMB2_REPO="https://github.com/sahlberg/libsmb2.git"
 LIBSMB2_REV="557e837d3e00636b543f17ba1b9bdf872fa1644d"
@@ -54,10 +56,7 @@ sha1() { if command -v sha1sum >/dev/null; then sha1sum; else shasum; fi; }  # m
 
 # A library is rebuilt when its revision, its build function or its patches change.
 stamp_for() { # stamp_for <name> <rev>
-    local patches=none
-    if compgen -G "$ROOT/tools/patches/$1/*.patch" >/dev/null; then
-        patches="$(cat "$ROOT/tools/patches/$1"/*.patch | sha1 | cut -c1-12)"
-    fi
+    local patches="$(cat "$ROOT/tools/patches/$1"/*.patch 2>/dev/null | sha1 | cut -c1-12)"
     echo "$PREFIX/.$1-$2-$(declare -f "build_$1" | sha1 | cut -c1-12)-$patches"
 }
 
@@ -74,17 +73,12 @@ apply_patches() { # apply_patches <name> <dir>
 }
 
 build_ffmpeg() {
-    local src="$ROOT/external/FFmpeg-wiiu"
-    if [ ! -f "$src/configure" ]; then
-        git -C "$ROOT" submodule update --init external/FFmpeg-wiiu
-    fi
-    [ -f "$src/configure" ] || { echo "FFmpeg-wiiu submodule is missing" >&2; return 1; }
-    local revision fingerprint stamp
-    revision="$(git -C "$src" rev-parse HEAD)"
-    fingerprint="$(sha1 "$src/libavcodec/h264_wiiu.c" "$src/libavcodec/h264_wiiu.h" "$src/libavcodec/wiiu_frame_targets.h" "$src/libavformat/tcp.c" | sha1 | cut -c1-12)"
-    stamp="$(stamp_for ffmpeg "$revision-$fingerprint")"
+    local stamp="$(stamp_for ffmpeg "$FFMPEG_REV")"
     [ -f "$stamp" ] && { echo "ffmpeg: up to date"; return; }
 
+    fetch ffmpeg "$FFMPEG_REPO" "$FFMPEG_REV"
+    local src="$DEPS/src/ffmpeg"
+    apply_patches ffmpeg "$src"
     local build="$DEPS/build/ffmpeg-$([ $HOST = 1 ] && echo host || echo wiiu)"
     rm -rf "$build" && mkdir -p "$build" && cd "$build"
 
