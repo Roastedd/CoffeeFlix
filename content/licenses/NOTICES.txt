@@ -29,11 +29,11 @@ FFmpeg (Wii U port)
   Copyright (c) the FFmpeg developers; Wii U port by GaryOderNichts.
   GNU Lesser General Public License 3.0 or later (LGPL-3.0.txt, which builds on
   GPL-3.0.txt). Built without any GPL-only or nonfree components.
-  Source: https://github.com/GaryOderNichts/FFmpeg-wiiu
-          commit 24997bdb3e5a3bc666f05e1497b0c102390f9ae0
+  Upstream: https://github.com/GaryOderNichts/FFmpeg-wiiu
+            commit 24997bdb3e5a3bc666f05e1497b0c102390f9ae0
   Modified by Roastedd in 2026: the Wii U hardware H.264 decoder (libavcodec/h264_wiiu.c
-  and h264_wiiu.h) was changed. The changes are in tools/patches/ffmpeg of CoffeeFlix's
-  source code.
+  and h264_wiiu.h) was changed. The modified source is pinned in the external/FFmpeg-wiiu
+  Git submodule; see .gitmodules for its repository and revision.
 
 libsmb2
   Copyright (c) Ronnie Sahlberg and contributors.
