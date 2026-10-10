@@ -41,10 +41,13 @@ $(shell mkdir -p $(BUILD) && printf '#define APP_VERSION "%s"\n' '$(or $(APP_VER
 	&& (cmp -s $(BUILD)/app_version.h.new $(BUILD)/app_version.h || cp $(BUILD)/app_version.h.new $(BUILD)/app_version.h); \
 	rm -f $(BUILD)/app_version.h.new)
 
+SMB2_CFLAGS := $(shell $(PKG_CONFIG) --cflags libsmb2 2>/dev/null)
+SMB2_LIBS   := $(if $(wildcard $(PREFIX)/lib/libsmb2.*),-L$(PREFIX)/lib -lsmb2,$(shell $(PKG_CONFIG) --libs libsmb2 2>/dev/null || echo "-L$(PREFIX)/lib -lsmb2"))
+
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -std=gnu++20 -Wall -Wno-sign-compare -Wno-unused-function -MMD -MP \
-            -Isrc -I$(BUILD) -I$(PREFIX)/include $(FFMPEG_CFLAGS) $(shell $(PKG_CONFIG) --cflags $(PKGS))
-LDLIBS   := -L$(PREFIX)/lib -lsmb2 $(FFMPEG_LIBS) \
+            -Isrc -I$(BUILD) -I$(PREFIX)/include $(FFMPEG_CFLAGS) $(SMB2_CFLAGS) $(shell $(PKG_CONFIG) --cflags $(PKGS))
+LDLIBS   := $(SMB2_LIBS) $(FFMPEG_LIBS) \
             $(shell $(PKG_CONFIG) --libs $(PKGS)) -lz -lpthread -lm
 
 all: $(TARGET)

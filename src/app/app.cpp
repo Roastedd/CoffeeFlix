@@ -60,6 +60,7 @@ const RailEntry RAIL[] = {
     {SEC_SEARCH, ic::SEARCH, N_("Search")},
     {SEC_YOUTUBE, ic::SMART_DISPLAY, "YouTube"},
     {SEC_JELLYFIN, ic::VIDEO_LIBRARY, "Jellyfin"},
+    {SEC_NAVIDROME, ic::LIBRARY_MUSIC, "Navidrome"},
     {SEC_TWITCH, ic::LIVE_TV, "Twitch"},
     {SEC_RADIO, ic::RADIO, N_("Radio")},
     {SEC_PODCASTS, ic::PODCASTS, N_("Podcasts")},
@@ -100,11 +101,11 @@ void draw_rail() {
 
     set_group_entry(g_rail_group, rail_id(g_section));
     int n = (int)(sizeof(RAIL) / sizeof(RAIL[0]));
-    float y = 132;
+    float y = 112;
     for (int i = 0; i < n; i++) {
         const RailEntry& e = RAIL[i];
-        if (e.s == SEC_SETTINGS) y = H - 84;
-        Rect r(14, y, w - 28, 50);
+        if (e.s == SEC_SETTINGS) y = H - 74;
+        Rect r(14, y, w - 28, 48);
         Item it = focusable(rail_id(e.s), r, g_rail_group, F_NO_MEMORY | F_SIDE_ENTRY);
         if (it.focused) g_focus_rail_request = false;
         if (it.clicked) {
@@ -113,11 +114,11 @@ void draw_rail() {
         bool active = e.s == g_section;
         float f = it.f;
         Rect br = r.offset(bump_x(rail_id(e.s)), bump_y(rail_id(e.s)));
-        if (f > 0.01f) gfx::fill_rrect(br, 25, t.surface_focus.alpha(f));
+        if (f > 0.01f) gfx::fill_rrect(br, 24, t.surface_focus.alpha(f));
         if (active && f < 0.99f) {
             float a = 1 - f;
-            gfx::fill_rrect_hgrad(Rect(4, br.cy() - 14, 5, 28), 2.5f, t.accent.alpha(a), t.accent2.alpha(a));
-            if (open > 0.01f) gfx::fill_rrect(br, 25, t.surface.alpha(open * a));
+            gfx::fill_rrect_hgrad(Rect(4, br.cy() - 13, 5, 26), 2.5f, t.accent.alpha(a), t.accent2.alpha(a));
+            if (open > 0.01f) gfx::fill_rrect(br, 24, t.surface.alpha(open * a));
         }
         Color fg = active ? t.accent : t.text2;
         fg = gfx::lerp(fg, gfx::rgb(0x15121A), f);
@@ -129,7 +130,7 @@ void draw_rail() {
                        br.cy() - text::line_height(font::body) * 0.5f, tr(e.label), lc);
             gfx::pop_alpha();
         }
-        y += 58;
+        y += 54;
     }
 }
 

@@ -53,7 +53,8 @@ json_t* section(const char* name) { return object_in(g_root, name); }
 // Each Wii U user's own, under "users" > id: their Jellyfin and YouTube sign-ins.
 const char* const USER_SETTINGS[] = {"jf_server",        "jf_server_name",  "jf_user_id",       "jf_user_name",
                                      "jf_token",         "jf_device_id",    "yt_account_token", "yt_account_name",
-                                     "yt_account_photo", "yt_history_sync"};
+                                     "yt_account_photo", "yt_history_sync", "nd_server",        "nd_server_name",
+                                     "nd_user",          "nd_token",        "nd_salt",          "nd_bitrate"};
 const char* const USER_FAVORITES[] = {"yt_account_channel"};
 std::string g_user;  // empty: one set for everyone
 
@@ -77,7 +78,8 @@ json_t* favorites_for(const char* service) {
 // The other accounts of a service, kept for switching: {"settings": {...}, "favorites": {...}}
 // each, the service's keys of the lists above (its prefix). Most recently used first.
 const char* account_prefix(const char* service) {
-    return strcmp(service, "youtube") == 0 ? "yt_" : strcmp(service, "jellyfin") == 0 ? "jf_" : nullptr;
+    return strcmp(service, "youtube") == 0 ? "yt_" : strcmp(service, "jellyfin") == 0 ? "jf_" :
+           strcmp(service, "navidrome") == 0 ? "nd_" : nullptr;
 }
 json_t* saved_list(const char* service) {
     return array_in(g_user.empty() ? section("accounts") : user_section("accounts"), service);
