@@ -1,0 +1,49 @@
+{
+ "generatedAt": "2026-10-10T18:27:16Z",
+ "features": {
+  "personalize-home": {
+   "commentId": 5943208549,
+   "votes": 2
+  },
+  "display-options": {
+   "commentId": 5943208805,
+   "votes": 2
+  },
+  "controller-keyboard": {
+   "commentId": 5943209093,
+   "votes": 3
+  },
+  "jellyfin-autoplay": {
+   "commentId": 5943209354,
+   "votes": 1
+  },
+  "more-servers": {
+   "commentId": 5943209624,
+   "votes": 1
+  },
+  "youtube-account": {
+   "commentId": 5943209927,
+   "votes": 4
+  },
+  "youtube-community": {
+   "commentId": 5943210197,
+   "votes": 4
+  },
+  "twitch-account": {
+   "commentId": 5943210469,
+   "votes": 4
+  },
+  "twitch-watching": {
+   "commentId": 5943210759,
+   "votes": 3
+  },
+  "navidrome-support": {
+   "commentId": 6034896669,
+   "votes": 2
+  },
+  "dvd-playback": {
+   "commentId": 6073767960,
+   "votes": 0
+  }
+ }
+}
