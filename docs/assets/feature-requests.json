@@ -125,5 +125,13 @@
     ],
     "status": "needs-research",
     "reply": "I’m checking whether the Wii U lets apps read a USB DVD drive, and aiming to play every kind of DVD at the best quality it can show."
+  },
+  {
+    "id": "subtitles-qol",
+    "category": "Display & video",
+    "title": "subtitles QOL",
+    "summary": "When you turn subtitles on for a video, the setting should save for when you open it next time. for example, if I turn on English subtitles, exit the show or…",
+    "issues": [29],
+    "status": "proposed"
   }
 ]
