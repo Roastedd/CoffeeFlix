@@ -136,6 +136,7 @@ struct HttpStream {
     // (`url` again) when it gets refused: a link that expires, or is good for one request only.
     std::string direct;
     bool no_direct = false;
+    int refusal_logs = 0;  // refusals described in the log (a few per stream: they come in dozens)
     bool stop = false;
     std::vector<std::thread> workers;
 
@@ -317,7 +318,7 @@ bool gone_quiet(HttpStream& s, const Chunk& c, double sent_at, double now) {
     const double since = c.data_at > 0 ? c.data_at : sent_at > 0 ? sent_at : c.asked_at;
     const bool others = now - s.data_at < 0.5 && now - since > 0.5;
     const double buffered = now - s.feedback_at < 1.5 ? s.playback_buffer : 0;
-    const double limit = http_io_quiet_limit(sent_at <= 0, urgent, others, c.quiet > 0, buffered);
+    const double limit = http_io_quiet_limit(sent_at <= 0, urgent, others, c.quiet > 0, buffered, s.wait_avg);
     if (now - since < limit) return false;
     const long long at = (long long)(c.start + c.filled) / 1024;
     const char* why = others ? " while others got bytes" : "";
@@ -531,6 +532,8 @@ void fetch(HttpStream& s, const Span& span, http::Connection& conn) {
         std::unique_lock<std::mutex> lk(s.m);
         if (--s.running == 0) s.busy_seconds += util::now_seconds() - s.busy_since;
         const bool overloaded = status == 429 || status == 503;
+        if (status >= 400 && !overloaded && s.refusal_logs++ < 4)
+            log_message(LOG_WARNING, "Player", "HTTP %ld from %s", status, host_of(req.url).c_str());
         const double retry_after = overloaded ? http::retry_after(r, util::unix_time()) : -1;
         double busy_wait = 0;  // seconds this download waits before it asks again (the others go on)
         if (overloaded) {
@@ -895,9 +898,10 @@ int http_io_host_budget(const std::string& url) {
     return (int)std::min(1000000000.0, it->second.rate * 8 * 0.7);
 }
 
-double http_io_quiet_limit(bool connecting, bool urgent, bool others, bool retried, double buffered) {
+double http_io_quiet_limit(bool connecting, bool urgent, bool others, bool retried, double buffered, double wait) {
     if (connecting) return CONNECT_SECONDS;
     double limit = urgent ? QUIET_SECONDS : QUIET_SECONDS_AHEAD;
+    limit = std::max(limit, std::min(6.0, wait * 2.5));  // 0.7 s (googlevideo) changes nothing
     if (!others) limit *= 2;
     if (retried) limit *= 2;
     // Leave at least half the confirmed buffer for recovery; never wait indefinitely.

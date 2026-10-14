@@ -21,6 +21,9 @@ void shutdown();
 
 // False once the system asked the app to quit (HOME menu -> close, window closed).
 bool running();
+// True where the system's Back key from the app's first screen should leave the app (Android TV);
+// the Wii U leaves from the HOME menu and a desktop closes the window.
+bool back_exits_app();
 // Asks to close the app, back to the Wii U Menu; running() turns false once the system agrees.
 void exit_to_menu();
 
@@ -55,6 +58,15 @@ std::string memory_summary();
 // The app's own package on the SD card when it can be replaced in place (Wii U: the .wuhb Aroma
 // started it from), else empty. Desktop tests name one with COFFEEFLIX_BUNDLE.
 std::string app_bundle();
+// Android: hands the downloaded APK at `path` to the system's installer, which asks the viewer to
+// confirm and replaces the running app. "" when the installer was started, else what went wrong
+// (the first time, the viewer also has to allow this app to install apps). install_result() is
+// what the installer reported afterwards, "" while all is well. Elsewhere: not available.
+std::string install_package(const std::string& path);
+// Android: opens the TV's own Developer options (ADB debugging, installing apps from unknown sources). "" when
+// they opened; else how to get to them (they stay hidden until the device name in About is pressed seven times).
+std::string open_developer_options();
+std::string install_result();
 // Makes the loader let go of that package so it can be renamed. /vol/content goes with it:
 // only while exiting, once nothing reads bundled files any more.
 bool release_app_bundle();
@@ -63,6 +75,11 @@ void poll(RawInput& raw);
 
 const char* name();
 bool is_wiiu();
+// Android TV (Fire TV): decodes video with the system's MediaCodec, with software decoding as the fallback.
+bool is_android();
+// An Android phone or tablet (touch, no remote): the button hints that name a controller's buttons aren't shown.
+// COFFEEFLIX_PHONE=1 pretends on a desktop, to look at it.
+bool is_phone();
 // Read-only bundled assets (fonts, sounds, certificates).
 std::string content_dir();
 // Writable app folder (settings, caches) and the user's media root.
@@ -84,6 +101,7 @@ struct FontFile {
     const void* data = nullptr;  // else read from path
     size_t size = 0;
     std::string path;
+    int index = 0;  // which face of a font collection (.ttc)
 };
 bool cjk_font(CjkFont which, FontFile& out);
 
@@ -135,6 +153,48 @@ void lower_thread_priority();
 
 // Rumble the GamePad briefly (no-op elsewhere).
 void rumble(float seconds);
+
+// The Wii U GamePad's own outputs, each apart from the TV's. Elsewhere there is no GamePad: nothing
+// here does anything, and has_pad_outputs() says so.
+enum PadScreen {
+    PAD_SCREEN_ON,       // as usual
+    PAD_SCREEN_STANDBY,  // dark until any button is pressed
+    PAD_SCREEN_OFF,      // dark until it is asked for again: the backlight is the GamePad's big battery cost
+};
+enum PadPicture {
+    PAD_PICTURE_SHOWN,     // the TV's picture, as usual
+    PAD_PICTURE_NOT_SENT,  // it keeps the last one: frames aren't drawn or sent for it
+    PAD_PICTURE_STOPPED,   // and the console stops its video stream to it altogether
+};
+struct PadOutputs {
+    PadScreen screen = PAD_SCREEN_ON;
+    PadPicture picture = PAD_PICTURE_SHOWN;
+    bool pad_sound = true;  // its speakers and the headphones plugged into it
+    bool tv_sound = true;
+    // Lab only: HOME, closing and quitting leave the display as it is, to see whether the system
+    // puts it back (starting the app always does).
+    bool leave_dark_on_exit = false;
+};
+// Whether this platform has a GamePad whose outputs can be told apart.
+bool has_pad_outputs();
+// Asks for these outputs (the same again is cheap). The console's own state is put back, whatever
+// was asked, when the app leaves the foreground, closes or quits, and asked for again on return.
+void set_pad_outputs(const PadOutputs& outputs);
+// What the console says about the GamePad, for the developer lab (Settings > GamePad lab).
+struct PadStatus {
+    int lcd_set = 0;         // what VPADSetLcdMode answered the last time (0: fine)
+    int lcd_mode = -1;       // what VPADGetLcdMode reads back (PadScreen's numbers on the console: 255 on, 0 standby, 1 off); -1 unknown
+    int battery = -1;        // the GamePad's own reading, 0..: as it comes
+    uint32_t held = 0;       // raw buttons held, as VPAD gives them
+    bool touching = false;   // the touch screen reports a finger
+    int read_error = 0;      // what VPADRead answered the last time (0: a reading; -1: none new yet; others: trouble)
+};
+PadStatus pad_status();
+// The GamePad shows this texture, a render target, instead of the window's picture (null: the
+// window's again). The TV keeps the window's. Wii U only: the desktop preview shows it as a small
+// picture in a corner (draw_pad_preview), for trying the remote view without a console.
+void set_pad_texture(SDL_Texture* texture);
+void draw_pad_preview(SDL_Renderer* renderer);
 
 // Stops the system from dimming the screen or powering off while media plays.
 // The console's own settings come back once playback stops.

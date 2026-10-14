@@ -12,6 +12,7 @@
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
+#include "platform/platform.hpp"
 
 namespace ui {
 
@@ -383,6 +384,11 @@ Item focusable(Id id, const Rect& r, Id group, int flags) {
             g_last_focus_group = group;
             if (group && !(flags & F_NO_MEMORY)) g_group_memory[group] = id;
         }
+        if (g_in->long_press && hit(g_in->touch_start_x, g_in->touch_start_y) && g_focus != id) {  // the finger's item takes X
+            g_focus = id;
+            g_last_focus_group = group;
+            if (group && !(flags & F_NO_MEMORY)) g_group_memory[group] = id;
+        }
         if (g_in->tap && (g_tap_target ? g_tap_target == id : hit(g_in->tx, g_in->ty))) {
             g_focus = id;
             g_last_focus_group = group;
@@ -662,6 +668,8 @@ void button_glyph(float cx, float cy, const char* button, float size) {
 }
 
 void hint_bar(std::initializer_list<Hint> hints, float y) {
+    static const bool phone = platform::is_phone();  // taps, not buttons
+    if (phone) return;
     float x = W - 48;
     for (auto it = std::rbegin(hints); it != std::rend(hints); ++it) {
         float lw = text::measure(font::small_bold, it->label);

@@ -240,6 +240,37 @@ uint32_t map_wiimote(uint32_t h) {
 
 namespace {
 
+// The GamePad's display, which the app can turn off (set_pad_outputs). It is back on whenever the
+// system might show something on it (HOME, closing) and at quitting: a GamePad left dark outside
+// the app would be a bug that outlasts it.
+PadOutputs g_pad_wanted;
+PadScreen g_pad_screen = PAD_SCREEN_ON;  // what the display was last put to
+bool g_pad_background = false;           // HOME: the system has the GamePad
+int g_pad_lcd_set = 0;
+int g_pad_read_error = 0;
+
+void pad_screen_to(PadScreen screen, const char* why) {
+    if (screen == g_pad_screen) return;
+    static const VPADLcdMode MODES[] = {VPAD_LCD_ON, VPAD_LCD_STANDBY, VPAD_LCD_OFF};
+    static const char* const NAMES[] = {"on", "standby", "off"};
+    const double t = util::now_seconds();
+    g_pad_lcd_set = VPADSetLcdMode(VPAD_CHAN_0, MODES[screen]);
+    VPADLcdMode now = VPAD_LCD_ON;
+    const int got = VPADGetLcdMode(VPAD_CHAN_0, &now);
+    log_message(g_pad_lcd_set == 0 ? LOG_OK : LOG_WARNING, "Pad", "GamePad screen %s (%s): VPADSetLcdMode answered %d, reads back %d (%d), %.0f ms",
+                NAMES[screen], why, g_pad_lcd_set, (int)now, got, (util::now_seconds() - t) * 1000);
+    g_pad_screen = screen;
+}
+
+// The display as the system expects it.
+void pad_screen_for_system(const char* why) {
+    if (g_pad_wanted.leave_dark_on_exit && g_pad_screen != PAD_SCREEN_ON) {
+        log_message(LOG_WARNING, "Pad", "GamePad display left as it is (%s): the lab's test", why);
+        return;
+    }
+    pad_screen_to(PAD_SCREEN_ON, why);
+}
+
 Lifecycle g_lifecycle;
 
 // ProcUI calls these from inside ProcUIProcessMessages (WHBProcIsRunning) on the main thread. SDL
@@ -252,6 +283,8 @@ uint32_t proc_release(void*) {
     crash::background(true);
     crash::phase("HOME: in our release callback");
     log_message(LOG_OK, "Platform", "HOME pressed: giving up the foreground");
+    g_pad_background = true;
+    pad_screen_for_system("HOME");
     if (g_lifecycle.leaving_foreground) g_lifecycle.leaving_foreground();
     log_message(LOG_OK, "Platform", "HOME: our release callback is done");
     crash::phase("HOME: after our release callback, in the others' or the system's");
@@ -284,12 +317,16 @@ uint32_t proc_release_probe_low(void*) {
 uint32_t proc_acquire(void*) {
     crash::background(false);
     log_message(LOG_OK, "Platform", "Back in the foreground");
+    g_pad_background = false;
+    pad_screen_to(g_pad_wanted.screen, "back from HOME");
     if (g_lifecycle.returned) g_lifecycle.returned();
     return 0;
 }
 
 uint32_t proc_exit(void*) {
     log_message(LOG_OK, "Platform", "The system asks the app to close");
+    pad_screen_for_system("closing");
+    g_pad_wanted = PadOutputs();
     if (g_lifecycle.exiting) g_lifecycle.exiting();
     return 0;
 }
@@ -332,6 +369,17 @@ bool init() {
     WHBProcInit();
     register_lifecycle_callbacks();
     VPADInit();
+    // Whatever an earlier run (or a crash) left the display at is put right: the system doesn't
+    // say whether it does. What it was goes in the log.
+    {
+        VPADLcdMode mode = VPAD_LCD_ON;
+        const int got = VPADGetLcdMode(VPAD_CHAN_0, &mode);
+        log_message(LOG_OK, "Pad", "GamePad display mode at start: %d (VPADGetLcdMode answered %d; on 255, standby 0, off 1)", (int)mode, got);
+        if (got == 0 && mode != VPAD_LCD_ON) {
+            const int set = VPADSetLcdMode(VPAD_CHAN_0, VPAD_LCD_ON);
+            log_message(set == 0 ? LOG_OK : LOG_WARNING, "Pad", "GamePad display put back on: VPADSetLcdMode answered %d", set);
+        }
+    }
     KPADInit();
     WPADEnableURCC(true);  // Pro Controller support
     if (nn::ac::GetAssignedAddress(&g_ip)) {
@@ -361,6 +409,8 @@ void shutdown() {
         g_power->thread.join();
     }
     VPADStopMotor(VPAD_CHAN_0);
+    pad_screen_for_system("quitting");
+    g_pad_wanted = PadOutputs();
     KPADShutdown();
     WHBProcShutdown();
     nn::ac::Finalize();
@@ -475,6 +525,15 @@ void poll(RawInput& raw) {
     } else if (verr != VPAD_READ_NO_SAMPLES) {
         g_vpad_ok = false;
     }
+    g_pad_read_error = (int)verr;
+    if (g_vpad_ok) {  // the GamePad's battery as it comes, to learn its scale from the log
+        static double battery_logged = -1000;
+        const double now = util::now_seconds();
+        if (now - battery_logged >= 60) {
+            battery_logged = now;
+            log_message(LOG_DEBUG, "Pad", "GamePad battery reading %d", (int)g_vpad.battery);
+        }
+    }
     if (g_vpad_ok) {
         VPADStatus& vpad = g_vpad;
         raw.held |= map_vpad(vpad.hold);
@@ -551,6 +610,12 @@ void poll(RawInput& raw) {
 
 const char* name() { return "Wii U"; }
 bool is_wiiu() { return true; }
+bool is_android() { return false; }
+bool is_phone() { return false; }
+bool back_exits_app() { return false; }
+std::string install_package(const std::string&) { return "Installing packages is for the Android app"; }
+std::string install_result() { return ""; }
+std::string open_developer_options() { return "Developer options are for the Android app"; }
 // The .wuhb bundle mounts its files at /vol/content. The Tiramisu build is a bare .rpx,
 // launched from the Homebrew Launcher, with the same files in a folder next to it.
 std::string content_dir() {
@@ -669,6 +734,42 @@ void tune_socket(int fd) {
 void rumble(float seconds) {
     VPADControlMotor(VPAD_CHAN_0, g_rumble_pattern, 120);
     g_rumble_left = seconds;
+}
+
+bool has_pad_outputs() { return true; }
+
+void set_pad_outputs(const PadOutputs& o) {
+    if (o.picture != g_pad_wanted.picture)
+        log_message(LOG_OK, "Pad", "GamePad picture: %s", o.picture == PAD_PICTURE_SHOWN ? "shown" : o.picture == PAD_PICTURE_NOT_SENT ? "not sent" : "stopped");
+    if (o.pad_sound != g_pad_wanted.pad_sound || o.tv_sound != g_pad_wanted.tv_sound)
+        log_message(LOG_OK, "Pad", "Sound: TV %s, GamePad %s", o.tv_sound ? "on" : "off", o.pad_sound ? "on" : "off");
+    g_pad_wanted = o;
+    SDL_WiiUSetGamePadPicture(o.picture);
+    SDL_WiiUSetAudioOutputs(o.tv_sound ? SDL_TRUE : SDL_FALSE, o.pad_sound ? SDL_TRUE : SDL_FALSE);
+    if (!g_pad_background) pad_screen_to(o.screen, "asked for");
+}
+
+void set_pad_texture(SDL_Texture* texture) { SDL_WiiUSetGamePadTexture(texture); }
+void draw_pad_preview(SDL_Renderer*) {}
+
+PadStatus pad_status() {
+    PadStatus s;
+    s.lcd_set = g_pad_lcd_set;
+    // The display's own answer costs a call to the system: not every frame.
+    static double read_at = -1;
+    static int lcd_mode = -1;
+    const double now = util::now_seconds();
+    if (read_at < 0 || now - read_at > 0.5) {
+        VPADLcdMode mode = VPAD_LCD_ON;
+        lcd_mode = VPADGetLcdMode(VPAD_CHAN_0, &mode) == 0 ? (int)mode : -1;
+        read_at = now;
+    }
+    s.lcd_mode = lcd_mode;
+    s.battery = g_vpad_ok ? (int)g_vpad.battery : -1;
+    s.held = g_vpad_ok ? (uint32_t)g_vpad.hold : 0;
+    s.touching = g_vpad_ok && g_vpad.tpNormal.touched;
+    s.read_error = g_pad_read_error;
+    return s;
 }
 
 void keep_awake(Awake level) {

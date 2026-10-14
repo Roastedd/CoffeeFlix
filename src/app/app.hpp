@@ -6,7 +6,7 @@
 
 namespace app {
 
-enum Section { SEC_HOME, SEC_SEARCH, SEC_YOUTUBE, SEC_JELLYFIN, SEC_NAVIDROME, SEC_TWITCH, SEC_RADIO, SEC_PODCASTS, SEC_MEDIA,
+enum Section { SEC_HOME, SEC_SEARCH, SEC_YOUTUBE, SEC_JELLYFIN, SEC_TWITCH, SEC_RADIO, SEC_PODCASTS, SEC_MEDIA,
                SEC_SETTINGS, SEC_COUNT, SEC_NONE = -1 };
 
 class Screen {
@@ -17,6 +17,11 @@ public:
     virtual bool on_back() { return false; }        // true = handled internally
     virtual bool prevents_sleep() const { return false; } // temporary transfers keep the console awake
     virtual bool fullscreen() const { return false; }  // hide the rail (players, viewers)
+    // In the GamePad's Remote view: this screen draws the TV's picture itself (a video) and the
+    // GamePad's own (its controls) from frame(), with pad_views::PadPass; everything else is drawn
+    // for the GamePad, and the TV stays black.
+    // Capability is independent of the selected view; automatic routing queries it before drawing.
+    virtual bool tv_scene() const { return false; }
     virtual bool draws_background() const { return false; }
     virtual Section section() const { return SEC_NONE; }
     // Content area left edge when the rail is shown.

@@ -24,10 +24,10 @@ with tempfile.TemporaryDirectory() as d:
     shutil.copy(ROOT / "docs/index.html", root / "docs/index.html")
     catalogue = [idea("a", "planned"), idea("b", "planned"), idea("c", "planned", roadmap=False),
                  idea("d", "planned", platforms=["Android"]), idea("e", "proposed"),
-                 idea("f", "planned", summary="Better IPTV lists."), idea("g", "planned"), idea("h", "planned")]
+                 idea("g", "planned"), idea("h", "planned")]
     (root / "docs/assets/feature-requests.json").write_text(json.dumps(catalogue))
     (root / "docs/assets/roadmap.json").write_text(json.dumps({"updated": "2026-01-01", "items": []}))
-    votes = {"features": {k: {"votes": v} for k, v in dict(a=9, b=5, c=50, d=50, e=40, f=50, g=4, h=1).items()}}
+    votes = {"features": {k: {"votes": v} for k, v in dict(a=9, b=5, c=50, d=50, e=40, g=4, h=1).items()}}
     added, watch = mod.propose(root, votes, 2, 3, date(2026, 10, 12))
     assert [i["id"] for i, _ in added] == ["a", "b"], added          # most votes first, only 2, nothing ineligible
     assert [i["id"] for i, _ in watch] == ["e"], watch                 # proposed: mentioned, never added

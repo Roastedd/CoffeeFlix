@@ -200,6 +200,7 @@ public:
     PodcastsScreen() {
         std::string cc = util::lower(store::get_str("radio_country", "US"));
         top_.load([cc] { return podcasts::top(cc); });
+        if (podcasts::has_taste()) mine_.load([] { return podcasts::for_you(); });
     }
     app::Section section() const override { return app::SEC_PODCASTS; }
 
@@ -258,6 +259,18 @@ public:
             y += shelf(id(g, "subs"), x0, y, s, &page_) + 10;
         }
 
+        if (mine_.loading || !mine_.shows.items.empty()) {
+            ShelfSpec s;
+            s.title = tr("Picked for you");
+            s.count = (int)mine_.shows.items.size();
+            s.loading = !mine_.loaded;
+            s.shape = CARD_SQUARE;
+            s.item_w = 170;
+            s.item = [this](int i) { return show_card(mine_.shows.items[i]); };
+            s.on_click = [this](int i) { app::push(make_show(mine_.shows.items[i])); };
+            y += shelf(id(g, "mine"), x0, y, s, &page_) + 10;
+        }
+
         if (top_.loaded && top_.shows.items.empty() && !top_.shows.error.empty()) {
             if (empty_state_action(id(g, "retry"), Rect(x0, y, W - x0 - 60, 260), ic::WIFI_OFF, tr("Couldn't load top podcasts"),
                                    top_.shows.error.c_str()))
@@ -279,7 +292,7 @@ public:
     }
 
 private:
-    ShowsLoader top_;
+    ShowsLoader top_, mine_;
     Page page_;
 };
 

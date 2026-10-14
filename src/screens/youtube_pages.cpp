@@ -9,6 +9,7 @@
 #include <memory>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <thread>
 
@@ -152,6 +153,9 @@ public:
     bool fullscreen() const override { return true; }
     bool draws_background() const override { return true; }
     app::Section section() const override { return app::SEC_YOUTUBE; }
+    // The GamePad remote: the video on the TV and its controls on the GamePad, until it ends (then the
+    // card with the next video is the GamePad's, with the TV black).
+    bool tv_scene() const override { return player::state() != player::ENDED && video_ && video_->tv_scene(); }
     void on_enter() override { if (video_) video_->on_enter(); }
     bool on_back() override { return player::state() != player::ENDED && video_ && video_->on_back(); }
     void frame() override {
@@ -159,7 +163,16 @@ public:
         const bool ended = player::state() == player::ENDED;
         if (!requested_ && !current_.live && player::started() &&
             (ended || (player::duration() > 0 && player::duration() - player::position() < 45))) load_next();
-        if (!ended) { ended_at_ = 0; video_->frame(); return; }
+        if (!ended) {
+            ended_at_ = 0;
+            video_->frame();
+            if (queued_) {  // picked on the GamePad remote's list: now the old player isn't in the middle of a frame
+                youtube::Video v = std::move(*queued_);
+                queued_.reset();
+                begin(std::move(v));
+            }
+            return;
+        }
         using namespace ui;
         gfx::fill_rect(Rect(0, 0, W, H), gfx::BLACK);
         if (auto tex = player::video_texture()) { auto r = player::fit_rect((int)W,(int)H); gfx::image_rotated(tex,Rect(r.x,r.y,r.w,r.h),player::video_rotation()); }
@@ -191,7 +204,9 @@ private:
         scope_.reset(); video_.reset(); current_=std::move(video); next_={}; requested_=loading_=cancelled_=false; ended_at_=0;
         if (seen_.size()>=100) seen_.clear();
         seen_.insert(current_.id); remember_watched(current_);
-        player::open(youtube::make_source(current_)); video_=make_video_player(); video_->on_enter();
+        player::open(youtube::make_source(current_));
+        video_ = make_video_player([this](const youtube::Video& v) { queued_ = v; });
+        video_->on_enter();
     }
     void load_next() {
         requested_=loading_=true; const auto id=current_.id;
@@ -202,6 +217,7 @@ private:
     }
     youtube::Video current_,next_; std::set<std::string> seen_; tasks::Scope scope_;
     std::unique_ptr<app::Screen> video_; bool requested_=false,loading_=false,cancelled_=false; double ended_at_=0;
+    std::optional<youtube::Video> queued_;
 };
 }
 

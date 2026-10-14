@@ -80,6 +80,8 @@ public:
     bool fullscreen() const override { return true; }
     bool draws_background() const override { return true; }
     app::Section section() const override { return app::SEC_JELLYFIN; }
+    // The GamePad remote: the video on the TV and its controls on the GamePad, until it ends.
+    bool tv_scene() const override { return player::state() != player::ENDED && video_ && video_->tv_scene(); }
     void on_enter() override { if (video_) video_->on_enter(); }
     bool on_back() override { return player::state() != player::ENDED && video_ && video_->on_back(); }
     void frame() override {
@@ -423,6 +425,7 @@ public:
         if (jf::account().valid() && ui::time() - loaded_at_ > 2) {
             resume_.load([] { return jf::resume(); });
             next_up_.load([] { return jf::next_up(); });
+            because_.load([] { return jf::because_you_watched(); });
         }
     }
 
@@ -473,6 +476,9 @@ public:
 
         y += item_shelf(id(g, "resume"), x0, y, tr("Continue watching"), resume_, CARD_WIDE, 320) ;
         y += item_shelf(id(g, "nextup"), x0, y, tr("Next up"), next_up_, CARD_WIDE, 320);
+        if (!because_.list.note.empty())
+            y += item_shelf(id(g, "because"), x0, y, util::fmt(tr("Because you watched %s"), because_.list.note.c_str()).c_str(),
+                            because_, CARD_POSTER, 170);
         for (size_t i = 0; i < latest_.size(); i++) {
             auto& [name, loader, music] = latest_[i];
             if (y < H + 400 && !loader->loaded && !loader->loading) {
@@ -506,7 +512,7 @@ private:
         version_ = jf::version();
         connect_.reset(jf::account().server);
         connect_.set_saved(!jf::others().empty());
-        for (Loader* l : {&views_, &resume_, &next_up_}) {
+        for (Loader* l : {&views_, &resume_, &next_up_, &because_}) {
             l->scope.reset();
             l->list = jf::List();
             l->loading = l->loaded = false;
@@ -521,6 +527,7 @@ private:
         loaded_at_ = ui::time();
         resume_.load([] { return jf::resume(); });
         next_up_.load([] { return jf::next_up(); });
+        because_.load([] { return jf::because_you_watched(); });
         views_.scope.reset();
         views_.loading = true;
         views_.scope.run<jf::List>([] { return jf::views(); }, [this](jf::List l) {
@@ -539,7 +546,7 @@ private:
 
     ConnectView connect_;
     int version_;
-    Loader views_, resume_, next_up_;
+    Loader views_, resume_, next_up_, because_;
     std::vector<std::tuple<std::string, std::unique_ptr<Loader>, bool>> latest_;
     std::vector<std::string> latest_ids_;
     double loaded_at_ = 0;

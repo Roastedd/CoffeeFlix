@@ -23,6 +23,7 @@
 #include "logger/logger.hpp"
 #include "player/player.hpp"
 #include "services/hls.hpp"
+#include "services/locale_bias.hpp"
 #include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 
@@ -643,6 +644,7 @@ Details details_of(json_t* root) {
     const int64_t likes = json::num(micro, {"likeCount"}, -1);
     if (likes > 0) d.likes = likes == 1 ? tr("1 like") : util::fmt(tr("%s likes"), util::format_count(likes).c_str());
     d.posted = i18n::long_date(json::str(micro, {"publishDate"}, json::str(micro, {"uploadDate"})));
+    d.category = json::str(micro, {"category"});
     return d;
 }
 
@@ -901,6 +903,7 @@ Results trending() {
     for (size_t k = 0; k < 8; k++)
         for (auto& r : got)
             if (k < r.items.size() && seen.insert(r.items[k].id).second) out.items.push_back(r.items[k]);
+    locale_bias::filter(out.items, 16);  // the world's most viewed is mostly made for someone else
     out.ok = !out.items.empty() || out.error.empty();
     if (!out.items.empty()) {
         cached = out;
@@ -1494,7 +1497,7 @@ Details details(const std::string& video_id, std::string& error) {
     json_t* body = json_object();
     json_object_set_new(body, "videoId", json_string(video_id.c_str()));
     json::Doc doc = call("player", WEB, body, error, "", nullptr,
-                         "videoDetails.viewCount,microformat.playerMicroformatRenderer(viewCount,likeCount,publishDate,uploadDate)");
+                         "videoDetails.viewCount,microformat.playerMicroformatRenderer(viewCount,likeCount,publishDate,uploadDate,category)");
     return doc ? details_of(doc.get()) : Details{};
 }
 

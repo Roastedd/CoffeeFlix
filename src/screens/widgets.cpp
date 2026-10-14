@@ -31,6 +31,7 @@ struct Menu {
     bool active = false;
     std::string title, subtitle;
     std::vector<MenuItem> items;
+    std::function<float(float, float, float)> header;
     double opened = 0;
     Id return_focus = 0;
     const app::Screen* owner = nullptr;       // the screen it was opened on (its actions use it)
@@ -184,8 +185,8 @@ void Page::end(float content_bottom) { content_h_ = content_bottom + 40; }
 
 // While a list loads, its first skeleton holds focus under the first item's id,
 // so focus lands on that item when it arrives instead of wandering off.
-static void loading_placeholder(Id iid, const Rect& r, float radius, Id group) {
-    Item it = focusable(iid, r, group, F_DEFAULT);
+static void loading_placeholder(Id iid, const Rect& r, float radius, Id group, bool def = true) {
+    Item it = focusable(iid, r, group, def ? F_DEFAULT : 0);
     if (it.f > 0.01f) focus_ring(r, radius, it.f * 0.6f);
 }
 
@@ -207,7 +208,7 @@ float shelf(Id id, float x, float y, const ShelfSpec& s, Page* page) {
             Rect r(x + i * (iw + gap), y, iw, ih);
             skeleton(r, radius_for(s.shape, r));
             skeleton(Rect(r.x, r.b() + 14, iw * 0.7f, 16), 6);
-            if (i == 0) loading_placeholder(ui::id(group, (int64_t)0), r, radius_for(s.shape, r), group);
+            if (i == 0) loading_placeholder(ui::id(group, (int64_t)0), r, radius_for(s.shape, r), group, s.placeholder_default);
         }
         return y + total_h - h0;
     }
@@ -237,7 +238,7 @@ float shelf(Id id, float x, float y, const ShelfSpec& s, Page* page) {
         bool focused_now;
         if (visible) {
             CardInfo c = s.item(i);
-            clicked = card(iid, r, s.shape, c, group);
+            clicked = card(iid, r, s.shape, c, group, i == 0 && s.first_default ? F_DEFAULT : 0);
             focused_now = ui::focused() == iid;
         } else {
             Item it = focusable(iid, r, group);
@@ -265,11 +266,13 @@ float shelf(Id id, float x, float y, const ShelfSpec& s, Page* page) {
 
 float grid(Id id, float x, float y, const GridSpec& s, Page* page) {
     float iw = s.item_w, ih = image_height(s.shape, iw);
+    // As many columns as fit on a narrower screen (a phone), up to what the page asked for.
+    const int cols = std::max(1, std::min(s.cols, (int)((ui::W - x - 30 + s.gap_x) / (iw + s.gap_x))));
     float row_h = ih + card_text_height(s.shape) + 20;
     Id group = ui::id(id, "cells");
     if (s.loading && s.count == 0) {
-        for (int i = 0; i < s.cols * 2; i++) {
-            Rect r(x + (i % s.cols) * (iw + s.gap_x), y + (i / s.cols) * row_h, iw, ih);
+        for (int i = 0; i < cols * 2; i++) {
+            Rect r(x + (i % cols) * (iw + s.gap_x), y + (i / cols) * row_h, iw, ih);
             skeleton(r, radius_for(s.shape, r));
             skeleton(Rect(r.x, r.b() + 14, iw * 0.7f, 16), 6);
             if (i == 0) loading_placeholder(ui::id(group, (int64_t)0), r, radius_for(s.shape, r), group);
@@ -277,7 +280,7 @@ float grid(Id id, float x, float y, const GridSpec& s, Page* page) {
         return 2 * row_h;
     }
     for (int i = 0; i < s.count; i++) {
-        int row = i / s.cols, col = i % s.cols;
+        int row = i / cols, col = i % cols;
         Rect r(x + col * (iw + s.gap_x), y + row * row_h, iw, ih);
         Id iid = ui::id(group, (int64_t)i);
         bool visible = r.y < ui::H + 20 && r.b() + 80 > 0;
@@ -301,15 +304,15 @@ float grid(Id id, float x, float y, const GridSpec& s, Page* page) {
                 input().eat(BTN_Y);
                 s.on_y(i);
             }
-            int rows = (s.count + s.cols - 1) / s.cols;
+            int rows = (s.count + cols - 1) / cols;
             if (s.on_reach_end && row >= rows - 2) s.on_reach_end();
         }
         if (clicked && s.on_click) s.on_click(i);
     }
-    int rows = (s.count + s.cols - 1) / s.cols;
+    int rows = (s.count + cols - 1) / cols;
     float h = rows * row_h;
     if (s.loading) {
-        loading_indicator(x + (s.cols * (iw + s.gap_x)) * 0.5f, y + h + 30);
+        loading_indicator(x + (cols * (iw + s.gap_x)) * 0.5f, y + h + 30);
         h += 70;
     }
     return h;
@@ -454,7 +457,8 @@ void draw_prompt() {
 
 // --- action menu ------------------------------------------------------------------
 
-void show_menu(const std::string& title, const std::string& subtitle, std::vector<MenuItem> items) {
+void show_menu(const std::string& title, const std::string& subtitle, std::vector<MenuItem> items,
+               std::function<float(float, float, float)> header) {
     if (items.empty()) return;
     if (!g_menu.active) g_menu.return_focus = focused();
     g_menu.active = true;
@@ -462,6 +466,7 @@ void show_menu(const std::string& title, const std::string& subtitle, std::vecto
     g_menu.title = title;
     g_menu.subtitle = subtitle;
     g_menu.items = std::move(items);
+    g_menu.header = std::move(header);
     g_menu.opened = ui::time();
     reset_focus();
     audio::play(audio::SFX_OPEN, 0.6f);
@@ -473,6 +478,7 @@ namespace {
 void hide_menu() {
     g_menu.active = false;
     g_menu.items.clear();
+    g_menu.header = nullptr;
     if (g_menu.return_focus) set_focus(g_menu.return_focus);
     else reset_focus();
     // Closing from an action happens after this frame's menu items were laid out, which
@@ -499,6 +505,7 @@ void draw_menu() {
         // Another screen took over (e.g. + opened Now Playing): the actions belong to the old one.
         g_menu.active = false;
         g_menu.items.clear();
+        g_menu.header = nullptr;
         return;
     }
     const Theme& t = theme();
@@ -515,20 +522,30 @@ void draw_menu() {
         y += 34;
     }
     y += 18;
+    if (g_menu.header) {
+        const float h = g_menu.header(x + 36, y, pw - 72);
+        if (h > 0) y += h + 16;
+    }
 
     push_layer();
     Id g = id("actionmenu");
     std::function<void()> run;
     for (size_t i = 0; i < g_menu.items.size(); i++) {
         const MenuItem& m = g_menu.items[i];
-        Rect r(x + 24, y, pw - 48, 60);
+        // A line or two under the label, in the room the text takes.
+        const float tw = pw - 48 - 76;
+        const float detail_h = m.detail.empty() ? 0 : text::measure_wrapped(font::small, tw, m.detail, 2);
+        Rect r(x + 24, y, pw - 48, m.detail.empty() ? 60.0f : 38 + detail_h + 12);
         Item it = focusable(id(g, (int64_t)i), r, g, i == 0 ? F_DEFAULT : 0);
         gfx::fill_rrect(r, 14, gfx::lerp(Color(255, 255, 255, 0), t.surface_focus, it.f));
         Color fg = gfx::lerp(t.text, gfx::rgb(0x15121A), it.f);
-        if (m.icon) text::icon(m.icon, 26, r.x + 30, r.cy(), gfx::lerp(t.accent, fg, it.f));
-        text::draw_fit(font::body_bold, r.x + 60, r.cy() - 12, r.w - 76, m.label, fg);
+        if (m.icon) text::icon(m.icon, 26, r.x + 30, m.detail.empty() ? r.cy() : r.y + 30, gfx::lerp(t.accent, fg, it.f));
+        text::draw_fit(font::body_bold, r.x + 60, (m.detail.empty() ? r.cy() - 12 : r.y + 18), r.w - 76, m.label, fg);
+        if (!m.detail.empty())
+            text::draw_wrapped(font::small, Rect(r.x + 60, r.y + 40, tw, detail_h + 4), m.detail,
+                               gfx::lerp(t.text2, Color(21, 18, 26, 190), it.f), 2);
         if (it.clicked) run = m.action;
-        y += 66;
+        y += r.h + 6;
     }
     pop_layer();
 

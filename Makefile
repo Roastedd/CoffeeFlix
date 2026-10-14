@@ -183,6 +183,7 @@ endif
 all: $(BUILD)
 
 $(BUILD):
+	@python3 tools/check-coffeeflix-boundary.py
 	@[ -d $@ ] || mkdir -p $@
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 

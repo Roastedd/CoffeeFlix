@@ -1,6 +1,7 @@
 #include "services/jellyfin.hpp"
 
 #include <algorithm>
+#include <set>
 #include <atomic>
 #include <cstdlib>
 #include <iterator>
@@ -537,6 +538,46 @@ List children(const std::string& parent_id) { return items(parent_id, "", "SortN
 List similar(const std::string& id) {
     Account a = snapshot();
     return parse_list(api("GET", "/Items/" + id + "/Similar?userId=" + a.user_id + "&limit=16&" + FIELDS));
+}
+
+List because_you_watched() {
+    Account a = snapshot();
+    std::string q = "?isPlayed=true&sortBy=DatePlayed&sortOrder=Descending&recursive=true&limit=12&includeItemTypes=Movie,Episode&" +
+                    std::string(FIELDS);
+    List recent = parse_list(get_with_fallback("/Items" + q + "&userId=" + a.user_id, "/Users/" + a.user_id + "/Items" + q));
+    List out;
+    out.ok = recent.ok;
+    out.error = recent.error;
+    // The last three different titles (an episode stands for its show).
+    std::vector<std::pair<std::string, std::string>> bases;  // id, name
+    for (const Item& it : recent.items) {
+        std::string id = it.type == "Episode" ? it.series_id : it.id;
+        std::string name = it.type == "Episode" ? it.series_name : it.name;
+        if (id.empty()) continue;
+        bool seen = false;
+        for (auto& b : bases) seen = seen || b.first == id;
+        if (!seen) bases.emplace_back(id, name);
+        if (bases.size() >= 3) break;
+    }
+    std::set<std::string> have;
+    for (auto& b : bases) have.insert(b.first);
+    std::vector<List> lists;
+    for (auto& b : bases) {
+        List l = similar(b.first);
+        if (l.ok) lists.push_back(std::move(l));
+    }
+    if (!bases.empty()) out.note = bases[0].second;
+    for (size_t i = 0; out.items.size() < 24; i++) {
+        bool any = false;
+        for (auto& l : lists) {
+            if (i >= l.items.size()) continue;
+            any = true;
+            Item& it = l.items[i];
+            if (!it.played && have.insert(it.id).second) out.items.push_back(std::move(it));
+        }
+        if (!any) break;
+    }
+    return out;
 }
 
 List search(const std::string& term) {

@@ -1,10 +1,12 @@
 #include "app/app.hpp"
+#include "app/startup_page.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <typeinfo>
 #include <vector>
 
@@ -32,6 +34,7 @@
 #include "app/crash_report.hpp"
 #include "app/exit_watchdog.hpp"
 #include "app/mini_player.hpp"
+#include "app/pad_views.hpp"
 #include "app/updater.hpp"
 #include "player/http_io.hpp"
 #include "player/player.hpp"
@@ -60,7 +63,6 @@ const RailEntry RAIL[] = {
     {SEC_SEARCH, ic::SEARCH, N_("Search")},
     {SEC_YOUTUBE, ic::SMART_DISPLAY, "YouTube"},
     {SEC_JELLYFIN, ic::VIDEO_LIBRARY, "Jellyfin"},
-    {SEC_NAVIDROME, ic::LIBRARY_MUSIC, "Navidrome"},
     {SEC_TWITCH, ic::LIVE_TV, "Twitch"},
     {SEC_RADIO, ic::RADIO, N_("Radio")},
     {SEC_PODCASTS, ic::PODCASTS, N_("Podcasts")},
@@ -101,12 +103,27 @@ void draw_rail() {
 
     set_group_entry(g_rail_group, rail_id(g_section));
     int n = (int)(sizeof(RAIL) / sizeof(RAIL[0]));
-    float y = 112;
+    // A phone is too short for the whole column at a size a finger can hit: the entries scroll under the logo
+    // (drag them, or move the focus), with Settings the last of them.
+    const bool phone = platform::is_phone();
+    constexpr float PHONE_TOP = 100, PHONE_STEP = 58;
+    static float phone_fa = 0, phone_fb = 0, phone_scroll = 0;
+    static bool phone_focus = false;
+    bool focus_now = false;
+    if (phone) {
+        const float content = 12 + n * PHONE_STEP, view = H - PHONE_TOP;
+        scroll_drag(id("rail_scroll"), Rect(0, PHONE_TOP, w + 40, view), true, content, view);
+        phone_scroll = scroll_follow(id("rail_scroll"), phone_fa, phone_fb, view, content, 30, phone_focus);
+        gfx::push_clip(Rect(0, PHONE_TOP, w + 60, view));
+    }
+    float y = phone ? PHONE_TOP + 6 - phone_scroll : 124;
+    const float step = phone ? PHONE_STEP : std::min(54.0f, (H - 124 - 84 - 24 - 50) / (n - 2));
     for (int i = 0; i < n; i++) {
         const RailEntry& e = RAIL[i];
-        if (e.s == SEC_SETTINGS) y = H - 74;
-        Rect r(14, y, w - 28, 48);
+        if (e.s == SEC_SETTINGS && !phone) y = H - 84;
+        Rect r(14, y, w - 28, 50);
         Item it = focusable(rail_id(e.s), r, g_rail_group, F_NO_MEMORY | F_SIDE_ENTRY);
+        if (phone && it.focused) { focus_now = true; phone_fa = y - 6 + phone_scroll - PHONE_TOP; phone_fb = y + 56 + phone_scroll - PHONE_TOP; }
         if (it.focused) g_focus_rail_request = false;
         if (it.clicked) {
             open_section(e.s);
@@ -114,11 +131,11 @@ void draw_rail() {
         bool active = e.s == g_section;
         float f = it.f;
         Rect br = r.offset(bump_x(rail_id(e.s)), bump_y(rail_id(e.s)));
-        if (f > 0.01f) gfx::fill_rrect(br, 24, t.surface_focus.alpha(f));
+        if (f > 0.01f) gfx::fill_rrect(br, 25, t.surface_focus.alpha(f));
         if (active && f < 0.99f) {
             float a = 1 - f;
-            gfx::fill_rrect_hgrad(Rect(4, br.cy() - 13, 5, 26), 2.5f, t.accent.alpha(a), t.accent2.alpha(a));
-            if (open > 0.01f) gfx::fill_rrect(br, 24, t.surface.alpha(open * a));
+            gfx::fill_rrect_hgrad(Rect(4, br.cy() - 14, 5, 28), 2.5f, t.accent.alpha(a), t.accent2.alpha(a));
+            if (open > 0.01f) gfx::fill_rrect(br, 25, t.surface.alpha(open * a));
         }
         Color fg = active ? t.accent : t.text2;
         fg = gfx::lerp(fg, gfx::rgb(0x15121A), f);
@@ -130,7 +147,11 @@ void draw_rail() {
                        br.cy() - text::line_height(font::body) * 0.5f, tr(e.label), lc);
             gfx::pop_alpha();
         }
-        y += 54;
+        y += step;
+    }
+    if (phone) {
+        gfx::pop_clip();
+        phone_focus = focus_now;
     }
 }
 
@@ -142,7 +163,18 @@ void draw_status() {
     text::draw(font::label, x, 30, clock, t.text, text::RIGHT);
     x -= text::measure(font::label, clock) + 18;
     bool net = platform::network_connected();
-    text::icon(net ? ic::WIFI : ic::WIFI_OFF, 22, x - 8, 30 + text::line_height(font::label) * 0.5f, net ? t.text2 : t.bad);
+    const float cy = 30 + text::line_height(font::label) * 0.5f;
+    text::icon(net ? ic::WIFI : ic::WIFI_OFF, 22, x - 8, cy, net ? t.text2 : t.bad);
+    if (pad_views::available()) {  // a tap on it opens the GamePad panel, as MINUS does
+        const float px = x - 42;
+        text::icon(ic::GAMEPAD, 22, px, cy, pad_views::view() != pad_views::VIEW_MIRROR ? t.accent : t.text2);
+        pad_views::draw_battery(px - 30, cy, 0.7f, false);  // the GamePad's gauge, to see it at a glance
+        Input& in = input();
+        if (in.tap && Rect(px - 26, 12, 52, 38).contains(in.tx, in.ty)) {
+            in.tap = false;
+            pad_views::open_drawer();
+        }
+    }
 }
 
 void handle_back() {
@@ -162,6 +194,8 @@ void handle_back() {
     } else if (g_section != SEC_HOME) {
         open_section(SEC_HOME);
         focus_rail();
+    } else if (platform::back_exits_app()) {
+        g_quit = true;
     }
 }
 
@@ -172,6 +206,15 @@ void frame(float dt) {
     player::State ps = player::state();
     bool video_playing = player::has_video() && (ps == player::PLAYING || ps == player::BUFFERING || ps == player::OPENING);
     ambient::begin(full && video_playing);
+
+    // The GamePad remote: the window is the TV's, black unless the screen on top draws a video there
+    // (tv_scene); everything else is drawn into the GamePad's own picture.
+    pad_views::begin_frame(s && s->tv_scene());
+    const bool pad_scene = pad_views::pad_scene();
+    const bool own_tv = pad_scene && s && s->tv_scene();
+    pad_views::set_tv_scene(own_tv);
+    if (pad_scene) pad_views::clear_pad_scene();
+    pad_views::PadPass pad_all(pad_scene && !own_tv);
 
     if (!s || !s->draws_background()) draw_background();
     bool prompting = screens::prompt_active();
@@ -199,6 +242,8 @@ void frame(float dt) {
         gfx::pop_transform();
         gfx::pop_alpha();
     }
+    std::unique_ptr<pad_views::PadPass> pad_rest;  // what's left of the frame is the GamePad's, over its controls
+    if (own_tv) pad_rest = std::make_unique<pad_views::PadPass>(true);
 
     if (!full) {
         mini_player::draw();
@@ -210,6 +255,10 @@ void frame(float dt) {
     if (g_focus_rail_request && !full) {
         set_focus(rail_id(g_section));
         g_focus_rail_request = false;
+    }
+    if (!prompting && !menu && pad_views::available() && ui::input().pressed_(BTN_MINUS)) {
+        ui::input().eat(BTN_MINUS);
+        pad_views::open_drawer();
     }
     if (!prompting && !menu) handle_back();
     screens::draw_menu();
@@ -520,6 +569,10 @@ int run(int, char**) {
         win_w = tv.w;
         win_h = tv.h;
     }
+    {  // COFFEEFLIX_WINDOW=1158x540: a desktop window the shape of a phone's screen (with COFFEEFLIX_PHONE=1)
+        int w = 0, h = 0;
+        if (sscanf(util::env_or("COFFEEFLIX_WINDOW", "").c_str(), "%dx%d", &w, &h) == 2 && w > 200 && h > 200) { win_w = w; win_h = h; }
+    }
     SDL_Window* window = SDL_CreateWindow("CoffeeFlix", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h,
                                           platform::is_wiiu() ? 0 : SDL_WINDOW_RESIZABLE);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -528,13 +581,26 @@ int run(int, char**) {
         log_message(LOG_ERROR, "App", "Window/renderer failed: %s", SDL_GetError());
         return 1;
     }
-    SDL_RenderSetLogicalSize(renderer, 1280, 720);
+    {  // a phone's screen is wider than 16:9 and small: lay out at its shape, 540 high (a finger needs more than
+       // a TV's 720 gives, every control 4/3 as big), no wider than the layouts were made for; a tablet gets less zoom
+        int ow = 0, oh = 0;
+        SDL_GetRendererOutputSize(renderer, &ow, &oh);
+        if (platform::is_phone() && ow > 0 && oh > 0) {
+            const double aspect = (double)ow / oh;
+            const int ch = (int)std::lround(std::clamp(1100.0 / aspect, 540.0, 720.0));
+            ui::W = (float)std::lround(ch * aspect);
+            ui::H = (float)ch;
+        }
+        log_message(LOG_OK, "App", "Laid out at %.0fx%.0f on a %dx%d screen", ui::W, ui::H, ow, oh);
+    }
+    SDL_RenderSetLogicalSize(renderer, (int)ui::W, (int)ui::H);
     SDL_RendererInfo info;
     if (SDL_GetRendererInfo(renderer, &info) == 0) log_message(LOG_OK, "App", "Renderer: %s, drawing at %dx%d", info.name, win_w, win_h);
     platform::post_video_init(window, renderer);
 
     std::string content = platform::content_dir();
     gfx::init(renderer);
+    pad_views::init(renderer);
     if (!text::init(content)) log_message(LOG_ERROR, "App", "Fonts missing in %s", content.c_str());
     store::load(platform::data_dir() + "/coffeeflix.json");
     store::set_user(platform::user_id());
@@ -552,7 +618,9 @@ int run(int, char**) {
     g_rail_group = ui::id("rail");
     updater::init();
 
-    open_section(SEC_HOME);
+    const auto& start = startup_page_for_id(store::get_str(STARTUP_PAGE_KEY));
+    log_message(LOG_OK, "App", "Start screen: %s", start.id);
+    open_section(start.section);
 
     Input in;
     RawInput raw;
@@ -566,6 +634,7 @@ int run(int, char**) {
         g_profile.start();
         platform::poll(raw);
         input_update(in, raw, dt);
+        pad_views::filter_input(in);
         g_profile.mark(PH_INPUT);
         tasks::pump();
         g_profile.mark(PH_CALLBACKS);
@@ -594,8 +663,10 @@ int run(int, char**) {
         ui::end_frame();
         g_profile.mark(PH_SCREEN);
         gfx::end_frame();
+        pad_views::update();  // the GamePad's picture and outputs, as this frame left them
         g_profile.mark(PH_DRAWING);
 
+        platform::draw_pad_preview(renderer);
         if (const char* shot = platform::screenshot_request()) platform::save_screenshot(renderer, shot);
         platform::record_frame(renderer);
         SDL_RenderPresent(renderer);
@@ -626,6 +697,7 @@ int run(int, char**) {
     closing.step("sound");
     audio::shutdown();
     closing.step("pictures, text and graphics");
+    pad_views::shutdown();
     images::shutdown();
     text::shutdown();
     gfx::shutdown();

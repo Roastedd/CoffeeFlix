@@ -70,6 +70,7 @@ struct List {
     int total = 0;
     bool ok = false;
     std::string error;
+    std::string note;  // because_you_watched: the title the list is similar to
 };
 
 List views();
@@ -82,6 +83,9 @@ List seasons(const std::string& series_id);
 List episodes(const std::string& series_id, const std::string& season_id);
 List children(const std::string& parent_id);  // album tracks, folders
 List similar(const std::string& id);
+// Titles of the library like the movies and shows watched last (the server's "similar" for each, unwatched, the newest
+// watch first). `note` is the title the first of them is like; empty (ok) when nothing has been watched.
+List because_you_watched();
 List search(const std::string& term);
 bool item(const std::string& id, Item& out, std::string& error);
 void set_favorite(const std::string& id, bool fav);

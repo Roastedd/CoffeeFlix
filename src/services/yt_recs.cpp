@@ -13,8 +13,10 @@
 
 #include "core/json.hpp"
 #include "core/store.hpp"
+#include "core/tasks.hpp"
 #include "core/util.hpp"
 #include "logger/logger.hpp"
+#include "services/locale_bias.hpp"
 
 namespace yt_recs {
 
@@ -25,7 +27,7 @@ constexpr size_t MAX_TOPICS = 300, MAX_HISTORY = 60, MAX_QUERIES = 6, MAX_SEARCH
 constexpr size_t FEED_SIZE = 30;
 
 struct Watch {
-    std::string id, title, channel, channel_id;
+    std::string id, title, channel, channel_id, category;  // category: YouTube's own ("Music", "Gaming"), once asked for
     double fraction = 0;
     int64_t when = 0, used_as_seed = 0;
 };
@@ -72,6 +74,7 @@ void load_locked() {
         w.fraction = json::real(e, {"fraction"});
         w.when = json::num(e, {"when"});
         w.used_as_seed = json::num(e, {"seed"});
+        w.category = json::str(e, {"category"});
         if (!w.id.empty()) g_b.history.push_back(w);
     }
     for (const char* key : {"queries", "searches"}) {
@@ -97,9 +100,10 @@ void save_locked() {
     json_object_set_new(r, "blocked", o);
     json_t* h = json_array();
     for (auto& w : g_b.history)
-        json_array_append_new(h, json_pack("{sssssssssfsIsI}", "id", w.id.c_str(), "title", w.title.c_str(), "channel",
+        json_array_append_new(h, json_pack("{sssssssssfsIsIss}", "id", w.id.c_str(), "title", w.title.c_str(), "channel",
                                            w.channel.c_str(), "channel_id", w.channel_id.c_str(), "fraction", w.fraction,
-                                           "when", (json_int_t)w.when, "seed", (json_int_t)w.used_as_seed));
+                                           "when", (json_int_t)w.when, "seed", (json_int_t)w.used_as_seed, "category",
+                                           w.category.c_str()));
     json_object_set_new(r, "history", h);
     for (const char* key : {"queries", "searches"}) {
         json_t* a = json_array();
@@ -231,6 +235,52 @@ std::vector<size_t> pick(std::vector<double> weights, size_t n, std::mt19937& rn
 
 enum Source { RELATED, SUBSCRIPTION, DISCOVERY, POPULAR };
 
+// What YouTube calls a video's category, as the topics (Music, Gaming...) name them.
+const char* youtube_category(const std::string& topic) {
+    if (topic == "Music") return "Music";
+    if (topic == "Gaming") return "Gaming";
+    if (topic == "News") return "News & Politics";
+    if (topic == "Sports") return "Sports";
+    if (topic == "Science") return "Science & Technology";
+    if (topic == "Trailers") return "Film & Animation";
+    if (topic == "Comedy") return "Comedy";
+    if (topic == "Cooking") return "Howto & Style";
+    return "";
+}
+
+bool has_any(const std::string& text, std::initializer_list<const char*> words) {
+    for (const char* w : words)
+        if (text.find(w) != std::string::npos) return true;
+    return false;
+}
+
+// A guess from the words, for videos whose category isn't known: music (the commonest), gaming, trailers, cooking.
+std::string guess_category(const std::string& title, const std::string& channel) {
+    const std::string t = util::lower(title), c = util::lower(channel);
+    if (has_any(t, {"official video", "official music video", "(lyrics", "lyric video", "official audio", " mv", "m/v",
+                    " remix", "live at ", "live performance", "acoustic", " ft.", " feat.", "full album", "official visualizer"}) ||
+        has_any(c, {"vevo", "- topic", "records", "music"}))
+        return "Music";
+    if (has_any(t, {"gameplay", "walkthrough", "let's play", "speedrun", "minecraft", "fortnite", "roblox", "valorant"})) return "Gaming";
+    if (has_any(t, {"official trailer", "teaser trailer", "official teaser"})) return "Film & Animation";
+    if (has_any(t, {"recipe", "how to cook", "how to make"}) || has_any(c, {"kitchen", "cooking"})) return "Howto & Style";
+    return "";
+}
+
+// Asks YouTube for a watched video's category, and keeps it with the watch. A few hundred bytes, off the main thread.
+void request_category(const std::string& id) {
+    tasks::submit(tasks::API, [id]() -> std::function<void()> {
+        std::string err;
+        const std::string category = youtube::details(id, err).category;
+        if (category.empty()) return nullptr;
+        std::lock_guard<std::mutex> lk(g_m);
+        for (auto& w : g_b.history)
+            if (w.id == id) w.category = category;
+        save_locked();
+        return nullptr;
+    });
+}
+
 }  // namespace
 
 void on_watch(const youtube::Video& v, double watched, bool finished) {
@@ -238,6 +288,8 @@ void on_watch(const youtube::Video& v, double watched, bool finished) {
     double dur = parse_duration(v.duration);
     double frac = finished ? 1.0 : dur > 0 ? std::min(1.0, watched / dur) : std::min(1.0, watched / 240.0);
     bool enjoyed = frac >= 0.2 || watched >= 180;
+    bool ask_category = false;
+    {
     std::lock_guard<std::mutex> lk(g_m);
     load_locked();
     decay(g_b);
@@ -245,15 +297,22 @@ void on_watch(const youtube::Video& v, double watched, bool finished) {
         double s = 0.15 * frac + 0.05 * std::log1p(watched / 60.0);
         learn(g_b, v.title, s);
         bump_channel(g_b, v.channel_id, s);
+        std::string known;  // a video watched again keeps what was found out about it
+        for (auto& w : g_b.history)
+            if (w.id == v.id) known = w.category;
+        ask_category = known.empty();
         g_b.history.erase(std::remove_if(g_b.history.begin(), g_b.history.end(), [&](const Watch& w) { return w.id == v.id; }),
                           g_b.history.end());
-        g_b.history.insert(g_b.history.begin(), Watch{v.id, v.title, v.channel, v.channel_id, frac, now(), 0});
+        g_b.history.insert(g_b.history.begin(), Watch{v.id, v.title, v.channel, v.channel_id, known, frac, now(), 0});
         if (g_b.history.size() > MAX_HISTORY) g_b.history.resize(MAX_HISTORY);
+        locale_bias::note_enjoyed(v.title, v.channel);  // such videos are wanted, then
     } else {  // backed out early: a skip
         learn(g_b, v.title, -0.08);
         bump_channel(g_b, v.channel_id, -0.05);
     }
     learned_locked();
+    }
+    if (ask_category) request_category(v.id);
 }
 
 void on_search(const std::string& query) {
@@ -301,10 +360,13 @@ bool has_profile() {
 int version() { return g_version.load(); }
 
 void reset() {
-    std::lock_guard<std::mutex> lk(g_m);
-    g_b = Brain();
-    g_loaded = true;
-    learned_locked();
+    {
+        std::lock_guard<std::mutex> lk(g_m);
+        g_b = Brain();
+        g_loaded = true;
+        learned_locked();
+    }
+    locale_bias::reset();
 }
 
 static youtube::Results build_feed() {
@@ -411,7 +473,7 @@ static youtube::Results build_feed() {
     std::uniform_real_distribution<double> jitter(0, 0.1);
     for (auto& [id, c] : cands) {
         auto ch = b.channels.find(c.v.channel_id);
-        c.score += interest(b, c.v) + (ch != b.channels.end() ? ch->second * 0.6 : 0) + jitter(rng);
+        c.score += interest(b, c.v) + (ch != b.channels.end() ? ch->second * 0.6 : 0) + jitter(rng) - 1.5 * locale_bias::penalty(c.v);
         auto s = b.seen.find(id);
         if (s != b.seen.end() && t - s->second.second < 6 * HOUR) c.score *= c.score > 0 ? 0.5 : 1.5;
         bool tired = s != b.seen.end() && s->second.first >= 3 && t - s->second.second < 60 * HOUR;
@@ -582,6 +644,144 @@ youtube::Results for_you() {
         cached_at = now();
     }
     return r;
+}
+
+
+// A topic's page, built for the viewer. The popular lists are the world's most viewed, which is mostly not what
+// anyone here watches; this starts from what they watched in that category: videos YouTube relates to their
+// last few, more from the channels (artists) they watch most, a search from the words of those titles. The
+// popular list (without what is made for another country) fills what's left.
+youtube::Results topic_feed(const std::string& topic, const std::string& fallback_query) {
+    static std::mutex m;
+    struct Cached { youtube::Results res; int version = -1; int64_t at = 0; };
+    static std::map<std::string, Cached> cache;
+    std::lock_guard<std::mutex> lk(m);
+    const int v = version();
+    auto hit = cache.find(topic);
+    if (hit != cache.end() && !hit->second.res.items.empty() && hit->second.version == v && now() - hit->second.at < 10 * 60)
+        return hit->second.res;
+
+    Brain b;
+    {
+        std::lock_guard<std::mutex> lk2(g_m);
+        load_locked();
+        b = g_b;
+    }
+    const std::string cat = youtube_category(topic);
+    const int64_t t = now();
+    std::mt19937 rng((unsigned)(t ^ (v * 2654435761u)));
+    auto category_of = [&](const Watch& w) { return w.category.empty() ? guess_category(w.title, w.channel) : w.category; };
+    std::vector<const Watch*> mine;  // what was enjoyed in this category, newest first
+    for (auto& w : b.history)
+        if (!cat[0] || category_of(w) == cat) mine.push_back(&w);
+
+    struct Job {
+        Source source;
+        std::future<youtube::Results> result;
+    };
+    std::vector<Job> jobs;
+    jobs.push_back({POPULAR, std::async(std::launch::async, [fallback_query] { return youtube::search(fallback_query, youtube::PARAMS_POPULAR_WEEK); })});
+    size_t seeds_used = 0, channels_used = 0, searches_used = 0;
+    if (!mine.empty()) {
+        std::vector<double> sw;
+        for (auto* w : mine) sw.push_back((0.3 + w->fraction) * std::exp(-(double)(t - w->when) / (5.0 * DAY)) + 0.02);
+        for (size_t i : pick(sw, 3, rng)) {
+            jobs.push_back({RELATED, std::async(std::launch::async, youtube::related, mine[i]->id)});
+            seeds_used++;
+        }
+        std::map<std::string, double> by_channel;  // the channels (artists) watched most in the category
+        for (auto* w : mine)
+            if (!w->channel_id.empty()) by_channel[w->channel_id] += 0.5 + w->fraction;
+        std::vector<std::pair<double, std::string>> best;
+        for (auto& [id, score] : by_channel) best.push_back({score + std::max(0.0, b.channels.count(id) ? b.channels.at(id) : 0.0), id});
+        std::sort(best.rbegin(), best.rend());
+        for (size_t i = 0; i < best.size() && i < 2; i++) {
+            jobs.push_back({SUBSCRIPTION, std::async(std::launch::async, [id = best[i].second] { return youtube::channel_videos(id); })});
+            channels_used++;
+        }
+        // The strongest words of the title of one video enjoyed make a search (as in the For you feed).
+        std::vector<double> qw(sw.begin(), sw.end());
+        for (size_t i : pick(qw, 1, rng)) {
+            auto words = tokens(mine[i]->title + " " + mine[i]->channel);
+            std::stable_sort(words.begin(), words.end(), [&](const std::string& x, const std::string& y) {
+                auto wx = b.topics.find(x), wy = b.topics.find(y);
+                return (wx != b.topics.end() ? wx->second : 0) > (wy != b.topics.end() ? wy->second : 0);
+            });
+            if (words.size() > 3) words.resize(3);
+            std::string q;
+            for (auto& w : words) q += (q.empty() ? "" : " ") + w;
+            if (words.size() >= 2) {
+                jobs.push_back({DISCOVERY, std::async(std::launch::async, [q] { return youtube::search(q, youtube::PARAMS_VIDEOS); })});
+                searches_used++;
+            }
+        }
+    }
+
+    struct Candidate {
+        youtube::Video v;
+        double score = 0;
+    };
+    std::map<std::string, Candidate> cands;
+    std::string first_error;
+    std::set<std::string> watched;
+    for (auto& w : b.history) watched.insert(w.id);
+    auto blocked = [&](const std::string& key) {
+        auto it = b.blocked.find(key);
+        return it != b.blocked.end() && it->second > t;
+    };
+    for (auto& j : jobs) {
+        youtube::Results r = j.result.get();
+        if (!r.ok && first_error.empty()) first_error = r.error;
+        const double bonus = j.source == RELATED ? 0.3 : j.source == SUBSCRIPTION ? 0.3 : j.source == DISCOVERY ? 0.15 : 0.0;
+        size_t limit = j.source == SUBSCRIPTION ? 8 : 24;
+        for (size_t k = 0; k < r.items.size() && k < limit; k++) {
+            youtube::Video& x = r.items[k];
+            if (watched.count(x.id) || blocked(x.id) || (!x.channel_id.empty() && blocked("c:" + x.channel_id))) continue;
+            auto it = cands.find(x.id);
+            if (it != cands.end()) {
+                it->second.score += 0.15;  // suggested from more than one direction
+                continue;
+            }
+            cands[x.id] = Candidate{x, bonus};
+        }
+    }
+    std::vector<Candidate> ranked;
+    std::uniform_real_distribution<double> jitter(0, 0.1);
+    for (auto& [id, c] : cands) {
+        auto ch = b.channels.find(c.v.channel_id);
+        c.score += interest(b, c.v) + (ch != b.channels.end() ? ch->second * 0.6 : 0) + jitter(rng) - 1.5 * locale_bias::penalty(c.v);
+        if (cat[0]) {  // off topic: a comedy clip among the songs
+            const std::string guess = guess_category(c.v.title, c.v.channel);
+            if (guess == cat) c.score += 0.15;
+            else if (!guess.empty()) c.score -= 0.3;
+            if (std::string(cat) == "Music" && parse_duration(c.v.duration) > 3600) c.score -= 0.1;  // hours-long compilations
+        }
+        ranked.push_back(std::move(c));
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const Candidate& a, const Candidate& b2) { return a.score > b2.score; });
+
+    youtube::Results out;
+    std::map<std::string, int> per_channel;
+    std::vector<std::vector<std::string>> taken;
+    for (auto& w : b.history) taken.push_back(tokens(w.title));
+    for (auto& c : ranked) {
+        if (out.items.size() >= 40) break;
+        const std::string ch = c.v.channel_id.empty() ? c.v.channel : c.v.channel_id;
+        auto words = tokens(c.v.title);
+        if (per_channel[ch] >= 3 ||
+            std::any_of(taken.begin(), taken.end(), [&](const std::vector<std::string>& x) { return same_thing(words, x); }))
+            continue;
+        per_channel[ch]++;
+        taken.push_back(std::move(words));
+        out.items.push_back(c.v);
+    }
+    locale_bias::filter(out.items, 12);
+    out.ok = !out.items.empty() || first_error.empty();
+    if (!out.ok) out.error = first_error;
+    log_message(LOG_OK, "YouTube", "%s for you: %zu videos from %zu seeds, %zu channels, %zu searches (%zu watched in it, %zu candidates)",
+                topic.c_str(), out.items.size(), seeds_used, channels_used, searches_used, mine.size(), cands.size());
+    if (!out.items.empty()) cache[topic] = {out, v, now()};
+    return out;
 }
 
 }  // namespace yt_recs

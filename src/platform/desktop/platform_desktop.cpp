@@ -367,6 +367,12 @@ void poll(RawInput& raw) {
 
 const char* name() { return "Desktop"; }
 bool is_wiiu() { return false; }
+bool is_android() { return false; }
+bool is_phone() { return util::env_or("COFFEEFLIX_PHONE", "") == "1"; }
+bool back_exits_app() { return false; }
+std::string install_package(const std::string&) { return "Installing packages is for the Android app"; }
+std::string install_result() { return ""; }
+std::string open_developer_options() { return "Developer options are for the Android app"; }
 std::string content_dir() { return g_content; }
 std::string data_dir() { return g_data; }
 std::string media_root() { return g_data + "/media"; }
@@ -415,6 +421,30 @@ void detach_video_frames(AVCodecContext*) {}
 bool show_video_frame(SDL_Texture*, const AVFrame*) { return false; }
 void video_frame_cpu_read(const AVFrame*) {}
 void rumble(float) {}
+// Only to see the GamePad lab's screen on a desktop (COFFEEFLIX_PAD_LAB=1); nothing acts on it here.
+bool has_pad_outputs() { return getenv("COFFEEFLIX_PAD_LAB") != nullptr; }
+void set_pad_outputs(const PadOutputs&) {}
+PadStatus pad_status() {
+    PadStatus s;
+    if (const char* b = getenv("COFFEEFLIX_PAD_BATTERY")) s.battery = atoi(b);  // for a look at the panel's gauge
+    return s;
+}
+namespace {
+SDL_Texture* g_pad_texture = nullptr;
+}
+void set_pad_texture(SDL_Texture* texture) { g_pad_texture = texture; }
+void draw_pad_preview(SDL_Renderer* renderer) {
+    if (!g_pad_texture) return;
+    if (getenv("COFFEEFLIX_PAD_FULL")) {  // the whole window is the GamePad's: to look at its layout at full size
+        SDL_RenderCopy(renderer, g_pad_texture, nullptr, nullptr);
+        return;
+    }
+    const SDL_Rect frame{1280 - 440, 720 - 258, 428, 246};  // 854x480's 16:9, with a border around it
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderFillRect(renderer, &frame);
+    const SDL_Rect inner{frame.x + 3, frame.y + 3, frame.w - 6, frame.h - 6};
+    SDL_RenderCopy(renderer, g_pad_texture, nullptr, &inner);
+}
 
 void keep_awake(Awake level) {
     if (level == AWAKE_FULL) SDL_DisableScreenSaver();

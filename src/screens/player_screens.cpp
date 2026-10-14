@@ -1,7 +1,9 @@
 // Fullscreen video player and the "Now Playing" audio screen.
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
+#include "app/pad_views.hpp"
 #include "app/updater.hpp"
 #include "audio/mixer.hpp"
 #include "core/i18n.hpp"
@@ -14,6 +16,7 @@
 #include "player/player.hpp"
 #include "screens/screens.hpp"
 #include "screens/youtube_common.hpp"
+#include <ctime>
 #include "services/youtube.hpp"
 #include "ui/ui.hpp"
 
@@ -22,6 +25,27 @@ namespace screens {
 namespace {
 
 using namespace ui;
+
+float view_button_width() { return std::max(168.0f, text::measure(font::body_bold, tr("View")) + 100); }
+
+// Touch and controller focus open the same panel as the physical Minus button.
+void view_button(Id iid, const Rect& r, Id group, bool enabled = true, bool show_focus = true) {
+    if (!pad_views::available()) return;
+    const Theme& t = theme();
+    Item it{};
+    const bool active = enabled && !menu_active() && !prompt_active();
+    if (active) it = focusable(iid, r, group);
+    const Input& in = input();
+    const bool held = active && in.touching && r.contains(in.touch_start_x, in.touch_start_y) && r.contains(in.tx, in.ty);
+    const float f = show_focus ? it.f : 0;
+    gfx::fill_rrect(r, r.h * 0.5f, gfx::lerp(Color(255, 255, 255, held ? 70 : 34), t.surface_focus, f));
+    const Color fg = gfx::lerp(t.text, gfx::rgb(0x15121A), f);
+    text::icon(ic::GAMEPAD, 24, r.x + 28, r.cy(), fg);
+    text::draw_fit(font::body_bold, r.x + 50, r.cy() - text::line_height(font::body_bold) * 0.5f,
+                   r.w - 96, tr("View"), fg);
+    button_glyph(r.r() - 26, r.cy(), "-", 24);
+    if (it.clicked) pad_views::open_drawer();
+}
 
 void draw_time_row(float x, float y, float w, double pos, double dur, bool live) {
     const Theme& t = theme();
@@ -154,8 +178,12 @@ struct TrackMenu {
 
 class VideoPlayerScreen : public app::Screen {
 public:
+    explicit VideoPlayerScreen(std::function<void(const youtube::Video&)> play_related = {})
+        : play_related_(std::move(play_related)) {}
     bool fullscreen() const override { return true; }
     bool draws_background() const override { return true; }
+    // The GamePad remote: the video is the TV's alone, and the controls are the GamePad's.
+    bool tv_scene() const override { return true; }
 
     ~VideoPlayerScreen() override { player::close(); }
 
@@ -163,6 +191,11 @@ public:
 
     bool on_back() override {
         if (menu_.open) return true;
+        if (split_ && pad_tab_ != TAB_NOW) {  // on the GamePad: from the comments or what's next back to what's playing
+            if (pad_tab_ == TAB_COMMENTS && comments_.back()) return true;
+            pad_tab_ = TAB_NOW;
+            return true;
+        }
         if (comments_open_) {
             if (!comments_.back()) close_comments();
             return true;
@@ -174,10 +207,15 @@ public:
         Input& in = input();
         const Theme& t = theme();
         player::State st = player::state();
+        // The GamePad remote: the TV gets the video and the subtitles, nothing else, and the controls are
+        // drawn for the GamePad, over a backdrop, always up. Its buttons work as with the controls
+        // hidden: A pauses, and left and right skip.
+        split_ = pad_views::pad_scene();
+        if (split_) comments_open_ = false;  // the comments need the video's place on the screen
 
         // With the comments open, the video "zooms out" to the top left, like YouTube's watch page.
         float ce = tween(id("vp_comments"), comments_open_ ? 1.0f : 0.0f, 9.0f);
-        if (ce < 0.002f) ce = 0;
+        if (ce < 0.002f || split_) ce = 0;
         SDL_Rect fr = player::fit_rect((int)W, (int)H);
         Rect vfull((float)fr.x, (float)fr.y, (float)fr.w, (float)fr.h);
         if (fr.w <= 0 || fr.h <= 0) vfull = Rect(0, 0, W, H);
@@ -206,7 +244,7 @@ public:
         std::string sub = player::subtitle_text();
         if (!sub.empty()) {
             text::Font sf = ce > 0.5f ? font::body_bold : font::title;
-            float base = ce > 0.5f ? vr_.b() - 14 : overlay_a_ > 0.5f ? H - 190 : H - 70;
+            float base = ce > 0.5f ? vr_.b() - 14 : overlay_a_ > 0.5f && !split_ ? H - 190 : H - 70;
             auto lines = text::wrap(sf, sub, vr_.w * 0.8f, 3);
             float lh = text::line_height(sf) * 1.1f;
             float y = base - lines.size() * lh;
@@ -218,24 +256,41 @@ public:
             }
         }
 
-        bool menu_open = menu_.frame();
-        if (!menu_open) handle_input(in, st);
-        if (ce > 0) {
-            draw_watch_info(st, ce);
-            comments_.frame(Rect(W - PANEL_W * ce, 0, PANEL_W, H), ce);
-        }
+        bool menu_open = false;
+        if (split_) {
+            // The GamePad's picture, from here: its own layout, with the panels opening over it.
+            if (pad_views::pad_sleeping()) {  // dark: nothing is drawn for it, and the buttons still work
+                handle_input(in, st);
+            } else {
+                pad_views::PadPass pad(true);
+                draw_pad_backdrop();
+                pad_covered_ = menu_.open || menu_active() || prompt_active();
+                draw_pad_remote(st);
+                menu_open = menu_.frame();
+                // The comments and the list of what's next take the D-pad themselves.
+                if (!menu_open && pad_tab_ == TAB_NOW) handle_input(in, st);
+                if (updater::developer() && pad_stats_) draw_stats(st, ce);
+            }
+        } else {
+            menu_open = menu_.frame();
+            if (!menu_open) handle_input(in, st);
+            if (ce > 0) {
+                draw_watch_info(st, ce);
+                comments_.frame(Rect(W - PANEL_W * ce, 0, PANEL_W, H), ce);
+            }
 
-        // The controls hide after a few seconds without input, wherever the focus is. They stay
-        // up while paused (unless tapped away), while scrubbing, and on the error/finished card.
-        if (hud_ && ui::time() - shown_at_ > HUD_SECONDS) hud_ = false;
-        bool force = st == player::FAILED || st == player::ENDED || scrubbing_ || (st == player::PAUSED && !user_hid_);
-        float target = force || hud_ ? 1.0f : 0.0f;
-        if (menu_open) target = 0.4f;
-        if (comments_open_) target = 0;
-        hud_up_ = target > 0.5f;
-        overlay_a_ = tween(id("vp_overlay"), target, 9.0f);
-        draw_overlay(st);
-        if (!menu_open) touch_video(in);
+            // The controls hide after a few seconds without input, wherever the focus is. They stay
+            // up while paused (unless tapped away), while scrubbing, and on the error/finished card.
+            if (hud_ && ui::time() - shown_at_ > HUD_SECONDS) hud_ = false;
+            bool force = st == player::FAILED || st == player::ENDED || scrubbing_ || (st == player::PAUSED && !user_hid_);
+            float target = force || hud_ ? 1.0f : 0.0f;
+            if (menu_open) target = 0.4f;
+            if (comments_open_) target = 0;
+            hud_up_ = target > 0.5f;
+            overlay_a_ = tween(id("vp_overlay"), target, 9.0f);
+            draw_overlay(st);
+            if (!menu_open) touch_video(in);
+        }
 
         // Seek ripple (YouTube-style) when seeking with the overlay hidden.
         float ra = 1.0f - (float)(ui::time() - ripple_t_) / 0.7f;
@@ -279,12 +334,406 @@ public:
         } else {
             waiting_since_ = -1;
         }
-        if (updater::developer()) draw_stats(st, ce);
+        if (updater::developer() && !split_) draw_stats(st, ce);
     }
 
 private:
     static constexpr double HUD_SECONDS = 3.5;
+    bool split_ = false;  // the GamePad remote is on: the controls aren't on the TV's picture
     double waiting_since_ = -1;  // when it began buffering (-1: it isn't)
+
+    // --- The GamePad remote's own layout -----------------------------------------------------------
+    // Not the TV's controls made smaller: the GamePad's screen is small and touched, so it has big
+    // buttons, the poster, the title and the seek bar. Buttons here are touch-only (no focus).
+
+    bool pad_covered_ = false;  // a panel is open over the remote: its buttons wait
+    bool pad_stats_ = false;    // developers: the network and decoder numbers over the remote (tap the TV icon)
+    int skip_pending_ = 0;      // seconds of skips tapped on the remote, not made yet
+    double skip_tapped_ = 0;    // when the last one was tapped
+
+    // Skips tapped in a row are added up and made once the taps stop: each one is a seek, which on a
+    // slow stream is a wait, and a few taps would be a queue of them.
+    void pad_skip(int seconds) {
+        skip_pending_ += seconds;
+        skip_tapped_ = ui::time();
+    }
+
+    // Whether the D-pad (or a stick) was the last thing used here: the selector shows then, and not after a touch.
+    bool pad_nav_ = false;
+
+    // A press on `r`: a tap, or A while the D-pad has the selector on it. `held` tells whether a finger is on it now,
+    // `focused` whether the selector should be drawn on it.
+    bool pad_tap(const Rect& r, bool* held = nullptr, bool* focused = nullptr, int flags = 0) {
+        Input& in = input();
+        const bool down = !pad_covered_ && in.touching && r.contains(in.touch_start_x, in.touch_start_y) && r.contains(in.tx, in.ty);
+        if (held) *held = down;
+        if (focused) *focused = false;
+        if (pad_covered_) return false;
+        const Item it = focusable(id(id("pad_remote"), (int64_t)(r.x * 31 + r.y * 7919 + r.w * 3 + r.h)), r, id("pad_remote"), flags);
+        if (focused) *focused = it.focused && pad_nav_;
+        return it.clicked;
+    }
+
+    // A round button; `big` is the white play button. A little more than it looks is touchable.
+    bool pad_circle(float cx, float cy, float rad, int icon, bool big = false, bool lit = false) {
+        const Theme& t = theme();
+        bool held = false, focused = false;
+        const bool hit = pad_tap(Rect(cx - rad - 10, cy - rad - 10, rad * 2 + 20, rad * 2 + 20), &held, &focused, big ? F_DEFAULT : 0);
+        const float r = held ? rad * 0.93f : rad;
+        if (focused) focus_ring(Rect(cx - rad - 7, cy - rad - 7, rad * 2 + 14, rad * 2 + 14), rad + 7, 1.0f);
+        if (big) gfx::fill_circle(cx, cy, r, held ? Color(225, 225, 230, 255) : gfx::WHITE);
+        else gfx::fill_circle(cx, cy, r, lit ? t.accent : Color(255, 255, 255, held ? 70 : 34));
+        text::icon(icon, rad * (big ? 1.15f : 1.0f), cx, cy, big || lit ? gfx::rgb(0x15121A) : t.text);
+        return hit;
+    }
+
+    // A pill with an icon and a label; returns its width in `w`.
+    bool pad_chip(float x, float y, const char* label, int icon, bool lit, float* w) {
+        const Theme& t = theme();
+        const float width = text::measure(font::body_bold, label) + (icon ? 44.0f : 0.0f) + 44, h = 52;
+        const Rect r(x, y, width, h);
+        bool held = false, focused = false;
+        const bool hit = pad_tap(r, &held, &focused);
+        if (focused) focus_ring(Rect(r.x - 4, r.y - 4, r.w + 8, r.h + 8), h * 0.5f + 4, 1.0f);
+        if (lit) gfx::fill_rrect_hgrad(r, h * 0.5f, t.accent, t.accent2);
+        else gfx::fill_rrect(r, h * 0.5f, Color(255, 255, 255, held ? 70 : 34));
+        const Color fg = lit ? gfx::rgb(0x15121A) : t.text;
+        float tx = x + 22;
+        if (icon) {
+            text::icon(icon, 24, x + 22 + 12, y + h * 0.5f, fg);
+            tx += 36;
+        }
+        text::draw(font::body_bold, tx, y + h * 0.5f - text::line_height(font::body_bold) * 0.5f, label, fg);
+        *w = width;
+        return hit;
+    }
+
+    // The poster, blurred and dark, behind everything.
+    void draw_pad_backdrop() {
+        const Theme& t = theme();
+        gfx::fill_rect_vgrad(Rect(0, 0, W, H), t.bg_top, t.bg_bottom);
+        if (const images::Image* img = images::get(player::source().artwork, 0, 0, images::BLUR); img && img->ready)
+            gfx::image_cover(img->tex, img->w, img->h, Rect(0, 0, W, H), 0, Color(255, 255, 255, 120));
+        gfx::fill_rect_vgrad(Rect(0, 0, W, H), Color(8, 6, 12, 90), Color(8, 6, 12, 200));
+    }
+
+    // --- tabs: what's playing, the comments, what comes next -------------------------------------
+
+    enum PadTab { TAB_NOW, TAB_COMMENTS, TAB_UPNEXT };
+    PadTab pad_tab_ = TAB_NOW;
+    std::string pad_video_;           // the video the tab state is about
+    std::string comments_shown_;      // the video whose comments the tab was opened on
+    youtube::Results related_;        // what comes next (YouTube), asked for when the tab is first opened
+    std::string related_id_;
+    bool related_loading_ = false;
+    tasks::Scope related_scope_;
+    Page pad_page_;
+    std::function<void(const youtube::Video&)> play_related_;
+
+    void load_related(const std::string& id) {
+        if (id == related_id_) return;
+        related_id_ = id;
+        related_ = {};
+        related_loading_ = true;
+        related_scope_.reset();
+        related_scope_.run<youtube::Results>([id] { return youtube::related(id); }, [this, id](youtube::Results r) {
+            if (id != related_id_) return;
+            related_loading_ = false;
+            related_ = std::move(r);
+        });
+    }
+
+    // Another video, from the list of what comes next.
+    void play_other(const youtube::Video& v) {
+        if (play_related_) play_related_(v);
+        else player::open(youtube::make_source(v));
+        pad_tab_ = TAB_NOW;
+    }
+
+    // A pill that switches tab.
+    void pad_tab_chip(float& x, const char* label, PadTab tab) {
+        float w = 0;
+        if (pad_chip(x, 22, label, 0, pad_tab_ == tab, &w) && pad_tab_ != tab) {
+            pad_tab_ = tab;
+            if (tab == TAB_COMMENTS) comments_shown_.clear();  // loads the comments, and focuses the list
+        }
+        x += w + 10;
+    }
+
+    // Along the top: back, the tabs, the GamePad's battery and where the picture is.
+    void draw_pad_top(bool comments, bool upnext) {
+        const Theme& t = theme();
+        gfx::fill_rect_vgrad(Rect(0, 0, W, 104), Color(8, 6, 12, 235), Color(8, 6, 12, 0));
+        if (pad_circle(58, 48, 28, ic::ARROW_BACK)) {
+            if (pad_tab_ != TAB_NOW) pad_tab_ = TAB_NOW;
+            else app::pop();
+        }
+        float x = 112;
+        if (comments || upnext) {
+            pad_tab_chip(x, tr("Now playing"), TAB_NOW);
+            if (comments) pad_tab_chip(x, tr("Comments"), TAB_COMMENTS);
+            if (upnext) pad_tab_chip(x, tr("Up next"), TAB_UPNEXT);
+        }
+        view_button(id("pad_view_button"), Rect(x + 12, 22, view_button_width(), 52),
+                    id("pad_remote"), !pad_covered_, pad_nav_);
+        // The GamePad's battery: how full (the console gives 7 steps) or that it is charging.
+        float rx = W - 64;
+        // Keep the gauge, but omit its words when translated tabs need more room.
+        const bool battery_words = x + 12 + view_button_width() <= W - 300;
+        const float used = pad_views::draw_battery(rx, 48, 0.9f, battery_words);
+        if (used > 0) rx -= used + 26;
+        text::icon(ic::TV, 24, rx - 14, 48, pad_stats_ ? t.text : t.accent);
+        if (updater::developer() && pad_tap(Rect(rx - 46, 18, 64, 60))) pad_stats_ = !pad_stats_;  // developers: the stats
+        if (!comments && !upnext)  // room for words when there are no tabs
+            text::draw(font::small_bold, rx - 34, 48 - text::line_height(font::small_bold) * 0.5f, tr("Playing on the TV"), t.text2, text::RIGHT);
+    }
+
+    // A strip along the bottom while another tab is open: pause, skip, and how far along it is.
+    void draw_pad_mini(player::State st) {
+        const Theme& t = theme();
+        const player::Source src = player::source();
+        const float top = H - 84;
+        gfx::fill_rect(Rect(0, top, W, 84), Color(12, 10, 17, 248));
+        gfx::fill_rect(Rect(0, top, W, 1), Color(255, 255, 255, 30));
+        if (pad_tap(Rect(100, top, W - 460, 84))) pad_tab_ = TAB_NOW;
+        const bool paused = st == player::PAUSED, ended = st == player::ENDED;
+        if (pad_circle(56, top + 42, 28, paused || ended ? ic::PLAY : ic::PAUSE, true)) {
+            if (ended) player::seek(0), player::set_paused(false);
+            else toggle();
+        }
+        if (st == player::FAILED) text::draw_fit(font::body_bold, 108, top + 12, W - 460, tr("Playback failed"), t.bad);
+        else text::draw_fit(font::body_bold, 108, top + 12, W - 460, src.title, t.text);
+        const double dur = player::duration(), pos = player::position();
+        if (!player::live() && dur > 0) {
+            progress_bar(Rect(108, top + 54, W - 560, 6), (float)(pos / dur), (float)(player::buffered_until() / dur));
+            text::draw(font::caption, W - 440, top + 46, util::format_duration(pos) + " / " + util::format_duration(dur), t.text2);
+        }
+        if (!player::live() && player::seekable()) {
+            if (pad_circle(W - 160, top + 42, 26, ic::REPLAY_10)) pad_skip(-10);
+            if (pad_circle(W - 80, top + 42, 26, ic::FORWARD_10)) pad_skip(10);
+        }
+    }
+
+    void draw_pad_comments(const player::Source& src) {
+        if (comments_shown_ != src.id) {
+            comments_shown_ = src.id;
+            comments_.show(src.id);
+        }
+        // A column, not the whole width: comments read badly in lines that long.
+        comments_.frame(Rect(160, 96, W - 320, H - 96 - 84), 1.0f);
+    }
+
+    void draw_pad_upnext(const player::Source& src) {
+        const Theme& t = theme();
+        load_related(src.id);
+        const float top = 96, view = H - top - 84;
+        pad_page_.begin(id("pad_upnext"), top, view);
+        const float y0 = pad_page_.y(top + 14);
+        gfx::push_clip(Rect(0, top, W, view));
+        float y = y0;
+        if (!related_loading_ && related_.items.empty()) {
+            const bool failed = !related_.error.empty();
+            empty_state(Rect(80, top + 40, W - 160, 300), failed ? ic::WIFI_OFF : ic::SEARCH, failed ? tr("Couldn't reach YouTube") : tr("No videos found"),
+                        failed ? related_.error.c_str() : "");
+        } else {
+            GridSpec gs;
+            gs.count = (int)related_.items.size();
+            gs.cols = 4;
+            gs.item_w = 262;
+            gs.gap_x = 26;
+            gs.loading = related_loading_;
+            gs.item = [this](int i) { return yt::video_card(related_.items[i]); };
+            gs.on_click = [this](int i) { play_other(related_.items[i]); };
+            y += grid(id("pad_upnext_grid"), 77, y0, gs, &pad_page_);
+        }
+        gfx::pop_clip();
+        pad_page_.end(y + pad_page_.scroll() + 20);
+        (void)t;
+    }
+
+    // --- What's playing: the poster and title, the seek bar, the buttons -----------------------
+    static std::string clock_after(double seconds) {
+        const std::time_t at = (std::time_t)(util::unix_time() + std::max(0.0, seconds));
+        std::tm local{};
+        localtime_r(&at, &local);
+        char text[16];
+        std::strftime(text, sizeof(text), "%H:%M", &local);
+        return text;
+    }
+
+    void draw_pad_now(player::State st, const player::Source& src) {
+        const Theme& t = theme();
+        const bool live = player::live();
+        const double dur = player::duration();
+        double pos = player::position();
+        const bool loading = st == player::OPENING || st == player::BUFFERING;
+        const bool paused = st == player::PAUSED, ended = st == player::ENDED, failed = st == player::FAILED;
+        const bool can_seek = !live && player::seekable() && dur > 0 && !failed;
+        const bool youtube = src.service == "youtube";
+
+        // The poster, with the title beside it and, for YouTube, who and what to do about them
+        const Rect art(64, 108, 400, 225);
+        gfx::fill_rrect(art, 18, Color(0, 0, 0, 120));
+        const images::Image* img = src.artwork.empty() ? nullptr : images::get(src.artwork, 480, 270);
+        if (img && img->ready)
+            gfx::image_cover(img->tex, img->w, img->h, art, 18, Color(255, 255, 255, (uint8_t)(255 * images::fade(img))));
+        else text::icon(ic::MOVIE, 64, art.cx(), art.cy(), Color(255, 255, 255, 60));
+        if (loading) {
+            gfx::fill_rrect(art, 18, Color(0, 0, 0, 120));
+            spinner(art.cx(), art.cy(), 28, gfx::WHITE, 5);
+        }
+        const float tx = art.r() + 36, tw = W - 64 - tx;
+        float y = art.y;
+        y += text::draw_wrapped(font::headline, Rect(tx, y, tw, 130), src.title, t.text, 3) + 10;
+        if (!src.subtitle.empty()) {
+            text::draw_fit(font::label, tx, y, tw, src.subtitle, t.text2);
+            y += 34;
+        }
+        const std::string facts = watch_facts(src);
+        if (!facts.empty()) text::draw_fit(font::small, tx, y, tw, facts, t.text3);
+        if (youtube) {  // along the poster's bottom edge
+            float x = tx, w = 0;
+            if (!src.channel_id.empty()) {
+                if (src.channel_id != sub_channel_ || ui::time() - sub_checked_ > 1) {
+                    sub_channel_ = src.channel_id;
+                    sub_on_ = yt::subscribed(src.channel_id);
+                    sub_checked_ = ui::time();
+                }
+                if (pad_chip(x, art.b() - 52, sub_on_ ? tr("Subscribed") : tr("Subscribe"), sub_on_ ? ic::CHECK : ic::SUBSCRIPTIONS, !sub_on_, &w)) {
+                    yt::set_subscribed(src.channel_id, src.subtitle, "", !sub_on_);
+                    sub_checked_ = -1;
+                }
+                x += w + 14;
+            }
+            if (!live && !player::has_next()) {
+                const bool autoplay = store::get_bool("yt_autoplay", true);
+                if (pad_chip(x, art.b() - 52, tr("Autoplay"), ic::PLAY_CIRCLE, autoplay, &w)) {
+                    store::set_bool("yt_autoplay", !autoplay);
+                    toast(std::string(tr("Autoplay")) + ": " + (autoplay ? tr("Off") : tr("On")), ic::PLAY_CIRCLE);
+                }
+            }
+        }
+
+        // The seek bar, scrubbed by touch
+        const float by = 388;
+        touch_scrub(Rect(40, by - 50, W - 80, 104), Rect(64, by, W - 128, 0), dur, pos, can_seek && !pad_covered_);
+        bool bar_focused = false;
+        if (can_seek && !pad_covered_) {  // with the selector on the bar, left and right skip 10 seconds each
+            const Item bar = focusable(id("pad_seek"), Rect(64, by - 26, W - 128, 52), id("pad_remote"));
+            bar_focused = bar.focused && pad_nav_;
+            if (bar.focused) {
+                Input& in = input();
+                if (in.rep(BTN_LEFT)) { in.eat(BTN_LEFT); pad_skip(-10); }
+                if (in.rep(BTN_RIGHT)) { in.eat(BTN_RIGHT); pad_skip(10); }
+            }
+        }
+        if (bar_focused) focus_ring(Rect(52, by - 22, W - 104, 44), 22, 1.0f);
+        const float grow = tween(id("vp_scrub"), scrubbing_ ? 1.0f : 0.0f, 18.0f);
+        const float prog = dur > 0 ? (float)(pos / dur) : 0, buf = dur > 0 ? (float)(player::buffered_until() / dur) : 0;
+        const float bh = 10 + 6 * grow;
+        if (!live) progress_bar(Rect(64, by - bh * 0.5f, W - 128, bh), prog, buf, true, 1.2f + grow * 0.5f);
+        if (grow > 0.05f && dur > 0) {  // the time under the finger
+            const std::string ts = util::format_duration(pos);
+            const float w = text::measure(font::body_bold, ts) + 28;
+            const Rect b(std::clamp(64 + (W - 128) * prog - w * 0.5f, 20.0f, W - 20 - w), by - 60, w, 38);
+            gfx::push_alpha(grow);
+            gfx::fill_rrect(b, 12, gfx::WHITE);
+            text::draw(font::body_bold, b.cx(), b.y + 7, ts, gfx::rgb(0x15121A), text::CENTER);
+            gfx::pop_alpha();
+        }
+        draw_time_row(64, by + 20, W - 128, pos, dur, live);
+        if (skip_pending_ != 0) {
+            text::draw(font::body_bold, W * 0.5f, by + 18, util::fmt(tr("%+d seconds"), skip_pending_), t.accent, text::CENTER);
+        } else if (!live && dur > 0 && !ended && !failed) {  // when it'll be over, at the speed it plays
+            const double left = (dur - pos) / std::max(0.25f, player::speed());
+            text::draw(font::small, W * 0.5f, by + 20, util::fmt(tr("Ends at %s"), clock_after(left).c_str()), t.text3,
+                       text::CENTER);
+        }
+
+        // Transport: play and pause, and skips back and ahead
+        const float cx = W * 0.5f, cy = 488;
+        if (pad_circle(cx, cy, 54, paused || ended ? ic::PLAY : ic::PAUSE, true)) {
+            if (ended) player::seek(0), player::set_paused(false);
+            else toggle();
+        }
+        if (!live && player::seekable()) {
+            if (pad_circle(cx - 170, cy, 38, ic::REPLAY_10)) pad_skip(-10);
+            if (pad_circle(cx + 170, cy, 38, ic::FORWARD_10)) pad_skip(10);
+            if (pad_circle(cx - 300, cy, 32, ic::FAST_REWIND)) pad_skip(-30);
+            if (pad_circle(cx + 300, cy, 32, ic::FAST_FORWARD)) pad_skip(30);
+            text::draw(font::caption, cx - 300, cy + 40, "30", t.text3, text::CENTER);
+            text::draw(font::caption, cx + 300, cy + 40, "30", t.text3, text::CENTER);
+        }
+        if (player::has_previous() && pad_circle(cx - 430, cy, 32, ic::SKIP_PREV)) player::previous();
+        if (player::has_next() && pad_circle(cx + 430, cy, 32, ic::SKIP_NEXT)) player::next();
+
+        // Two rows of pills: the picture and sound's choices, then where the sound goes and the screen
+        float x = 64, w = 0;
+        float row = 568;
+        if (player::started() && player::audio_tracks().size() > 1) {
+            if (pad_chip(x, row, tr("Audio"), ic::AUDIOTRACK, false, &w)) menu_.show(TrackMenu::AUDIO);
+            x += w + 14;
+        }
+        if (player::started() && !player::subtitle_tracks().empty()) {
+            if (pad_chip(x, row, tr("Subtitles"), ic::SUBTITLES, player::subtitle_track() >= 0, &w)) menu_.show(TrackMenu::SUBTITLES);
+            x += w + 14;
+        }
+        if (!src.qualities.empty()) {
+            if (pad_chip(x, row, tr("Quality"), ic::HD, false, &w)) menu_.show(TrackMenu::QUALITY);
+            x += w + 14;
+        }
+        if (!live) {
+            if (pad_chip(x, row, tr("Playback speed"), ic::SPEED, player::speed() != 1.0f, &w)) menu_.show(TrackMenu::SPEED);
+            x += w + 14;
+        }
+        x = 64;
+        row = 636;
+        {   // where the sound goes: the TV, or the GamePad's speakers and headphones too
+            const int rs = pad_views::remote_sound();
+            const char* label = rs == 1 ? tr("Sound: GamePad only") : rs == 2 ? tr("Sound: TV and GamePad") : tr("Sound: TV only");
+            if (pad_chip(x, row, label, rs == 0 ? ic::VOLUME_UP : ic::HEADPHONES, rs != 0, &w)) pad_views::cycle_remote_sound();
+            x += w + 14;
+        }
+        if (pad_chip(x, row, tr("Screen off"), ic::VISIBILITY_OFF, false, &w)) pad_views::sleep_pad();
+        x += w + 14;
+    }
+
+    void draw_pad_remote(player::State st) {
+        {   // the selector shows after the D-pad or a stick, and goes after a touch
+            const Input& in = input();
+            const uint32_t dpad = bit(BTN_UP) | bit(BTN_DOWN) | bit(BTN_LEFT) | bit(BTN_RIGHT) | bit(BTN_A);
+            const bool stick = std::fabs(in.lx) > 0.5f || std::fabs(in.ly) > 0.5f;
+            if (in.pressed & dpad || stick) pad_nav_ = true;
+            else if (in.touch_began || in.tap) pad_nav_ = false;
+        }
+        const player::Source src = player::source();
+        const bool live = player::live();
+        const bool yt_video = src.service == "youtube" && !src.id.empty();
+        const bool comments = yt_video && !live, upnext = yt_video;
+        if (src.id != pad_video_) {  // another video: back to what's playing
+            pad_video_ = src.id;
+            pad_tab_ = TAB_NOW;
+        }
+        if ((pad_tab_ == TAB_COMMENTS && !comments) || (pad_tab_ == TAB_UPNEXT && !upnext)) pad_tab_ = TAB_NOW;
+        if (skip_pending_ != 0 && ui::time() - skip_tapped_ > 0.6) {
+            seek_by(skip_pending_);
+            skip_pending_ = 0;
+        }
+
+        // The tab first, then the bar and strip that stay over it
+        switch (pad_tab_) {
+        case TAB_NOW: draw_pad_now(st, src); break;
+        case TAB_COMMENTS: draw_pad_comments(src); break;
+        case TAB_UPNEXT: draw_pad_upnext(src); break;
+        }
+        draw_pad_top(comments, upnext);
+        if (pad_tab_ != TAB_NOW) draw_pad_mini(st);
+
+        if (pad_tab_ == TAB_NOW) {
+            if (st == player::FAILED) draw_message(ic::ERROR_OUTLINE, tr("Playback failed"), player::error().c_str(), true);
+            else if (st == player::ENDED) draw_message(ic::REFRESH, tr("Finished"), "", false);
+        }
+    }
 
     // Developers: what the network and the decoder are doing, under the codec badge with the
     // controls (not over a menu) and while it loads. Not translated.
@@ -378,10 +827,11 @@ private:
     }
 
     void handle_input(Input& in, player::State st) {
+        if (screens::menu_active() || screens::prompt_active()) return;  // a panel (the GamePad's, say) has the D-pad
         bool stick = std::fabs(in.lx) > 0.3f || std::fabs(in.ly) > 0.3f || std::fabs(in.rx) > 0.3f || std::fabs(in.ry) > 0.3f;
         if (in.pressed || in.pointer_moved || stick) show_overlay();
         if (st == player::FAILED || st == player::ENDED) return;
-        bool overlay_visible = overlay_a_ > 0.6f;
+        bool overlay_visible = overlay_a_ > 0.6f && !split_;  // on the GamePad remote, as with them hidden
 
         // Quick controls that work regardless of focus.
         if (in.pressed_(BTN_ZR) || in.pressed_(BTN_R)) seek_by(30);
@@ -390,7 +840,9 @@ private:
         if (in.pressed_(BTN_X) && player::started() && player::audio_tracks().size() > 1) menu_.show(TrackMenu::AUDIO);
         if (comments_open_) return;  // the D-pad moves around the comments
 
-        if (!overlay_visible) {
+        // On the GamePad remote the D-pad moves the selector over the buttons, as on any screen (a dark GamePad has
+        // no selector to move: the D-pad skips, as before).
+        if (!overlay_visible && (!split_ || pad_views::pad_sleeping())) {
             suspend_nav();
             if (in.pressed_(BTN_A)) {
                 in.eat(BTN_A);
@@ -399,6 +851,7 @@ private:
                 seek_by(10);
             } else if (in.rep(BTN_LEFT)) {
                 seek_by(-10);
+
             } else if (in.pressed_(BTN_UP) || in.pressed_(BTN_DOWN)) {
                 show_overlay();
             }
@@ -473,6 +926,9 @@ private:
             gfx::fill_rrect(cr, 8, Color(255, 255, 255, 30));
             text::draw(font::caption, cr.cx(), cr.y + 6, codec, t.text2, text::CENTER);
         }
+
+        view_button(id("vp_view_button"), Rect(W - 64 - view_button_width(), 98 - slide, view_button_width(), 52),
+                    id("vp_top"), !menu_.open);
 
         // Bottom: seek bar and controls
         gfx::fill_rect_vgrad(Rect(0, H - 250, W, 250), Color(0, 0, 0, 0), Color(0, 0, 0, 225));
@@ -550,6 +1006,7 @@ private:
                 toast(!on ? "Sharper video scaling: bicubic" : "Sharper video scaling off: bilinear", ic::AUTO_AWESOME);
             }
         }
+
 
         // YouTube: subscribe to the uploader without leaving the video, the comments, and whether
         // the next video follows by itself (lit up while it does; not in a playlist, which goes on
@@ -736,6 +1193,7 @@ private:
 class NowPlayingScreen : public app::Screen {
 public:
     bool fullscreen() const override { return true; }
+    bool tv_scene() const override { return true; }
     bool draws_background() const override { return true; }
     bool on_back() override { return menu_.open; }
 
@@ -746,77 +1204,87 @@ public:
 
         std::string art = player::artwork_key();
         if (art.empty()) art = src.artwork;
-
-        // Blurred cover as the whole backdrop.
-        gfx::fill_rect_vgrad(Rect(0, 0, W, H), t.bg_top, t.bg_bottom);
-        if (const images::Image* bg = art.empty() ? nullptr : images::get(art, 0, 0, images::BLUR); bg && bg->ready) {
-            gfx::image_cover(bg->tex, bg->w, bg->h, Rect(-60, -60, W + 120, H + 120), 0,
-                             Color(255, 255, 255, (uint8_t)(210 * images::fade(bg, 0.6f))));
-        }
-        gfx::fill_rect_vgrad(Rect(0, 0, W, H), Color(0, 0, 0, 90), Color(0, 0, 0, 200));
-
-        float lv[16];
+        float lv[16], bars[16];
         audio::levels(lv);
-        float bass = (lv[0] + lv[1] + lv[2]) / 3.0f;
-        float beat = spring(id("np_beat"), bass, 400, 18);
+        const float beat = spring(id("np_beat"), (lv[0] + lv[1] + lv[2]) / 3.0f, 400, 18);
+        for (int i = 0; i < 16; ++i) bars[i] = spring(id(id("np_bar"), i), lv[i], 500, 22);
+        const Rect ar(110, 150, 380, 380);
+        const Rect sr = ar.scaled(1.0f + 0.025f * beat * (st == player::PLAYING ? 1 : 0));
+        const float x = 560, w = W - x - 90;
+        // Draw the same artwork/track information on both screens, but process controls
+        // only once, on the GamePad in a split view. Animation state also advances once.
+        auto draw_body = [&] {
 
-        // Artwork
-        Rect ar(110, 150, 380, 380);
-        float s = 1.0f + 0.025f * beat * (st == player::PLAYING ? 1 : 0);
-        Rect sr = ar.scaled(s);
-        gfx::glow(sr.inset(-120), t.accent.alpha(0.18f + 0.25f * beat));
-        gfx::shadow(sr, 40, Color(0, 0, 0, 200));
-        const images::Image* img = art.empty() ? nullptr : images::get(art, 600, 600);
-        if (img && img->ready) {
-            gfx::image_cover(img->tex, img->w, img->h, sr, 22);
-        } else {
-            gfx::fill_rrect_vgrad(sr, 22, t.accent, t.accent2);
-            text::icon(player::live() ? ic::RADIO : ic::MUSIC, 150, sr.cx(), sr.cy(), Color(255, 255, 255, 200));
-        }
+            // Blurred cover as the whole backdrop.
+            gfx::fill_rect_vgrad(Rect(0, 0, W, H), t.bg_top, t.bg_bottom);
+            if (const images::Image* bg = art.empty() ? nullptr : images::get(art, 0, 0, images::BLUR); bg && bg->ready) {
+                gfx::image_cover(bg->tex, bg->w, bg->h, Rect(-60, -60, W + 120, H + 120), 0,
+                                 Color(255, 255, 255, (uint8_t)(210 * images::fade(bg, 0.6f))));
+            }
+            gfx::fill_rect_vgrad(Rect(0, 0, W, H), Color(0, 0, 0, 90), Color(0, 0, 0, 200));
 
-        // Text block
-        float x = 560, w = W - x - 90;
-        float y = 170;
-        if (player::live()) {
-            Rect badge(x, y, std::max(64.0f, text::measure(font::caption, tr("LIVE")) + 36), 28);
-            gfx::fill_rrect(badge, 7, t.bad);
-            gfx::fill_circle(badge.x + 14, badge.cy(), 4 + 1.5f * (0.5f + 0.5f * std::sin((float)ui::time() * 4)), gfx::WHITE);
-            text::draw(font::caption, badge.x + 24, badge.y + 5, tr("LIVE"), gfx::WHITE);
-            y += 44;
-        }
-        auto lines = text::wrap(font::display, src.title.empty() ? tr("Unknown") : src.title, w, 2);
-        for (auto& l : lines) {
-            text::draw(font::display, x, y, l, t.text);
-            y += text::line_height(font::display);
-        }
-        if (!src.subtitle.empty()) {
-            text::draw_fit(font::title, x, y + 6, w, src.subtitle, t.text2);
-            y += 44;
-        }
-        std::string icy = player::stream_title();
-        if (!icy.empty()) {
-            y += 14;
-            text::icon(ic::GRAPHIC_EQ, 22, x + 11, y + 13, t.accent);
-            text::draw_fit(font::body_bold, x + 32, y, w - 32, icy, t.text);
-            y += 34;
-        }
 
-        // Visualizer
-        float vx = x, vy = 470, bw = (w - 15 * 8) / 16.0f;
-        for (int i = 0; i < 16; i++) {
-            float v = spring(id(id("np_bar"), i), lv[i], 500, 22);
-            float bh = 6 + std::max(0.0f, v) * 70;
-            Color c = gfx::lerp(t.accent, t.accent2, i / 15.0f);
-            gfx::fill_rrect(Rect(vx + i * (bw + 8), vy - bh, bw, bh), bw * 0.4f, c.alpha(0.85f));
-            gfx::fill_rrect(Rect(vx + i * (bw + 8), vy + 6, bw, bh * 0.35f), bw * 0.4f, c.alpha(0.18f));
-        }
+            // Artwork
+            gfx::glow(sr.inset(-120), t.accent.alpha(0.18f + 0.25f * beat));
+            gfx::shadow(sr, 40, Color(0, 0, 0, 200));
+            const images::Image* img = art.empty() ? nullptr : images::get(art, 600, 600);
+            if (img && img->ready) {
+                gfx::image_cover(img->tex, img->w, img->h, sr, 22);
+            } else {
+                gfx::fill_rrect_vgrad(sr, 22, t.accent, t.accent2);
+                text::icon(player::live() ? ic::RADIO : ic::MUSIC, 150, sr.cx(), sr.cy(), Color(255, 255, 255, 200));
+            }
 
-        // Progress
-        double pos = player::position(), dur = player::duration();
-        if (!player::live()) {
-            progress_bar(Rect(x, 530, w, 6), dur > 0 ? (float)(pos / dur) : 0, dur > 0 ? (float)(player::buffered_until() / dur) : 0);
-            draw_time_row(x, 546, w, pos, dur, false);
-        }
+            // Text block
+            float y = 170;
+            if (player::live()) {
+                Rect badge(x, y, std::max(64.0f, text::measure(font::caption, tr("LIVE")) + 36), 28);
+                gfx::fill_rrect(badge, 7, t.bad);
+                gfx::fill_circle(badge.x + 14, badge.cy(), 4 + 1.5f * (0.5f + 0.5f * std::sin((float)ui::time() * 4)), gfx::WHITE);
+                text::draw(font::caption, badge.x + 24, badge.y + 5, tr("LIVE"), gfx::WHITE);
+                y += 44;
+            }
+            auto lines = text::wrap(font::display, src.title.empty() ? tr("Unknown") : src.title, w, 2);
+            for (auto& l : lines) {
+                text::draw(font::display, x, y, l, t.text);
+                y += text::line_height(font::display);
+            }
+            if (!src.subtitle.empty()) {
+                text::draw_fit(font::title, x, y + 6, w, src.subtitle, t.text2);
+                y += 44;
+            }
+            std::string icy = player::stream_title();
+            if (!icy.empty()) {
+                y += 14;
+                text::icon(ic::GRAPHIC_EQ, 22, x + 11, y + 13, t.accent);
+                text::draw_fit(font::body_bold, x + 32, y, w - 32, icy, t.text);
+                y += 34;
+            }
+
+            // Visualizer
+            float vx = x, vy = 470, bw = (w - 15 * 8) / 16.0f;
+            for (int i = 0; i < 16; i++) {
+                float v = bars[i];
+                float bh = 6 + std::max(0.0f, v) * 70;
+                Color c = gfx::lerp(t.accent, t.accent2, i / 15.0f);
+                gfx::fill_rrect(Rect(vx + i * (bw + 8), vy - bh, bw, bh), bw * 0.4f, c.alpha(0.85f));
+                gfx::fill_rrect(Rect(vx + i * (bw + 8), vy + 6, bw, bh * 0.35f), bw * 0.4f, c.alpha(0.18f));
+            }
+
+            // Progress
+            double pos = player::position(), dur = player::duration();
+            if (!player::live()) {
+                progress_bar(Rect(x, 530, w, 6), dur > 0 ? (float)(pos / dur) : 0, dur > 0 ? (float)(player::buffered_until() / dur) : 0);
+                draw_time_row(x, 546, w, pos, dur, false);
+            }
+
+        };
+        draw_body();
+        const bool split = pad_views::pad_scene();
+        pad_views::PadPass pad(split);
+        if (split) draw_body();
+        view_button(id("np_view_button"), Rect(W - 64 - view_button_width(), 28, view_button_width(), 52),
+                    id("np_controls"), !menu_.open);
 
         // Controls
         Id g = id("np_controls");
@@ -843,6 +1311,12 @@ public:
             if (icon_button(id(g, "speed"), cx, cy, 28, ic::SPEED, g, 0, player::speed() != 1.0f))
                 menu_.show(TrackMenu::SPEED);
         }
+        if (split) {
+            const int sound = pad_views::remote_sound();
+            const char* label = sound == 1 ? tr("Sound: GamePad only") : sound == 2 ? tr("Sound: TV and GamePad") : tr("Sound: TV only");
+            if (button(id(g, "sound"), Rect(110, 606, 380, 48), label, ic::VOLUME_UP, BTN_NORMAL, g))
+                pad_views::cycle_remote_sound();
+        }
         if (st == player::OPENING || st == player::BUFFERING) spinner(sr.cx(), sr.cy(), 30, gfx::WHITE, 5);
         if (st == player::FAILED) {
             text::icon(ic::ERROR_OUTLINE, 22, x + 11, 600 - 60, t.bad);
@@ -863,8 +1337,8 @@ private:
 
 }  // namespace
 
-std::unique_ptr<app::Screen> make_video_player() {
-    return std::make_unique<VideoPlayerScreen>();
+std::unique_ptr<app::Screen> make_video_player(std::function<void(const youtube::Video&)> play_related) {
+    return std::make_unique<VideoPlayerScreen>(std::move(play_related));
 }
 void play_video(const player::Source& src) {
     player::open(src);

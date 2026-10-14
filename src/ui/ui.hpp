@@ -20,7 +20,9 @@ using Id = uint64_t;
 using gfx::Color;
 using gfx::Rect;
 
-constexpr float W = 1280, H = 720;
+// The logical screen everything is laid out in: 1280x720 on the Wii U and a TV. A phone sets it once at start
+// (app.cpp) to its own shape and a size that makes the controls big enough for a finger.
+inline float W = 1280, H = 720;
 
 Id id(const char* s);
 Id id(Id parent, const char* s);

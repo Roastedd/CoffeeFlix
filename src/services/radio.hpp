@@ -34,4 +34,9 @@ bool is_favorite(const Station& s);
 bool toggle_favorite(const Station& s);
 std::vector<Station> favorites();
 
+// Learned from the stations played and favorited (their genre tags): the "For you" shelf is built from the
+// tags played most, skipping favorites. Empty list (ok = true) until something has been played. Blocks on the network.
+bool has_taste();
+List for_you(int limit = 40);
+
 }  // namespace radio

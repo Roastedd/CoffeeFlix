@@ -62,6 +62,9 @@ float output_scale();
 void begin_frame(Color clear);
 void end_frame();
 void flush();
+// Draws into `target` (a render target texture) from here on, or the window with null. Clears the
+// clip and the batch of the one it leaves: call it between drawing, not inside a clip.
+void set_target(SDL_Texture* target);
 
 // --- state stacks -----------------------------------------------------------
 void push_clip(const Rect& r);   // intersected with the current clip

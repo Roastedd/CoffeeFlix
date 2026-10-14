@@ -13,7 +13,7 @@
 #include <cxxabi.h>
 #include <cstdlib>
 
-#ifdef __WIIU__
+#if defined(__WIIU__) || defined(__ANDROID__)
 #include <mbedtls/entropy.h>
 #else
 #include <openssl/rand.h>
@@ -321,7 +321,7 @@ std::string random_hex(int bytes) {
 std::string secure_random_hex(int bytes) {
     unsigned char raw[32];
     if (bytes < 1 || bytes > (int)sizeof(raw)) return "";
-#ifdef __WIIU__
+#if defined(__WIIU__) || defined(__ANDROID__)
     mbedtls_entropy_context entropy;
     mbedtls_entropy_init(&entropy);
     const bool ok = mbedtls_entropy_func(&entropy, raw, (size_t)bytes) == 0;

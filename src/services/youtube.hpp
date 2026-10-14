@@ -136,6 +136,7 @@ player::Source make_source(const Video& v);
 // what it doesn't say): "1.2M views", "19M likes", "September 14, 2026" (the day it was posted).
 struct Details {
     std::string views, likes, posted;
+    std::string category;  // YouTube's own: "Music", "Gaming", "News & Politics"...
 };
 // From a "player" response.
 Details parse_details(const std::string& player_json);

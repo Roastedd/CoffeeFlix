@@ -43,8 +43,11 @@ void http_io_playback_buffer(AVIOContext* pb, double seconds);
 // Recent conservative capacity for this exact URL authority, in bits/s. Zero: unknown.
 // In-memory only, expires after 30 minutes; never inferred from a different host.
 int http_io_host_budget(const std::string& url);
-// Pure retry policy, also exercised by the transport test.
-double http_io_quiet_limit(bool connecting, bool urgent, bool others, bool retried, double buffered);
+// Pure retry policy, also exercised by the transport test. `wait`: the host's measured first-byte wait on an open
+// connection (0: unknown): a host that answers in 1.5-2.5 s (pixeldrain, September 2026) was given up on at 2 s, and
+// every retry cost a new TLS handshake (2-3 s on a Wii U), so the start of a movie was one restart after another.
+double http_io_quiet_limit(bool connecting, bool urgent, bool others, bool retried, double buffered,
+                          double wait = 0);
 // How many 256 KB chunks in a row one request covers (1 to 8), for what a request on an open
 // connection takes: `wait` seconds for the first byte, then `rate` bytes/s (0: not measured). `distance`:
 // chunks between the reader and the first of them. `healthy`: the server hasn't been saying it's busy.

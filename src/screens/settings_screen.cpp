@@ -2,6 +2,7 @@
 #include <cstring>
 
 #include "app/updater.hpp"
+#include "app/startup_page.hpp"
 #include "audio/mixer.hpp"
 #include "core/http.hpp"
 #include "core/i18n.hpp"
@@ -13,7 +14,6 @@
 #include "screens/send_logs.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
-#include "services/navidrome.hpp"
 #include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 #include "screens/youtube_common.hpp"
@@ -48,6 +48,11 @@ const Choice TW_QUALITY{"twitch_quality", {0, 360, 480, 720, 1080}, {N_("Auto"),
 const Choice VIDEO_DECODING{"video_decoding", {0, 1, 2}, {N_("Hardware"), N_("Hardware, fewer frames"), N_("Software")}, 0};
 // Developers: video downloads at once (player/http_io.cpp; 0: its default).
 const Choice DEV_CONNECTIONS{"dev_connections", {0, 2, 4, 6}, {"Default (3)", "2", "4", "6"}, 0};
+// Where the sound plays (app/pad_views.cpp): the Wii U can send it to the TV, the GamePad, or both.
+const Choice SOUND_OUTPUT{"sound_output", {0, 1, 2}, {N_("TV and GamePad"), N_("TV only"), N_("GamePad only")}, 0};
+// The GamePad remote (app/pad_views.cpp): its screen goes to sleep after this long without a touch or
+// button while a video plays on the TV; any button wakes it.
+const Choice PAD_SLEEP{"pad_sleep", {0, 120, 300, 600}, {N_("Off"), N_("After 2 min"), N_("After 5 min"), N_("After 10 min")}, 0};
 const Choice SCREENSAVER{"screensaver", {0, 120, 300, 600, 1200}, {N_("Off"), N_("After 2 min"), N_("After 5 min"), N_("After 10 min"), N_("After 20 min")}, 300};
 const char* COUNTRIES[] = {"US", "GB", "CA", "AU", "IE", "DE", "FR", "ES", "IT", "NL", "SE", "PL", "BR", "MX", "JP", "KR", "IN"};
 
@@ -81,6 +86,38 @@ public:
             const i18n::Language& l = i18n::LANGUAGES[i];
             const char* english = tr(l.english);
             row(l.code, l.name, strcmp(english, l.name) ? english : nullptr);
+        }
+        page_.end(y + page_.scroll());
+        hint_bar({{"A", tr("Select")}, {"B", tr("Back")}});
+    }
+
+private:
+    Page page_;
+};
+
+class StartupPageScreen : public app::Screen {
+public:
+    app::Section section() const override { return app::SEC_SETTINGS; }
+
+    void frame() override {
+        const Theme& t = theme();
+        float x0 = content_x(), w = 760;
+        Id g = id("startup_page");
+        page_.begin(id(g, "page"));
+        float y = page_.y(52);
+        text::draw(font::display, x0, y, tr("Start screen"), t.text);
+        y += 72;
+        text::draw_fit(font::body, x0, y, w, tr("Choose where CoffeeFlix opens."), t.text2);
+        y += 54;
+        const auto& chosen = app::startup_page_for_id(store::get_str(app::STARTUP_PAGE_KEY));
+        for (const auto& option : app::STARTUP_PAGES) {
+            Id iid = id(g, option.id);
+            bool on = chosen.section == option.section;
+            if (value_row(iid, Rect(x0, y, w, 64), tr(option.label), nullptr,
+                          on ? ic::RADIO_CHECKED : ic::RADIO_UNCHECKED, g, on ? F_DEFAULT : 0) && !on)
+                store::set_str(app::STARTUP_PAGE_KEY, option.id);
+            if (focused() == iid) page_.focus_range(y + page_.scroll() - 60, y + 64 + page_.scroll() + 20);
+            y += 74;
         }
         page_.end(y + page_.scroll());
         hint_bar({{"A", tr("Select")}, {"B", tr("Back")}});
@@ -131,6 +168,14 @@ public:
 
         header(tr("APPEARANCE"));
         {
+            Id iid = id(g, "startup");
+            float top = row_h(64);
+            const auto& chosen = app::startup_page_for_id(store::get_str(app::STARTUP_PAGE_KEY));
+            if (value_row(iid, Rect(x0, top, w, 64), tr("Start screen"), tr(chosen.label), ic::HOME, g))
+                app::push(std::make_unique<StartupPageScreen>());
+            track(iid, top, 64);
+        }
+        {
             Id iid = id(g, "accent");
             float top = row_h(64);
             int a = (int)store::get_int("accent", 0);
@@ -160,6 +205,8 @@ public:
             }
             track(iid, top, 82);
         }
+        if (platform::has_pad_outputs()) choice_row(g, "soundout", SOUND_OUTPUT, tr("Sound plays on"), ic::VOLUME_UP, x0, w, y);
+        if (platform::has_pad_outputs()) choice_row(g, "padsleep", PAD_SLEEP, tr("GamePad screen sleeps"), ic::GAMEPAD, x0, w, y);
         choice_row(g, "saver", SCREENSAVER, tr("Screensaver"), ic::BRIGHTNESS, x0, w, y);
 
         header(tr("PLAYBACK"));
@@ -176,6 +223,8 @@ public:
                      "Video filtered bicubic instead of bilinear: sharper where it's scaled up", x0, w, y);
         bool_row(g, "subs", "subs_default_on", true, tr("Subtitles on by default"), tr("When a video comes with subtitles"), x0, w, y);
         bool_row(g, "ytcc", "yt_captions", false, tr("YouTube captions"), tr("Turn captions on automatically (your language first)"), x0, w, y);
+        bool_row(g, "ytlocal", "yt_local_bias", true, tr("Fewer videos from other countries"),
+                 tr("In YouTube's popular lists, pushes down videos made for another country's audience unless you watch them"), x0, w, y);
         bool_row(g, "ytsb", "yt_sponsorblock", true, tr("Skip sponsors on YouTube"),
                  tr("SponsorBlock: jumps over sponsor segments, self-promotion and subscribe reminders"), x0, w, y);
 
@@ -223,16 +272,6 @@ public:
                                                   (a.server_name.empty() ? a.server : a.server_name).c_str())
                                       : tr("Not connected");
             if (value_row(iid, Rect(x0, top, w, 64), "Jellyfin", v.c_str(), ic::VIDEO_LIBRARY, g)) jellyfin_account_menu();
-            track(iid, top, 64);
-        }
-        {
-            Id iid = id(g, "nd");
-            float top = row_h(64);
-            const navidrome::Account& a = navidrome::account();
-            std::string v = a.valid() ? util::fmt(tr("%s on %s"), a.user_name.c_str(),
-                                                  (a.server_name.empty() ? a.server : a.server_name).c_str())
-                                      : tr("Not connected");
-            if (value_row(iid, Rect(x0, top, w, 64), "Navidrome", v.c_str(), ic::LIBRARY_MUSIC, g)) navidrome_account_menu();
             track(iid, top, 64);
         }
         {
@@ -345,6 +384,13 @@ public:
                 !updater::set_developer(v))
                 toast(tr("Cancel the download first."), ic::INFO);
             track(iid, top, 82);
+        }
+        if (updater::developer() && platform::has_pad_outputs()) {
+            Id iid = id(g, "padlab");
+            float top = row_h(64);
+            if (value_row(iid, Rect(x0, top, w, 64), "GamePad lab", "Screen, picture and sound", ic::GAMEPAD, g))
+                app::push(make_gamepad_lab());
+            track(iid, top, 64);
         }
         if (updater::has_previous()) {
             Id iid = id(g, "previous");
