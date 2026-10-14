@@ -148,7 +148,7 @@ def promote(approval, github, publish=False):
         raise ValueError("Draft must contain exactly the reviewed release files")
     with tempfile.TemporaryDirectory(prefix="coffeeflix-candidate-") as temp:
         directory = Path(temp)
-        github.download(tag, directory)
+        github.download(release["tag_name"], directory)  # an untagged draft is downloaded by its own listed name
         if digest(directory / MANIFEST) != candidate["manifest_sha256"]:
             raise ValueError("Draft manifest differs from the approved candidate")
         manifest = verify(directory)
