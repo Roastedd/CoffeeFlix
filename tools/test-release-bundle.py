@@ -40,6 +40,12 @@ class FakeGitHub:
                 result["assets"][0]["id"] = 900
         return result
 
+    def release_by_tag(self, tag):
+        # Like GitHub: found in the list, drafts included.
+        if self.release["tag_name"] != tag:
+            raise ValueError(f"No release for {tag}")
+        return copy.deepcopy(self.release)
+
     def download(self, tag, directory):
         for path in self.directory.iterdir():
             shutil.copyfile(path, directory / path.name)
