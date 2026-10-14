@@ -50,7 +50,10 @@
       "Browse and play files over FTP, including a phone acting as your media server",
       "Calibre-Web and Kavita libraries, read in CoffeeFlix next to the local EPUB and CBZ reader"
     ],
-    "issues": [11, 12],
+    "issues": [
+      11,
+      12
+    ],
     "status": "needs-research",
     "reply": "I'm checking what the Wii U can handle before promising anything here."
   },
@@ -63,7 +66,9 @@
       "Like and dislike videos while signed in",
       "YouTube Kids profile support"
     ],
-    "issues": [13],
+    "issues": [
+      13
+    ],
     "status": "in-progress"
   },
   {
@@ -75,7 +80,9 @@
       "Return YouTube Dislike counts",
       "DeArrow titles and thumbnails, with an option to see the originals"
     ],
-    "issues": [13],
+    "issues": [
+      13
+    ],
     "status": "needs-research"
   },
   {
@@ -87,7 +94,9 @@
       "Your followed channels",
       "Collect channel points while you watch"
     ],
-    "issues": [13],
+    "issues": [
+      13
+    ],
     "status": "needs-research",
     "reply": "Signing in depends on what Twitch allows on a console, so I'm checking that first."
   },
@@ -101,7 +110,9 @@
       "Chat with 7TV and BTTV emotes",
       "Polls and predictions where possible"
     ],
-    "issues": [13],
+    "issues": [
+      13
+    ],
     "status": "needs-research"
   },
   {
@@ -110,7 +121,9 @@
     "title": "Navidrome and Subsonic music servers",
     "summary": "Play your own music library from a Navidrome or other Subsonic-compatible server.",
     "includes": [],
-    "issues": [17],
+    "issues": [
+      17
+    ],
     "status": "proposed"
   },
   {

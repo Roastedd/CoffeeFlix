@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-05",
+  "updated": "2026-10-14",
   "items": [
     {
       "id": "startup-screen",
@@ -8,7 +8,8 @@
       "platforms": [
         "Wii U"
       ],
-      "status": "in-testing"
+      "status": "shipped",
+      "shipped_in": "2.4.3"
     },
     {
       "id": "gamepad-default-view",
@@ -17,12 +18,13 @@
       "platforms": [
         "Wii U"
       ],
-      "status": "in-testing"
+      "status": "shipped",
+      "shipped_in": "2.4.3"
     },
     {
       "id": "release-channels",
       "title": "Small updates, tested first",
-      "summary": "I\u2019m keeping updates small so there\u2019s time to try things out and catch problems before they reach everyone.",
+      "summary": "I’m keeping updates small so there’s time to try things out and catch problems before they reach everyone.",
       "platforms": [
         "Wii U"
       ],
