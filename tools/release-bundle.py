@@ -109,6 +109,13 @@ class GitHub:
                                 text=True, capture_output=True, check=True)
         return json.loads(result.stdout)
 
+    def release_by_tag(self, tag):
+        # A draft has no public tag page: `releases/tags/<tag>` answers 404 for it, so look through the list.
+        for release in self.api("releases?per_page=100"):
+            if release["tag_name"] == tag:
+                return release
+        raise ValueError(f"No release for {tag}")
+
     def download(self, tag, directory):
         subprocess.run(["gh", "release", "download", tag, "--repo", REPOSITORY,
                         "--dir", str(directory)], check=True)
@@ -127,7 +134,7 @@ def promote(approval, github, publish=False):
     if candidate is None:
         return "No approved candidate; no release this run."
     tag = candidate["tag"]
-    release = github.api(f"releases/tags/{tag}")
+    release = github.release_by_tag(tag)
     if release["tag_name"] != tag or release["prerelease"]:
         raise ValueError("Expected the approved stable release tag")
     if not release["draft"]:
