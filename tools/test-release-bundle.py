@@ -76,6 +76,17 @@ class ReleaseTests(unittest.TestCase):
             bundle.promote(self.approval, self.github, True)
         self.assertFalse(self.github.published)
 
+    def test_a_written_waiver_stands_in_for_a_check(self):
+        self.approval["candidate"]["checks"]["install_tiramisu"] = {"waived": "No Tiramisu device to test on"}
+        self.assertIn("Published", bundle.promote(self.approval, self.github, True))
+
+    def test_an_empty_or_wrong_waiver_does_not(self):
+        for waiver in ({"waived": ""}, {"waived": "  "}, {"waived": True}, {"reason": "x"}, "waived"):
+            self.approval["candidate"]["checks"]["install_tiramisu"] = waiver
+            with self.assertRaises(ValueError):
+                bundle.promote(self.approval, self.github, True)
+        self.assertFalse(self.github.published)
+
     def test_blocker_blocks(self):
         self.approval["candidate"]["blockers"] = ["Playback freezes"]
         with self.assertRaises(ValueError):

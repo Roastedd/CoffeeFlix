@@ -6,7 +6,7 @@
 Planned ideas with the most votes join the roadmap's Planned column, up to --max in total from
 this script. Priorities stay with the maintainer: ideas that are only proposed or need research are
 listed in the proposal body, never added. Skipped: ideas marked "roadmap": false, Android-only
-ideas (not on the public roadmap yet) and anything mentioning CoffeeUnlocked-only features.
+ideas (not on the public roadmap yet).
 """
 import argparse
 import importlib.util
@@ -16,7 +16,6 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PRIVATE = re.compile(r"\biptv\b|\bmovies?\s*/\s*tv\b|\bcoffeeunlocked\b|\bxtream\b|\bm3u\b", re.I)
 
 _spec = importlib.util.spec_from_file_location("render_roadmap", ROOT / "tools/render-roadmap.py")
 _render = importlib.util.module_from_spec(_spec)
@@ -25,8 +24,7 @@ _spec.loader.exec_module(_render)
 
 def eligible(item):
     platforms = item.get("platforms") or ["Wii U"]
-    text = " ".join([item["title"], item["summary"], *item.get("includes", [])])
-    return item.get("roadmap") is not False and not any("Android" in p for p in platforms) and not PRIVATE.search(text)
+    return item.get("roadmap") is not False and not any("Android" in p for p in platforms)
 
 
 def propose(root, votes, limit, min_votes, today):
