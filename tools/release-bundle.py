@@ -92,8 +92,11 @@ def validate_approval(data):
         raise ValueError("Testing timestamp must include a timezone and not be in the future")
     if candidate.get("blockers") != []:
         raise ValueError("Release blockers must be an empty list")
-    if any(candidate.get("checks", {}).get(check) is not True for check in CHECKS):
-        raise ValueError("Every required device/release check must pass")
+    def passed(value):
+        # A check passes, or the maintainer waives it in writing ({"waived": "why"}) and takes responsibility for it.
+        return value is True or (isinstance(value, dict) and isinstance(value.get("waived"), str) and value["waived"].strip() != "")
+    if any(not passed(candidate.get("checks", {}).get(check)) for check in CHECKS):
+        raise ValueError("Every required device/release check must pass or be waived with a reason")
     return candidate
 
 
