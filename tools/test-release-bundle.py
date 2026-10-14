@@ -42,7 +42,7 @@ class FakeGitHub:
 
     def release_by_tag(self, tag):
         # Like GitHub: found in the list, drafts included.
-        if self.release["tag_name"] != tag:
+        if self.release["tag_name"] != tag and not (self.release["draft"] and self.release.get("name") == tag):
             raise ValueError(f"No release for {tag}")
         return copy.deepcopy(self.release)
 
@@ -92,6 +92,12 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bundle.promote(self.approval, self.github, True)
         self.assertFalse(self.github.published)
+
+    def test_an_untagged_draft_named_after_the_tag_is_found_and_bound_to_it(self):
+        self.github.release["tag_name"] = "untagged-abc123"
+        self.github.release["name"] = "v2.4.1"
+        self.assertIn("Published", bundle.promote(self.approval, self.github, True))
+        self.assertTrue(self.github.published)
 
     def test_blocker_blocks(self):
         self.approval["candidate"]["blockers"] = ["Playback freezes"]

@@ -112,7 +112,8 @@ class GitHub:
     def release_by_tag(self, tag):
         # A draft has no public tag page: `releases/tags/<tag>` answers 404 for it, so look through the list.
         for release in self.api("releases?per_page=100"):
-            if release["tag_name"] == tag:
+            # A draft made before its tag existed is listed as "untagged-<hash>", named after the tag.
+            if release["tag_name"] == tag or (release["draft"] and release.get("name") == tag):
                 return release
         raise ValueError(f"No release for {tag}")
 
@@ -135,7 +136,7 @@ def promote(approval, github, publish=False):
         return "No approved candidate; no release this run."
     tag = candidate["tag"]
     release = github.release_by_tag(tag)
-    if release["tag_name"] != tag or release["prerelease"]:
+    if (release["tag_name"] != tag and not (release["draft"] and release.get("name") == tag)) or release["prerelease"]:
         raise ValueError("Expected the approved stable release tag")
     if not release["draft"]:
         return f"{tag} is already published; nothing changed."
@@ -160,7 +161,8 @@ def promote(approval, github, publish=False):
         if release_identity(github.api(f"releases/{release['id']}")) != release_identity(release):
             raise ValueError("Draft changed during verification; retry after reviewing it")
         if publish:
-            result = github.api(f"releases/{release['id']}", {"draft": False, "make_latest": "true"})
+            # tag_name binds a draft that was listed as untagged to the tag that was checked above.
+            result = github.api(f"releases/{release['id']}", {"draft": False, "make_latest": "true", "tag_name": tag})
             if result.get("draft") is not False:
                 raise ValueError("GitHub did not confirm publication")
             return f"Published {tag} using the approved files."
