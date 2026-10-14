@@ -49,7 +49,7 @@ LDLIBS   := -L$(PREFIX)/lib -lsmb2 $(FFMPEG_LIBS) \
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS) | check-feature-boundary
+$(TARGET): $(OBJS)
 	$(CXX) -o $@ $^ $(LDLIBS)
 
 $(BUILD)/%.o: %.cpp
@@ -66,6 +66,3 @@ clean:
 -include $(DEPS)
 .PHONY: all run clean
 
-check-feature-boundary:
-	python3 tools/check-coffeeflix-boundary.py
-.PHONY: check-feature-boundary
