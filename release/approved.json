@@ -1,27 +1,5 @@
 {
   "schema": 1,
   "automatic": true,
-  "candidate": {
-    "tag": "v2.4.3",
-    "manifest_sha256": "83646ba5da0971b342b4604545c9079d9f210bc3594b69983b11eba6d830b53e",
-    "tested_by": "Roastedd",
-    "tested_at": "2026-10-04T23:00:00-07:00",
-    "devices": "Wii U, Aroma (the 2.4.3 supporter preview 2 files, byte for byte). Tiramisu: not tested, no device.",
-    "notes": "Maintainer-reported console tests on Aroma: install and launch, update from the earlier build through the developer server, playback, seeking, audio and subtitles, navigation and the GamePad views, settings and subscriptions after a restart. Public source is the supporter source plus the site and release tooling. Tiramisu is untested and the release notes say so; no supporter feedback is on record, so that check is waived by the maintainer's decision to release.",
-    "blockers": [],
-    "checks": {
-      "install_aroma": true,
-      "install_tiramisu": {
-        "waived": "No Tiramisu device to test on; the release notes say it is untested"
-      },
-      "playback": true,
-      "navigation": true,
-      "settings_persistence": true,
-      "update_install": true,
-      "public_source_review": true,
-      "preview_feedback": {
-        "waived": "No supporter feedback is on record; the maintainer chose to release after the preview week"
-      }
-    }
-  }
+  "candidate": null
 }
