@@ -1,4 +1,4 @@
-name: Roadmap: in testing
+name: "Roadmap: in testing"
 
 # When a supporter preview is built, the ideas it contains that are In progress move to In testing on the roadmap,
 # as a pull request (tools/mark-testing.py). Started by the private CoffeeUnlocked release workflow (it sends the
