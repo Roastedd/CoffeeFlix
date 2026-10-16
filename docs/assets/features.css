@@ -294,3 +294,14 @@ footer a:hover { color: var(--text); }
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* Ideas that shipped: a short list under the grid, so the cards above are what's still to come. */
+.shipped { margin-top: 28px; padding: 20px 24px; border: 1px solid rgba(127, 227, 180, .18); border-radius: 18px; background: rgba(127, 227, 180, .04); }
+.shipped h3 { display: flex; align-items: center; gap: 10px; font-size: 17px; }
+.shipped .eyebrow { color: #7fe3b4; }
+.shipped-count { padding: 1px 9px; border-radius: 999px; background: rgba(127, 227, 180, .14); color: #7fe3b4; font-size: 13px; }
+.shipped-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 24px; margin: 14px 0 0; padding: 0; list-style: none; }
+.shipped-list li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid rgba(255, 255, 255, .06); font-size: 15px; }
+.shipped-title { color: var(--text-2); text-decoration: none; }
+.shipped-title:hover, .shipped-title:focus-visible { color: var(--text); text-decoration: underline; }
+.shipped-in a { color: #7fe3b4; font-size: 13.5px; }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Move features to Released when a version goes public.
 
-  mark-shipped.py VERSION ID [ID ...] [--keep 6]
+  mark-shipped.py VERSION ID [ID ...] [--keep 3]
 
 Each idea becomes "shipped" in version VERSION on the feature board (the voting thread's comment
 follows on the next sync), and appears in the roadmap's Released column. The Released column keeps
@@ -50,6 +50,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version")
     parser.add_argument("ids", nargs="+")
-    parser.add_argument("--keep", type=int, default=6)
+    parser.add_argument("--keep", type=int, default=3)
     args = parser.parse_args()
     mark(ROOT, args.version, args.ids, args.keep, date.today())

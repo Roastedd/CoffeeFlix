@@ -57,20 +57,22 @@
     for (const entry of ordered) {
       const matches = (!query || entry.searchText.includes(query)) &&
         (category === "all" || entry.category === category) &&
-        (statusFilter.value === "all" || entry.status === statusFilter.value);
+        (statusFilter.value === "all" || entry.status === statusFilter.value ||
+         (statusFilter.value === "open" && (!entry.shipped || query)));  // a search finds shipped ideas too
       entry.card.hidden = !matches;
       if (matches) visible++;
       grid.append(entry.card);
     }
     for (const pill of pills) pill.setAttribute("aria-pressed", String(pill.dataset.category === category));
-    results.textContent = `Showing ${visible} of ${entries.length} ideas`;
+    const open = entries.filter(entry => !entry.shipped).length;
+    results.textContent = statusFilter.value === "open" ? `Showing ${visible} of ${open} ideas still to come` : `Showing ${visible} of ${entries.length} ideas`;
     $("empty").hidden = visible !== 0;
   }
 
   function resetFilters() {
     search.value = "";
     category = "all";
-    statusFilter.value = "all";
+    statusFilter.value = "open";
     updateView();
   }
 
@@ -272,6 +274,7 @@
     const entry = entries.find(candidate => candidate.id === id);
     if (!entry) return;
     if (entry.card.hidden) resetFilters();
+    if (entry.card.hidden) { statusFilter.value = "all"; updateView(); }  // a shipped idea, from the Shipped list
     entry.card.scrollIntoView({block: "center"});
   }
 

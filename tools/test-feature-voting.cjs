@@ -62,7 +62,8 @@ const server = http.createServer((request, response) => {
     assert.equal(await page.locator('#controller-keyboard [data-votes]').innerText(), '8');
     assert.equal(await page.locator('#personalize-home [data-votes]').innerText(), '3');
     assert.equal(await page.locator('#display-options [data-votes]').innerText(), '2');
-    assert.equal(await page.locator('#personalize-home .badge').innerText(), 'Planned');
+    const LABELS = {proposed: 'Proposed', 'needs-research': 'Needs research', planned: 'Planned', 'in-progress': 'In progress', 'not-planned': 'Not planned'};
+    assert.equal(await page.locator('#personalize-home .badge').innerText(), LABELS[features.find(f => f.id === 'personalize-home').status]);
     assert.equal(await page.locator('#display-options .badge').innerText(), 'Proposed');
     assert.match(await page.locator('#controller-keyboard .vote-btn').getAttribute('href'), new RegExp(`#issuecomment-${cid('controller-keyboard')}$`));
     pass('live thumbs-up counts, exact vote links and sorting; strangers, duplicates and status markers cannot change the board');
@@ -75,10 +76,11 @@ const server = http.createServer((request, response) => {
     await page.locator('#search').fill('zz-no-such-feature');
     assert.equal(await page.locator('#empty').isVisible(), true);
     await page.locator('#reset').click();
-    assert.equal(await page.locator('.card:visible').count(), N);
-    await page.locator('#status').selectOption('planned');
-    assert.equal(await page.locator('.card:visible').count(), 1);
+    assert.equal(await page.locator('.card:visible').count(), OPEN);  // shipped ideas wait in the Shipped list
+    await page.locator('#status').selectOption('in-progress');
+    assert.equal(await page.locator('.card:visible').count(), features.filter(f => f.status === 'in-progress').length);
     await page.locator('#status').selectOption('all');
+    assert.equal(await page.locator('.card:visible').count(), N);
     await page.locator('#sort').selectOption('title');
     assert.equal(await page.locator('.card').first().getAttribute('id'), [...features].sort((a, b) => a.title.localeCompare(b.title))[0].id);
     await noOverflow(page);

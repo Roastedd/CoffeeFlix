@@ -15,9 +15,9 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="preload" href="assets/fonts/inter-regular.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/inter-bold.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="assets/features.css">
+  <link rel="stylesheet" href="assets/features.css?v=3ba0584f21">
   <link rel="stylesheet" href="assets/juicy.css">
-  <script src="assets/features.js" defer></script>
+  <script src="assets/features.js?v=50c9be5d0f" defer></script>
   <script src="assets/juicy.js" defer></script>
 </head>
 <body>
@@ -117,7 +117,7 @@
           <!-- END CATEGORY PILLS -->
           </div>
           <div class="selects">
-            <label>Status<select id="status"><option value="all">All</option><option value="proposed">Proposed</option><option value="needs-research">Needs research</option><option value="planned">Planned</option><option value="in-progress">In progress</option><option value="shipped">Shipped</option><option value="not-planned">Not planned</option></select></label>
+            <label>Status<select id="status"><option value="open" selected>Not shipped yet</option><option value="all">All, shipped too</option><option value="proposed">Proposed</option><option value="needs-research">Needs research</option><option value="planned">Planned</option><option value="in-progress">In progress</option><option value="shipped">Shipped</option><option value="not-planned">Not planned</option></select></label>
             <label>Sort<select id="sort"><option value="votes">Most votes</option><option value="title">Name: A–Z</option><option value="category">Category</option></select></label>
           </div>
         </div>
@@ -295,6 +295,14 @@
           </article>
           <!-- END FEATURE CARDS -->
         </div>
+        <!-- BEGIN SHIPPED LIST -->
+        <section class="shipped" id="shipped" aria-labelledby="shipped-title">
+          <h3 id="shipped-title"><span class="eyebrow">Done</span> Shipped from this board <span class="shipped-count">1</span></h3>
+          <ul class="shipped-list">
+            <li><a class="shipped-title" href="#jellyfin-autoplay" data-show-card="jellyfin-autoplay">Autoplay the next episode</a><span class="shipped-in"><a href="https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.4.0" target="_blank" rel="noopener">v2.4.0</a></span></li>
+          </ul>
+        </section>
+          <!-- END SHIPPED LIST -->
         <div class="empty" id="empty" hidden><h3>No matching ideas</h3><p>Try another search or reset the filters to see the full wishlist.</p><button class="btn" id="reset" type="button">Reset filters</button></div>
         <p class="status-key"><b>Also requested: Homebrew App Store availability.</b> It’s listed as coming soon on the <a href="./#install">installation page</a>.</p>
       </section>
