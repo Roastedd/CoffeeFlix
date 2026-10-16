@@ -6,10 +6,11 @@
 Checks: the "Just shipped" version is the newest published release; every shipped idea names its version; the roadmap
 was reviewed in the last 30 days; ideas In progress for over 60 days are listed (docs/assets/feature-requests.json
 `since` dates, set when the status was last changed); and no shipped idea still has an open issue behind it.
-Exit status 1 when there is something to look at. --offline skips the GitHub calls.
+Exit status 1 when there is something to look at; 2 when the check itself could not run. --offline skips the GitHub calls.
 """
 import argparse
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -46,7 +47,11 @@ def check(items, roadmap, latest_page, published, open_issues, today):
 
 
 def get(url):
-    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "coffeeflix-board"})
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "coffeeflix-board"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"  # a runner shares its address, so anonymous calls hit the limit
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)
 
@@ -71,4 +76,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as error:  # a broken check is not a problem with the board
+        print(f"The check could not run: {error}", file=sys.stderr)
+        sys.exit(2)

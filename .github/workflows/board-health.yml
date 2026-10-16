@@ -22,12 +22,15 @@ jobs:
       - name: Check, and report
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set +e
           python3 tools/board-health.py > report.txt
           status=$?
           set -e
           cat report.txt
+          # 2: the check itself broke. Fail the run (a red run is visible); don't open a board issue about it.
+          if [ "$status" -gt 1 ]; then exit "$status"; fi
           title="Feature board needs a look"
           existing="$(gh issue list --state open --search "\"$title\" in:title" --json number,title --jq "[.[] | select(.title==\"$title\")][0].number // empty")"
           if [ "$status" -ne 0 ]; then
