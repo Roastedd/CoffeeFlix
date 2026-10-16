@@ -34,6 +34,9 @@ def mark(root, version, ids, keep, today):
     for ident in ids:
         target = by_id.get(ident) or inline[ident]
         target["status"], target["shipped_in"] = "shipped", version
+        for entry in roadmap["items"]:
+            if entry.get("feature_id") == ident:
+                entry.pop("stage", None)  # out of testing
         if ident in by_id and ident not in on_road:
             roadmap["items"].append({"feature_id": ident, "platforms": by_id[ident].get("platforms") or ["Wii U"]})
     shipped = [e for e in roadmap["items"]

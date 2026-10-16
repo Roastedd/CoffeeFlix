@@ -1,0 +1,50 @@
+name: Roadmap: in testing
+
+# When a supporter preview is built, the ideas it contains that are In progress move to In testing on the roadmap,
+# as a pull request (tools/mark-testing.py). Started by the private CoffeeUnlocked release workflow (it sends the
+# feature ids from its release manifest), or by hand from the Actions tab. Nothing changes until it is merged.
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: Feature ids, separated by spaces (the version's features in the release manifest)
+        required: true
+      version:
+        description: The preview's version, for the pull request title
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: roadmap-testing
+
+jobs:
+  testing:
+    if: github.repository == 'Roastedd/CoffeeFlix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - name: Move them to In testing
+        env:
+          IDS: ${{ inputs.ids }}
+        run: |
+          case "$IDS" in *[!a-z0-9\ -]*) echo "Ids are lowercase letters, digits and hyphens."; exit 1 ;; esac
+          python3 tools/mark-testing.py $IDS
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if git diff --quiet; then echo "Already up to date."; exit 0; fi
+          branch="roadmap-testing-${VERSION:-$(date +%Y%m%d%H%M)}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -qam "Roadmap: ${VERSION:-a preview} is in testing"
+          git push -q origin "$branch"
+          gh pr create --base master --head "$branch" --title "Roadmap: ${VERSION:-a preview} is in testing" \
+            --body "Moves the ideas in the supporter preview to In testing on the roadmap. Merge to publish, or close to skip."

@@ -1,0 +1,38 @@
+name: Board health
+
+# Weekly: is the board showing what has really shipped? Opens (or updates) one issue, "Feature board needs a look",
+# when something is off, and closes it again once everything matches (tools/board-health.py).
+on:
+  schedule:
+    - cron: "37 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  health:
+    if: github.repository == 'Roastedd/CoffeeFlix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/test-board-health.py
+      - name: Check, and report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 tools/board-health.py > report.txt
+          status=$?
+          set -e
+          cat report.txt
+          title="Feature board needs a look"
+          existing="$(gh issue list --state open --search "\"$title\" in:title" --json number,title --jq "[.[] | select(.title==\"$title\")][0].number // empty")"
+          if [ "$status" -ne 0 ]; then
+            body="$(printf 'The weekly check found:\n\n%s\n\nIt closes this issue itself once everything matches.' "$(sed 's/^/- /' report.txt)")"
+            if [ -n "$existing" ]; then gh issue edit "$existing" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
+          elif [ -n "$existing" ]; then
+            gh issue close "$existing" --comment "Everything matches again."
+          fi

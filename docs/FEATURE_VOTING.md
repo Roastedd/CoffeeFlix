@@ -57,6 +57,18 @@ When an idea ships, set `"status": "shipped"` and add `"shipped_in": "2.4.0"` (t
 
 The block at the top of the board is generated from `docs/assets/latest-release.json` (version, release link, up to five highlights and a closing note). When a version is published, the *Roadmap after a release* workflow runs `tools/update-just-shipped.py`, which reads that release's notes on GitHub (the opening sentence and the bullet points), names the board ideas the version brought (`release/features.json` and cards marked shipped in it) and opens it in the same pull request as the Released moves. Merge that pull request and the block is current. It never goes back to an older version. By hand: `python3 tools/update-just-shipped.py 2.4.3` (or no version for the newest release); `--body-file` uses notes from a file instead of GitHub. Test: `python3 tools/test-just-shipped.py`.
 
+## Everything that runs by itself
+
+| Workflow | When | What |
+| --- | --- | --- |
+| *Roadmap after a release* | a version is published | Released moves, "Just shipped", as one pull request |
+| *Roadmap: in testing* | the private release candidate is built (or by hand) | ideas still In progress move to In testing on the roadmap (`tools/mark-testing.py`), as a pull request |
+| *Tell people their idea shipped* | the catalogue changes on `master`, and daily | one comment on each issue behind a shipped idea, and the issue is closed when every idea in it has shipped (`tools/notify-shipped.py`) |
+| *Welcome new issues* | an issue is opened | a friendly reply; blank issues get `needs-triage` and a note on what helps. The *Something isn't working* form adds `bug` |
+| *Board health* | weekly | opens "Feature board needs a look" if the page is behind the latest release, a shipped idea still has an open issue, an idea has been In progress over 60 days (`since` date, set when the status becomes In progress), or the roadmap hasn't been reviewed in 30 days; closes it when fixed |
+
+A release's notes can carry a line `Board: one sentence for the page`, which becomes the first line under *Just shipped*.
+
 ## Reply to an idea
 
 Add a `"reply"` line to the idea in the catalogue (for example `"reply": "Thanks, I'll look at this after the next release."`), render and push. The text shows on the card as a *Dev reply* and is added to the voting comment on GitHub. Delete the line to remove it. Plain text only.

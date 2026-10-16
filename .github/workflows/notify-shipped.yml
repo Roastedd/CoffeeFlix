@@ -1,0 +1,30 @@
+name: Tell people their idea shipped
+
+# When the board shows an idea as shipped, comment once on the GitHub issues behind it and close an issue when
+# everything in it has shipped (tools/notify-shipped.py). Safe to run again: a marker in each comment stops repeats.
+on:
+  push:
+    branches: [master]
+    paths: [docs/assets/feature-requests.json]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: notify-shipped
+
+jobs:
+  notify:
+    if: github.repository == 'Roastedd/CoffeeFlix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/test-notify-shipped.py
+      - run: python3 tools/notify-shipped.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

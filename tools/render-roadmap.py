@@ -32,6 +32,9 @@ def render(root=ROOT, check=False):
         if item is None or ("feature_id" in entry and item["status"] not in STAGES):
             continue
         ident = item["id"]
+        # A supporter preview that has it moves an idea being built to "In testing" (tools/mark-testing.py);
+        # being shipped overrides that.
+        stage = entry.get("stage") if "feature_id" in entry and item["status"] == "in-progress" and entry.get("stage") == "in-testing" else item["status"]
         if not re.fullmatch(r"[a-z0-9-]+", ident) or ident in seen:
             raise ValueError(f"Invalid or duplicate roadmap ID: {ident}")
         seen.add(ident)
@@ -46,7 +49,7 @@ def render(root=ROOT, check=False):
             if item["status"] != "shipped" or not re.fullmatch(r"\d+\.\d+(\.\d+)?", version):
                 raise ValueError(f"Invalid released version: {ident}")
             link = f'<a href="https://github.com/Roastedd/CoffeeFlix/releases/tag/v{version}">Released in {version} <span aria-hidden="true">↗</span></a>'
-        groups[item["status"]].append(f'''          <article class="roadmap-card" aria-labelledby="roadmap-{ident}">
+        groups[stage].append(f'''          <article class="roadmap-card" aria-labelledby="roadmap-{ident}">
             <div class="roadmap-card-head"><span class="roadmap-platform">{esc(platforms)}</span></div>
             <h4 id="roadmap-{ident}">{esc(item['title'])}</h4>
             <p>{esc(item['summary'])}</p>
