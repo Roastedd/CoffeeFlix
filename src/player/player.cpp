@@ -37,6 +37,7 @@ extern "C" {
 #include "player/convert.hpp"
 #include "player/http_io.hpp"
 #include "player/h264_packet.hpp"
+#include "player/packet_queue.hpp"
 #include "player/orientation.hpp"
 #include "player/smb_io.hpp"
 #include "player/subtitles.hpp"
@@ -107,79 +108,6 @@ constexpr double KEEP_AHEAD_SECONDS = 60.0;
 size_t video_queue_bytes() { return platform::is_wiiu() ? VIDEO_QUEUE_BYTES_WIIU : VIDEO_QUEUE_BYTES_DESKTOP; }
 
 double now() { return util::now_seconds(); }
-
-// --- packet queue --------------------------------------------------------------
-
-struct QPacket {
-    AVPacket* pkt;
-    uint32_t gen;
-    unsigned damage = 0;
-};
-
-struct PacketQueue {
-    std::mutex m;
-    std::condition_variable cv;
-    std::deque<QPacket> q;
-    size_t bytes = 0;
-    bool eof = false;
-    double last_pts = -1;  // media time of the newest queued packet
-
-    void push(AVPacket* p, uint32_t gen, double pts, unsigned damage = 0) {
-        std::lock_guard<std::mutex> lk(m);
-        q.push_back(QPacket{p, gen, damage});
-        bytes += p->size;
-        eof = false;
-        if (pts >= 0) last_pts = pts;
-        cv.notify_one();
-    }
-    bool pop(QPacket& out, const std::atomic<bool>& abort, int timeout_ms) {
-        std::unique_lock<std::mutex> lk(m);
-        if (!cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&] { return abort.load() || !q.empty(); }))
-            return false;
-        if (abort || q.empty()) return false;
-        out = q.front();
-        q.pop_front();
-        bytes -= out.pkt->size;
-        return true;
-    }
-    void flush() {
-        std::lock_guard<std::mutex> lk(m);
-        for (auto& p : q) av_packet_free(&p.pkt);
-        q.clear();
-        bytes = 0;
-        eof = false;
-        last_pts = -1;
-    }
-    void set_eof() {
-        std::lock_guard<std::mutex> lk(m);
-        eof = true;
-        cv.notify_all();
-    }
-    size_t count() {
-        std::lock_guard<std::mutex> lk(m);
-        return q.size();
-    }
-    bool drained() {
-        std::lock_guard<std::mutex> lk(m);
-        return eof && q.empty();
-    }
-    // The first keyframe waiting of generation `gen`: false when there's none yet, else its pts and
-    // whether `check` accepts it (under the lock: a seek frees the packets).
-    template <class F>
-    bool next_key(uint32_t gen, int64_t& pts, bool& ok, F check) {
-        std::lock_guard<std::mutex> lk(m);
-        for (auto& p : q) {
-            if (p.gen != gen) return false;
-            if (p.pkt->flags & AV_PKT_FLAG_KEY) {
-                pts = p.pkt->pts;
-                ok = pts != AV_NOPTS_VALUE && check(p.pkt);
-                return true;
-            }
-        }
-        return false;
-    }
-    void wake() { cv.notify_all(); }
-};
 
 // Seconds stored as 32-bit milliseconds: 64-bit atomics aren't lock-free on
 // the Wii U's 32-bit PowerPC (and there is no libatomic).
@@ -814,8 +742,8 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
                     s.snapping = false;
                 }
             }
-            if (in.video >= 0) s.vq.flush();
-            if (in.audio >= 0) s.aq.flush();
+            if (in.video >= 0) s.vq.Flush();
+            if (in.audio >= 0) s.aq.Flush();
             in.eof = false;
             in.lost = false;
         }
@@ -825,10 +753,10 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
         }
 
         // Back-pressure: stop reading when enough is buffered.
-        bool v_full = in.video >= 0 && s.vq.bytes > video_queue_limit(s);
-        bool a_full = in.audio >= 0 && s.aq.bytes > audio_queue_limit(s);
-        bool v_enough = in.video < 0 || s.vq.count() >= video_packet_limit(s) || v_full;
-        bool a_enough = in.audio < 0 || s.aq.count() > 160 || a_full;
+        bool v_full = in.video >= 0 && s.vq.Bytes() > video_queue_limit(s);
+        bool a_full = in.audio >= 0 && s.aq.Bytes() > audio_queue_limit(s);
+        bool v_enough = in.video < 0 || s.vq.Count() >= video_packet_limit(s) || v_full;
+        bool a_enough = in.audio < 0 || s.aq.Count() > 160 || a_full;
         if (v_full || a_full || (v_enough && a_enough) || in.eof) {
             std::this_thread::sleep_for(std::chrono::milliseconds(in.eof ? 30 : 8));
             if (in.network && now() - last_icy > 1.5) {
@@ -873,8 +801,8 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
                 continue;
             }
             in.eof = true;
-            if (in.video >= 0) s.vq.set_eof();
-            if (in.audio >= 0) s.aq.set_eof();
+            if (in.video >= 0) s.vq.SetEof();
+            if (in.audio >= 0) s.aq.SetEof();
             continue;
         }
 
@@ -904,9 +832,9 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
                           : ts_to_sec(pts, st->time_base) -
                                 (in.fmt->start_time != AV_NOPTS_VALUE ? in.fmt->start_time / (double)AV_TIME_BASE : 0);
         if (pkt->stream_index == in.video) {
-            s.vq.push(av_packet_clone(pkt), gen, at, s.video_damage);
+            s.vq.Push(av_packet_clone(pkt), gen, at, s.video_damage);
         } else if (pkt->stream_index == in.audio) {
-            s.aq.push(av_packet_clone(pkt), gen, at);
+            s.aq.Push(av_packet_clone(pkt), gen, at);
         } else if (idx == 0) {
             std::lock_guard<std::mutex> lk(s.sub_m);
             if (pkt->stream_index == s.sub_stream && s.sdec) {
@@ -1049,28 +977,28 @@ void video_loop(std::shared_ptr<Session> sp) {
         }
         decode_took = 0;
         timed = false;
-        QPacket qp{nullptr, 0};
-        if (!s.vq.pop(qp, s.abort, 50)) {
-            if (s.vq.drained() && !drained && !s.abort) {
+        QueuedPacket qp{nullptr, 0};
+        if (!s.vq.Pop(qp, s.abort, 50)) {
+            if (s.vq.Drained() && !drained && !s.abort) {
                 drain_gen = s.gen;
                 avcodec_send_packet(s.vdec, nullptr);  // flush remaining frames
                 drained = true;
             } else if (!drained) {
                 continue;
             }
-            qp.pkt = nullptr;
+            qp.packet = nullptr;
         } else {
             drained = false;
         }
 
-        if (qp.pkt) {
-            if (qp.gen != s.gen) {  // from before a seek
-                av_packet_free(&qp.pkt);
+        if (qp.packet) {
+            if (qp.generation != s.gen) {  // from before a seek
+                av_packet_free(&qp.packet);
                 continue;
             }
-            if (qp.gen != dec_gen) {
+            if (qp.generation != dec_gen) {
                 avcodec_flush_buffers(s.vdec);
-                dec_gen = qp.gen;
+                dec_gen = qp.generation;
                 hidden.clear();
                 tail_skip = false;
                 tail = next_key = gops = 0;
@@ -1080,7 +1008,7 @@ void video_loop(std::shared_ptr<Session> sp) {
                 damage = qp.damage; keyframe_seen = false;
                 avcodec_flush_buffers(s.vdec);
             }
-            const bool key = qp.pkt->flags & AV_PKT_FLAG_KEY;
+            const bool key = qp.packet->flags & AV_PKT_FLAG_KEY;
             if (key) keyframe_seen = true;
             // Of the decoder's time, all pictures but the unreferenced ones take.
             const double need = cost > 0 ? (1 - std::max(unref_share, 0.0)) * fps * cost : 0;
@@ -1088,27 +1016,27 @@ void video_loop(std::shared_ptr<Session> sp) {
                 // Some streams' keyframes are only sometimes IDRs (YouTube's): it catches up
                 // before those, so runs are counted from one to the next.
                 next_key = 0;
-                const bool idr = idr_picture(qp.pkt, length_size);
+                const bool idr = idr_picture(qp.packet, length_size);
                 if (idr) idr_keys++;
-                if (qp.pkt->pts != AV_NOPTS_VALUE && last_key != AV_NOPTS_VALUE && qp.pkt->pts > last_key &&
-                    (qp.pkt->pts - last_key) * av_q2d(s.vtb) > 10)
+                if (qp.packet->pts != AV_NOPTS_VALUE && last_key != AV_NOPTS_VALUE && qp.packet->pts > last_key &&
+                    (qp.packet->pts - last_key) * av_q2d(s.vtb) > 10)
                     idr_rare = true;
-                if (idr && qp.pkt->pts != AV_NOPTS_VALUE) {
-                    if (last_key != AV_NOPTS_VALUE && qp.pkt->pts > last_key && s.clock_running) {
-                        const double g = (qp.pkt->pts - last_key) * av_q2d(s.vtb), f = tail / fps;
+                if (idr && qp.packet->pts != AV_NOPTS_VALUE) {
+                    if (last_key != AV_NOPTS_VALUE && qp.packet->pts > last_key && s.clock_running) {
+                        const double g = (qp.packet->pts - last_key) * av_q2d(s.vtb), f = tail / fps;
                         gop = gop > 0 ? 0.7 * gop + 0.3 * g : g;
                         if (++gops > 2) freeze = gops == 3 ? f : 0.7 * freeze + 0.3 * f;  // after the start's
                         if (tail) s.tail_ms_max = std::max(s.tail_ms_max.load(), (int)std::lround(f * 1e3));
                     }
-                    last_key = qp.pkt->pts;
+                    last_key = qp.packet->pts;
                 }
                 tail_skip = false;
                 tail = 0;
-            } else if (!key && !tail_skip && tails_on && need > 0.9 && s.clock_running && qp.pkt->pts != AV_NOPTS_VALUE &&
-                       due_in(qp.pkt->pts) < lead) {
+            } else if (!key && !tail_skip && tails_on && need > 0.9 && s.clock_running && qp.packet->pts != AV_NOPTS_VALUE &&
+                       due_in(qp.packet->pts) < lead) {
                 if (!next_key) {
                     bool idr = false;
-                    if (s.vq.next_key(dec_gen, next_key_pts, idr, [&](const AVPacket* k) { return idr_picture(k, length_size); }))
+                    if (s.vq.NextKey(dec_gen, next_key_pts, idr, [&](const AVPacket* k) { return idr_picture(k, length_size); }))
                         next_key = idr ? 1 : 2;
                 }
                 if (next_key == 1 && due_in(next_key_pts) < lead) {
@@ -1120,10 +1048,10 @@ void video_loop(std::shared_ptr<Session> sp) {
                 tail++;
                 s.left_out++;
                 s.tail_out++;
-                av_packet_free(&qp.pkt);
+                av_packet_free(&qp.packet);
                 continue;
             }
-            const bool unref = (thin || every > 1) && unreferenced_picture(qp.pkt, length_size);
+            const bool unref = (thin || every > 1) && unreferenced_picture(qp.packet, length_size);
             if (thin) {
                 unref_share = unref_share < 0 ? unref : 0.98 * unref_share + 0.02 * unref;
                 unref_slow += (unref - unref_slow) / std::min(++unref_n, 200);
@@ -1146,15 +1074,15 @@ void video_loop(std::shared_ptr<Session> sp) {
                     }
                 }
             }
-            if (every > 1 && qp.pkt->pts != AV_NOPTS_VALUE) {
-                if ((qp.pkt->flags & AV_PKT_FLAG_KEY) || grid_from == AV_NOPTS_VALUE) grid_from = qp.pkt->pts;
-                if (std::llround((qp.pkt->pts - grid_from) * av_q2d(s.vtb) * fps) % every != 0) {
+            if (every > 1 && qp.packet->pts != AV_NOPTS_VALUE) {
+                if ((qp.packet->flags & AV_PKT_FLAG_KEY) || grid_from == AV_NOPTS_VALUE) grid_from = qp.packet->pts;
+                if (std::llround((qp.packet->pts - grid_from) * av_q2d(s.vtb) * fps) % every != 0) {
                     if (unref) {
                         s.left_out++;
-                        av_packet_free(&qp.pkt);
+                        av_packet_free(&qp.packet);
                         continue;
                     }
-                    hidden.push_back(qp.pkt->pts);
+                    hidden.push_back(qp.packet->pts);
                     if (hidden.size() > 64) hidden.pop_front();
                 }
             }
@@ -1168,7 +1096,7 @@ void video_loop(std::shared_ptr<Session> sp) {
                 credit += keep;
                 if (credit < 1 && unref) {
                     s.left_out++;
-                    av_packet_free(&qp.pkt);
+                    av_packet_free(&qp.packet);
                     continue;
                 }
                 credit = std::max(credit - 1, -1.0);
@@ -1176,11 +1104,11 @@ void video_loop(std::shared_ptr<Session> sp) {
             // Timed when the decoder decodes it (catching up, it leaves out unreferenced ones).
             timed = thin && !(unref && s.vdec->skip_frame >= AVDISCARD_NONREF);
             double start = now();
-            int r = avcodec_send_packet(s.vdec, qp.pkt);
+            int r = avcodec_send_packet(s.vdec, qp.packet);
             decode_took = now() - start;
             s.decode_us += (int)(decode_took * 1e6);
             s.decoded++;
-            av_packet_free(&qp.pkt);
+            av_packet_free(&qp.packet);
             if (keyframe_seen) s.video_in++;
             if (r < 0 && r != AVERROR(EAGAIN)) continue;
         }
@@ -1422,9 +1350,9 @@ void audio_loop(std::shared_ptr<Session> sp) {
 
     while (!s.abort) {
         sink.check();
-        QPacket qp{nullptr, 0};
-        if (!s.aq.pop(qp, s.abort, 50)) {
-            if (s.aq.drained() && !drained && !s.abort) {
+        QueuedPacket qp{nullptr, 0};
+        if (!s.aq.Pop(qp, s.abort, 50)) {
+            if (s.aq.Drained() && !drained && !s.abort) {
                 drain_gen = s.gen;
                 avcodec_send_packet(s.adec, nullptr);
                 drained = true;
@@ -1434,17 +1362,17 @@ void audio_loop(std::shared_ptr<Session> sp) {
         } else {
             drained = false;
         }
-        if (qp.pkt) {
-            if (qp.gen != s.gen) {
-                av_packet_free(&qp.pkt);
+        if (qp.packet) {
+            if (qp.generation != s.gen) {
+                av_packet_free(&qp.packet);
                 continue;
             }
-            if (qp.gen != dec_gen) {
+            if (qp.generation != dec_gen) {
                 avcodec_flush_buffers(s.adec);
-                dec_gen = qp.gen;
+                dec_gen = qp.generation;
             }
-            int r = avcodec_send_packet(s.adec, qp.pkt);
-            av_packet_free(&qp.pkt);
+            int r = avcodec_send_packet(s.adec, qp.packet);
+            av_packet_free(&qp.packet);
             if (r < 0 && r != AVERROR(EAGAIN)) continue;
         }
         for (;;) {
@@ -1785,8 +1713,8 @@ void open_session(std::shared_ptr<Session> sp) {
 void teardown(std::shared_ptr<Session> sp) {
     Session& s = *sp;
     s.abort = true;
-    s.vq.wake();
-    s.aq.wake();
+    s.vq.Wake();
+    s.aq.Wake();
     {
         // The video thread checks abort holding this and lets go of it as it starts to wait: taking
         // it first means the wake-up below can't fall in between and be missed.
@@ -1798,8 +1726,8 @@ void teardown(std::shared_ptr<Session> sp) {
         if (in.thread.joinable()) in.thread.join();
     if (s.vthread.joinable()) s.vthread.join();
     if (s.athread.joinable()) s.athread.join();
-    s.vq.flush();
-    s.aq.flush();
+    s.vq.Flush();
+    s.aq.Flush();
     if (s.vdec) {
         platform::detach_video_frames(s.vdec);
         avcodec_free_context(&s.vdec);
@@ -1929,8 +1857,7 @@ void recycle(Session& s, std::unique_ptr<VFrame> f) {
 double video_ahead(Session& s) {
     // From where it plays on: the clock, or where a start or a seek goes (a resume's keyframe).
     double from = !s.started || s.seeking ? (double)s.seek_target : s.last_clock;
-    std::lock_guard<std::mutex> lk(s.vq.m);
-    return s.vq.q.empty() || s.vq.last_pts < 0 ? 0 : std::max(0.0, s.vq.last_pts - from);
+    return s.vq.BufferedSeconds(from);
 }
 
 // Seconds of input `i`'s file the downloads have ahead of the demuxer (at the file's average rate).
@@ -1950,12 +1877,8 @@ double video_ready(Session& s) { return video_ahead(s) + (s.in[0].video >= 0 ? d
 // sound's packets are demuxed together with the video's, so without those bytes the sound showed
 // only the 20 s or so the demuxer had taken out of them).
 double audio_ready(Session& s) {
-    double from = !s.started || s.seeking ? (double)s.seek_target : s.last_clock, t;
-    {
-        std::lock_guard<std::mutex> lk(s.aq.m);
-        t = s.aq.q.empty() || s.aq.last_pts < 0 ? 0 : std::max(0.0, s.aq.last_pts - from);
-    }
-    return t + download_credit(s, s.audio_input);
+    double from = !s.started || s.seeking ? (double)s.seek_target : s.last_clock;
+    return s.aq.BufferedSeconds(from) + download_credit(s, s.audio_input);
 }
 
 // Seconds of the video the downloads can keep ahead of it (http_io_max_ahead()): what a wait can
@@ -2016,12 +1939,9 @@ void keep_ahead(Session& s, double seconds) {
 // Enough video came in to play on for a while (`seconds`), or all there is, or all that is kept
 // (the demuxed packets and the downloads ahead of them: nothing more comes in until it plays).
 bool video_refilled(Session& s, double seconds) {
-    if (s.video_eof || s.vq.drained() || s.in[0].eof) return true;
+    if (s.video_eof || s.vq.Drained() || s.in[0].eof) return true;
     if (video_ready(s) >= seconds) return true;
-    {
-        std::lock_guard<std::mutex> lk(s.vq.m);
-        if (s.vq.q.size() < video_packet_limit(s) && s.vq.bytes <= video_queue_limit(s)) return false;
-    }
+    if (s.vq.HasRoom(video_packet_limit(s), video_queue_limit(s))) return false;
     HttpIoStats io;
     return !s.in[0].fmt || !http_io_stats(s.in[0].fmt->pb, io) || io.full;
 }
@@ -2033,7 +1953,7 @@ bool decoder_watchdog(Session& s, double t) {
     if (!s.hw || s.video_out > 0 || s.opened_at <= 0) return false;
     int vin = s.video_in;
     double since_open = t - s.opened_at;
-    if (vin < 45 && !(since_open > 15 && s.vq.count() > 0)) return false;
+    if (vin < 45 && !(since_open > 15 && s.vq.Count() > 0)) return false;
     int next = std::min(s.decoding + 1, 2);
     note_decoding_floor(s.original, next);
     log_message(LOG_WARNING, "Player", "No pictures from the hardware decoder (%d packets in %.0f s): trying %s", vin,
@@ -2076,7 +1996,7 @@ bool buffering_watchdog(Session& s, double t) {
         log_message(LOG_WARNING, "Player",
                     "Loading for %.0f s: %.1f s of audio ready, %zu video packets waiting (%.1f s of video in), %d "
                     "decoded into %d pictures (%s)",
-                    loading, audio::stream_buffered_seconds(), s.vq.count(), s.has_video ? video_ready(s) : 0.0, vin, vout,
+                    loading, audio::stream_buffered_seconds(), s.vq.Count(), s.has_video ? video_ready(s) : 0.0, vin, vout,
                     s.vdec ? s.vdec->codec->name : "no video");
     }
     if (s.progress_at > 0 && t - s.progress_at > 30) {
@@ -2559,8 +2479,8 @@ void seek_at(double t, bool snap) {
     }
     // Not ended while the demuxers seek (input 0 can wait on the network for its keyframe first,
     // with the queues drained and the inputs at their end near a video's end).
-    s.vq.flush();
-    s.aq.flush();
+    s.vq.Flush();
+    s.aq.Flush();
     for (int i = 0; i < s.inputs; i++) {
         s.in[i].eof = false;
         s.in[i].lost = false;
@@ -2629,7 +2549,7 @@ double buffered_until() {
     if (!g_s) return 0;
     Session& s = *g_s;
     // The demuxed packets, and the downloads ahead of them (the seek bar's grey part).
-    double a = s.has_audio ? s.aq.last_pts : -1, v = s.has_video ? s.vq.last_pts : -1;
+    double a = s.has_audio ? s.aq.LastTimestamp() : -1, v = s.has_video ? s.vq.LastTimestamp() : -1;
     if (a >= 0) a += download_credit(s, s.audio_input);
     if (v >= 0 && s.in[0].video >= 0) v += download_credit(s, 0);
     double b = s.has_video && s.has_audio ? std::min(a, v) : std::max(a, v);
@@ -2886,7 +2806,7 @@ void playback_stats(Session& s, double t, int st) {
     std::string downloads = download_report(s, t - p.since);
     std::string rest = util::fmt("%d of %d screen updates late (longest %.0f ms); %zu packets waiting, %.1f s of audio, "
                                  "%.0f KB/s read",
-                                 p.slow_updates, p.updates, p.gap_max * 1e3, s.has_video ? s.vq.count() : s.aq.count(),
+                                 p.slow_updates, p.updates, p.gap_max * 1e3, s.has_video ? s.vq.Count() : s.aq.Count(),
                                  audio::stream_buffered_seconds(), s.bytes_read.exchange(0) / 1024.0 / (t - p.since));
     if (!downloads.empty()) rest += "; downloads: " + downloads;
     if (s.has_video)
@@ -2935,9 +2855,7 @@ void update() {
     // estimates can overstate readiness for variable-bitrate streams.
     double queued = s.has_video ? video_ahead(s) : 60.0;
     if (s.has_audio) {
-        std::lock_guard<std::mutex> lk(s.aq.m);
-        const double audio_queued = s.aq.q.empty() || s.aq.last_pts < 0 ? 0 : std::max(0.0, s.aq.last_pts - s.last_clock);
-        queued = std::min(queued, audio_queued);
+        queued = std::min(queued, s.aq.BufferedSeconds(s.last_clock));
     }
     if (!s.started || s.seeking || st != PLAYING) queued = 0;
     platform::main_phase("player: updating download feedback");
@@ -2993,8 +2911,8 @@ void update() {
 
     if (st == BUFFERING) {
         bool audio_ok = !s.has_audio || audio::stream_buffered_seconds() >= (s.in[0].remote ? 0.6 : 0.25) ||
-                        s.audio_eof || s.aq.drained();
-        bool video_ok = !s.has_video || s.video_eof || s.vq.drained();
+                        s.audio_eof || s.aq.Drained();
+        bool video_ok = !s.has_video || s.video_eof || s.vq.Drained();
         {
             std::lock_guard<std::mutex> lk(s.fm);
             if (!s.frames.empty()) video_ok = true;
@@ -3047,13 +2965,13 @@ void update() {
             if (t - s.underrun_since > 2) s.underrun = 0, s.underrun_since = t;
             s.underrun += under;
         }
-        bool audio_starved = s.has_audio && s.underrun > 0.15 && !s.audio_eof && !s.aq.drained() && s.aq.count() == 0;
+        bool audio_starved = s.has_audio && s.underrun > 0.15 && !s.audio_eof && !s.aq.Drained() && s.aq.Count() == 0;
         bool video_starved = false;
-        if (s.has_video && !s.video_eof && !s.vq.drained()) {
+        if (s.has_video && !s.video_eof && !s.vq.Drained()) {
             bool dry;
             {
                 std::lock_guard<std::mutex> lk(s.fm);
-                dry = s.frames.empty() && s.vq.count() == 0;
+                dry = s.frames.empty() && s.vq.Count() == 0;
             }
             if (!s.has_audio) {
                 video_starved = dry;
@@ -3072,7 +2990,7 @@ void update() {
             std::string downloads = window > 0 ? download_report(s, window) : "";
             log_message(LOG_WARNING, "Player", "Ran out of %s after %.0f s%s: in the last %.0f s %s",
                         audio_starved ? "audio" : "video", t - s.playing_since,
-                        s.has_video ? util::fmt(" (%zu video packets waiting)", s.vq.count()).c_str() : "", window,
+                        s.has_video ? util::fmt(" (%zu video packets waiting)", s.vq.Count()).c_str() : "", window,
                         !downloads.empty() ? downloads.c_str()
                                            : util::fmt("%.0f KB/s read", window > 0 ? s.bytes_read / 1024.0 / window : 0.0).c_str());
             s.starved = true;
@@ -3159,8 +3077,8 @@ void update() {
             std::lock_guard<std::mutex> lk(s.fm);
             frames_empty = s.frames.empty();
         }
-        bool v_done = !s.has_video || (s.vq.drained() && frames_empty && s.video_eof);
-        bool a_done = !s.has_audio || (s.aq.drained() && s.audio_eof && audio::stream_buffered_seconds() < 0.03);
+        bool v_done = !s.has_video || (s.vq.Drained() && frames_empty && s.video_eof);
+        bool a_done = !s.has_audio || (s.aq.Drained() && s.audio_eof && audio::stream_buffered_seconds() < 0.03);
         if (inputs_done && v_done && a_done && s.in[0].remote && !s.in[0].chunked && !s.live && s.duration > 0 &&
             s.duration - clock > std::max(60.0, s.duration * 0.1)) {
             // FFmpeg's own network reads end the same way when the connection closes early. (http_io's
