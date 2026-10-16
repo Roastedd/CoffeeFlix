@@ -86,6 +86,33 @@ def replace_region(page, name, body):
     return page
 
 
+def just_shipped_html(release):
+    """The "Just shipped" block from docs/assets/latest-release.json (tools/update-just-shipped.py writes it)."""
+    version = release["version"]
+    assert re.fullmatch(r"\d+\.\d+(\.\d+)?", version), f"Bad version in latest-release.json: {version}"
+    url = release.get("url") or f"{REPO_URL}/releases/tag/v{version}"
+    assert url.startswith(REPO_URL + "/releases/"), "The release link must point at this repository's releases"
+    lines = [
+        '      <section class="update" aria-labelledby="update-title">',
+        '        <div class="update-head">',
+        '          <div>',
+        '            <span class="eyebrow">Just shipped</span>',
+        f'            <h2 id="update-title">CoffeeFlix {esc(version)} is out</h2>',
+        '          </div>',
+        f'          <a class="btn small" href="{esc(url)}" target="_blank" rel="noopener">Release notes <span aria-hidden="true">↗</span></a>',
+        '        </div>',
+    ]
+    highlights = [h for h in release.get("highlights", []) if h.strip()]
+    if highlights:
+        lines.append('        <ul class="update-list">')
+        lines += [f"          <li>{esc(h)}</li>" for h in highlights]
+        lines.append("        </ul>")
+    if release.get("note"):
+        lines.append(f'        <p class="update-note">{esc(release["note"])}</p>')
+    lines.append("      </section>")
+    return "\n".join(lines)
+
+
 def render(root=ROOT):
     items = load_catalogue(root)
     issue = json.loads((root / "docs/assets/feature-thread.json").read_text())["issue"]
@@ -95,6 +122,9 @@ def render(root=ROOT):
     page = path.read_text()
     page = replace_region(page, "FEATURE CARDS", "\n".join(card_html(item, thread) for item in items))
     page = replace_region(page, "CATEGORY PILLS", "            " + pills_html(items))
+    latest = root / "docs/assets/latest-release.json"
+    if latest.exists():
+        page = replace_region(page, "JUST SHIPPED", just_shipped_html(json.loads(latest.read_text())))
     page, count = re.subn(r'(<div class="feature-grid" id="feature-grid" data-thread=")\d+(")', rf"\g<1>{issue}\g<2>", page)
     assert count == 1, "Missing feature grid"
     page, count = re.subn(rf'href="{re.escape(REPO_URL)}/issues/\d+"( data-thread-link)', f'href="{thread}"\\1', page)

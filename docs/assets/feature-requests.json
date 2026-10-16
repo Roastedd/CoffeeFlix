@@ -5,12 +5,14 @@
     "title": "Make Home your own",
     "summary": "Shape the home screen around how you actually watch.",
     "includes": [
-      "Hide the sections you don’t use",
-      "Open straight to your favorite page at startup",
-      "Set a display name for a personal greeting"
+      "Hide the sections you don’t use, from the side menu, Home and Search",
+      "Open straight to your favorite page at startup (out in 2.4.3)",
+      "Set a display name for a personal greeting",
+      "A birthday surprise, Surprise me for your own files, and a look at what you’ve watched",
+      "Take things off Continue watching"
     ],
-    "status": "planned",
-    "reply": "This one is planned for an upcoming update."
+    "status": "in-progress",
+    "reply": "Built and being tested on Wii U now. The start screen came out in 2.4.3; the rest is planned for an upcoming update."
   },
   {
     "id": "display-options",
@@ -22,7 +24,8 @@
       "Choose fit, stretch or letterbox in the player",
       "4:3 output considered for CRTs and older TVs"
     ],
-    "status": "proposed"
+    "status": "proposed",
+    "reply": "A Reduce motion switch that turns animations off is built for an upcoming update. Fit, stretch and letterbox are still to do."
   },
   {
     "id": "controller-keyboard",
@@ -69,7 +72,8 @@
     "issues": [
       13
     ],
-    "status": "in-progress"
+    "status": "in-progress",
+    "reply": "Like and dislike (with the counts) and Kids profiles with their own YouTube are built and being tested for an upcoming update."
   },
   {
     "id": "youtube-community",
@@ -78,12 +82,13 @@
     "summary": "Bring two popular community projects to CoffeeFlix.",
     "includes": [
       "Return YouTube Dislike counts",
-      "DeArrow titles and thumbnails, with an option to see the originals"
+      "Calmer titles and thumbnails in the spirit of DeArrow, with an option to see the originals"
     ],
     "issues": [
       13
     ],
-    "status": "needs-research"
+    "status": "in-progress",
+    "reply": "Dislike counts from Return YouTube Dislike are built. For titles and thumbnails I made CoffeeFlix’s own DeArrow-style options (calmer titles, a frame from the video) instead of using the DeArrow service. Both are in testing for an upcoming update."
   },
   {
     "id": "twitch-account",
@@ -124,7 +129,8 @@
     "issues": [
       17
     ],
-    "status": "proposed"
+    "status": "in-progress",
+    "reply": "A community pull request (#27) added this. It’s merged into my development version and being tested on Wii U for an upcoming update."
   },
   {
     "id": "dvd-playback",
@@ -134,9 +140,52 @@
     "includes": [
       "Play all kinds of DVDs from a USB DVD drive",
       "Show the picture at the best quality possible, upscaled to the TV’s resolution",
-      "DVD menus"
+      "DVD menus",
+      "Music CDs and disc images (ISO) considered too"
     ],
     "status": "needs-research",
-    "reply": "I’m checking whether the Wii U lets apps read a USB DVD drive, and aiming to play every kind of DVD at the best quality it can show."
+    "reply": "I’m checking whether the Wii U lets apps read a USB DVD drive, and aiming to play every kind of DVD at the best quality it can show.",
+    "issues": [
+      23
+    ]
+  },
+  {
+    "id": "remember-subtitles",
+    "category": "Display & video",
+    "title": "Remember my subtitles",
+    "summary": "Turn subtitles on once and they stay on the next time you open that show or video.",
+    "includes": [
+      "Keep the subtitle language you chose for each show",
+      "Keep subtitles off when you turned them off"
+    ],
+    "issues": [
+      29
+    ],
+    "status": "proposed"
+  },
+  {
+    "id": "m3u-playlists",
+    "category": "Discs & files",
+    "title": "M3U playlists",
+    "summary": "Open M3U playlists from the SD card or a USB drive and play your videos and music straight from them, like WiiMC.",
+    "includes": [],
+    "issues": [
+      38
+    ],
+    "status": "proposed"
+  },
+  {
+    "id": "photo-viewing",
+    "category": "Discs & files",
+    "title": "Better photo viewing",
+    "summary": "Photos from today’s phones and cameras that open quickly and look right.",
+    "includes": [
+      "Fast thumbnails, even for large camera photos",
+      "Turn a photo, and phone photos stand upright on their own",
+      "Details: date taken, camera, size",
+      "A slideshow like the Wii Photo Channel, with music, that zooms in on one person and stays wide for a group"
+    ],
+    "status": "in-progress",
+    "reply": "Built and tried on Wii U. Large photos load much faster now. It’s planned for an upcoming update."
   }
 ]

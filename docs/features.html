@@ -50,7 +50,7 @@
           <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues/new?template=feature_request.yml">Suggest an idea <span aria-hidden="true">↗</span></a>
         </div>
         <ul class="stats rise" style="--i:4" aria-label="At a glance">
-          <li><b data-idea-count>11</b> ideas</li>
+          <li><b data-idea-count>14</b> ideas</li>
           <li><b data-total-votes>—</b> votes so far</li>
           <li><b>1 vote</b> per GitHub account</li>
         </ul>
@@ -67,24 +67,28 @@
         </ol>
       </section>
 
-      <!-- Latest release. Edit this block when a new version ships. -->
+      <!-- Latest release: written from docs/assets/latest-release.json by tools/render-feature-board.py.
+           tools/update-just-shipped.py fills that file from the GitHub release, and the "Roadmap after a release"
+           workflow runs it whenever a version is published. -->
+      <!-- BEGIN JUST SHIPPED -->
       <section class="update" aria-labelledby="update-title">
         <div class="update-head">
           <div>
             <span class="eyebrow">Just shipped</span>
-            <h2 id="update-title">CoffeeFlix 2.4.0 is out</h2>
+            <h2 id="update-title">CoffeeFlix 2.4.3 is out</h2>
           </div>
-          <a class="btn small" href="https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.4.0" target="_blank" rel="noopener">Release notes <span aria-hidden="true">↗</span></a>
+          <a class="btn small" href="https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.4.3" target="_blank" rel="noopener">Release notes <span aria-hidden="true">↗</span></a>
         </div>
         <ul class="update-list">
-          <li>The next episode (Jellyfin) or suggested video (YouTube) plays after a countdown you can cancel</li>
-          <li>Fixed a freeze when pressing HOME or going to standby during a video</li>
-          <li>Videos start faster: slow captions no longer hold them up</li>
-          <li>Receive files: send videos, music and photos to the SD card over Wi-Fi</li>
-          <li>A simpler start-up screen, plus playback and network fixes</li>
+          <li>Your GamePad finally earns its keep: browse on both screens, then use it as the remote while the video plays on the TV.</li>
+          <li>Choose where sound plays, and let the GamePad screen sleep while you watch</li>
+          <li>Pick which page CoffeeFlix opens on (Settings &gt; Start screen)</li>
+          <li>Better suggestions: YouTube, Radio, Podcasts and Jellyfin lean toward what you actually watch</li>
+          <li>Smoother streaming when the connection hiccups</li>
         </ul>
-        <p class="update-note">Autoplay was the first idea from this board to ship. Thanks for voting, and keep the ideas coming.</p>
+        <p class="update-note">From this board: Pick your start screen and GamePad controls when you need them. Thanks for voting, and keep the ideas coming.</p>
       </section>
+          <!-- END JUST SHIPPED -->
 
       <section class="top" id="top" aria-labelledby="top-title" hidden>
         <div class="section-heading"><div><span class="eyebrow">Leaderboard</span><h2 id="top-title">Most wanted right now</h2></div></div>
@@ -96,20 +100,20 @@
       </section>
 
       <section class="requests" id="requests" aria-labelledby="requests-title">
-        <div class="section-heading"><div><span class="eyebrow">From the community</span><h2 id="requests-title">All ideas</h2></div><span class="idea-count"><span data-idea-count>11</span> ideas</span></div>
+        <div class="section-heading"><div><span class="eyebrow">From the community</span><h2 id="requests-title">All ideas</h2></div><span class="idea-count"><span data-idea-count>14</span> ideas</span></div>
         <div class="toolbar" id="toolbar" hidden>
           <label class="search"><span class="sr-only">Find an idea</span><svg aria-hidden="true"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Search ideas…" autocomplete="off"></label>
           <div class="pills" id="pills" role="group" aria-label="Filter by category">
           <!-- BEGIN CATEGORY PILLS -->
-            <button class="pill" type="button" data-category="all" aria-pressed="true">All <span>11</span></button>
+            <button class="pill" type="button" data-category="all" aria-pressed="true">All <span>14</span></button>
             <button class="pill" type="button" data-category="Home &amp; settings" aria-pressed="false">Home &amp; settings <span>1</span></button>
-            <button class="pill" type="button" data-category="Display &amp; video" aria-pressed="false">Display &amp; video <span>1</span></button>
+            <button class="pill" type="button" data-category="Display &amp; video" aria-pressed="false">Display &amp; video <span>2</span></button>
             <button class="pill" type="button" data-category="Controls" aria-pressed="false">Controls <span>1</span></button>
             <button class="pill" type="button" data-category="Jellyfin" aria-pressed="false">Jellyfin <span>1</span></button>
             <button class="pill" type="button" data-category="Servers &amp; books" aria-pressed="false">Servers &amp; books <span>2</span></button>
             <button class="pill" type="button" data-category="YouTube" aria-pressed="false">YouTube <span>2</span></button>
             <button class="pill" type="button" data-category="Twitch" aria-pressed="false">Twitch <span>2</span></button>
-            <button class="pill" type="button" data-category="Discs &amp; files" aria-pressed="false">Discs &amp; files <span>1</span></button>
+            <button class="pill" type="button" data-category="Discs &amp; files" aria-pressed="false">Discs &amp; files <span>3</span></button>
           <!-- END CATEGORY PILLS -->
           </div>
           <div class="selects">
@@ -121,12 +125,12 @@
         <noscript><p class="notice">You can browse every idea and vote on GitHub. Enable JavaScript to search, filter and see vote totals.</p></noscript>
         <div class="feature-grid" id="feature-grid" data-thread="16">
           <!-- BEGIN FEATURE CARDS -->
-          <article class="card" id="personalize-home" data-category="Home &amp; settings" data-status="planned" aria-labelledby="title-personalize-home">
-            <div class="card-head"><span class="category">Home &amp; settings</span><span class="badge" data-state="planned">Planned</span></div>
+          <article class="card" id="personalize-home" data-category="Home &amp; settings" data-status="in-progress" aria-labelledby="title-personalize-home">
+            <div class="card-head"><span class="category">Home &amp; settings</span><span class="badge" data-state="in-progress">In progress</span></div>
             <h3 id="title-personalize-home">Make Home your own</h3>
             <p class="summary">Shape the home screen around how you actually watch.</p>
-            <ul class="includes"><li>Hide the sections you don’t use</li><li>Open straight to your favorite page at startup</li><li>Set a display name for a personal greeting</li></ul>
-            <p class="reply"><b>Dev reply</b> This one is planned for an upcoming update.</p>
+            <ul class="includes"><li>Hide the sections you don’t use, from the side menu, Home and Search</li><li>Open straight to your favorite page at startup (out in 2.4.3)</li><li>Set a display name for a personal greeting</li><li>A birthday surprise, Surprise me for your own files, and a look at what you’ve watched</li><li>Take things off Continue watching</li></ul>
+            <p class="reply"><b>Dev reply</b> Built and being tested on Wii U now. The start screen came out in 2.4.3; the rest is planned for an upcoming update.</p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
               <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Make Home your own on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
@@ -138,6 +142,7 @@
             <h3 id="title-display-options">Display options</h3>
             <p class="summary">A quieter interface, and video that fits the TV you have.</p>
             <ul class="includes"><li>Turn animated background effects off</li><li>Choose fit, stretch or letterbox in the player</li><li>4:3 output considered for CRTs and older TVs</li></ul>
+            <p class="reply"><b>Dev reply</b> A Reduce motion switch that turns animations off is built for an upcoming update. Fit, stretch and letterbox are still to do.</p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
               <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Display options on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
@@ -182,6 +187,7 @@
             <h3 id="title-youtube-account">YouTube account extras</h3>
             <p class="summary">More from your signed-in YouTube account. Profile access and account compatibility need investigating.</p>
             <ul class="includes"><li>Like and dislike videos while signed in</li><li>YouTube Kids profile support</li></ul>
+            <p class="reply"><b>Dev reply</b> Like and dislike (with the counts) and Kids profiles with their own YouTube are built and being tested for an upcoming update.</p>
             <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub #13</a></p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
@@ -189,11 +195,12 @@
             </div>
             <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="card" id="youtube-community" data-category="YouTube" data-status="needs-research" aria-labelledby="title-youtube-community">
-            <div class="card-head"><span class="category">YouTube</span><span class="badge" data-state="needs-research">Needs research</span></div>
+          <article class="card" id="youtube-community" data-category="YouTube" data-status="in-progress" aria-labelledby="title-youtube-community">
+            <div class="card-head"><span class="category">YouTube</span><span class="badge" data-state="in-progress">In progress</span></div>
             <h3 id="title-youtube-community">Community add-ons for YouTube</h3>
             <p class="summary">Bring two popular community projects to CoffeeFlix.</p>
-            <ul class="includes"><li>Return YouTube Dislike counts</li><li>DeArrow titles and thumbnails, with an option to see the originals</li></ul>
+            <ul class="includes"><li>Return YouTube Dislike counts</li><li>Calmer titles and thumbnails in the spirit of DeArrow, with an option to see the originals</li></ul>
+            <p class="reply"><b>Dev reply</b> Dislike counts from Return YouTube Dislike are built. For titles and thumbnails I made CoffeeFlix’s own DeArrow-style options (calmer titles, a frame from the video) instead of using the DeArrow service. Both are in testing for an upcoming update.</p>
             <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub #13</a></p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
@@ -226,10 +233,11 @@
             </div>
             <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="card" id="navidrome-support" data-category="Servers &amp; books" data-status="proposed" aria-labelledby="title-navidrome-support">
-            <div class="card-head"><span class="category">Servers &amp; books</span><span class="badge" data-state="proposed">Proposed</span></div>
+          <article class="card" id="navidrome-support" data-category="Servers &amp; books" data-status="in-progress" aria-labelledby="title-navidrome-support">
+            <div class="card-head"><span class="category">Servers &amp; books</span><span class="badge" data-state="in-progress">In progress</span></div>
             <h3 id="title-navidrome-support">Navidrome and Subsonic music servers</h3>
             <p class="summary">Play your own music library from a Navidrome or other Subsonic-compatible server.</p>
+            <p class="reply"><b>Dev reply</b> A community pull request (#27) added this. It’s merged into my development version and being tested on Wii U for an upcoming update.</p>
             <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/17">GitHub #17</a></p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
@@ -241,11 +249,47 @@
             <div class="card-head"><span class="category">Discs &amp; files</span><span class="badge" data-state="needs-research">Needs research</span></div>
             <h3 id="title-dvd-playback">DVD playback</h3>
             <p class="summary">Watch DVDs on the Wii U through a USB DVD drive, at the best quality the console can show. Whether the Wii U lets apps read a USB drive still has to be found out.</p>
-            <ul class="includes"><li>Play all kinds of DVDs from a USB DVD drive</li><li>Show the picture at the best quality possible, upscaled to the TV’s resolution</li><li>DVD menus</li></ul>
+            <ul class="includes"><li>Play all kinds of DVDs from a USB DVD drive</li><li>Show the picture at the best quality possible, upscaled to the TV’s resolution</li><li>DVD menus</li><li>Music CDs and disc images (ISO) considered too</li></ul>
             <p class="reply"><b>Dev reply</b> I’m checking whether the Wii U lets apps read a USB DVD drive, and aiming to play every kind of DVD at the best quality it can show.</p>
+            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/23">GitHub #23</a></p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
               <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for DVD playback on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
+          </article>
+          <article class="card" id="remember-subtitles" data-category="Display &amp; video" data-status="proposed" aria-labelledby="title-remember-subtitles">
+            <div class="card-head"><span class="category">Display &amp; video</span><span class="badge" data-state="proposed">Proposed</span></div>
+            <h3 id="title-remember-subtitles">Remember my subtitles</h3>
+            <p class="summary">Turn subtitles on once and they stay on the next time you open that show or video.</p>
+            <ul class="includes"><li>Keep the subtitle language you chose for each show</li><li>Keep subtitles off when you turned them off</li></ul>
+            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/29">GitHub #29</a></p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Remember my subtitles on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
+          </article>
+          <article class="card" id="m3u-playlists" data-category="Discs &amp; files" data-status="proposed" aria-labelledby="title-m3u-playlists">
+            <div class="card-head"><span class="category">Discs &amp; files</span><span class="badge" data-state="proposed">Proposed</span></div>
+            <h3 id="title-m3u-playlists">M3U playlists</h3>
+            <p class="summary">Open M3U playlists from the SD card or a USB drive and play your videos and music straight from them, like WiiMC.</p>
+            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/38">GitHub #38</a></p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for M3U playlists on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
+          </article>
+          <article class="card" id="photo-viewing" data-category="Discs &amp; files" data-status="in-progress" aria-labelledby="title-photo-viewing">
+            <div class="card-head"><span class="category">Discs &amp; files</span><span class="badge" data-state="in-progress">In progress</span></div>
+            <h3 id="title-photo-viewing">Better photo viewing</h3>
+            <p class="summary">Photos from today’s phones and cameras that open quickly and look right.</p>
+            <ul class="includes"><li>Fast thumbnails, even for large camera photos</li><li>Turn a photo, and phone photos stand upright on their own</li><li>Details: date taken, camera, size</li><li>A slideshow like the Wii Photo Channel, with music, that zooms in on one person and stays wide for a group</li></ul>
+            <p class="reply"><b>Dev reply</b> Built and tried on Wii U. Large photos load much faster now. It’s planned for an upcoming update.</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Better photo viewing on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
             </div>
             <div class="meter" aria-hidden="true"><i></i></div>
           </article>
