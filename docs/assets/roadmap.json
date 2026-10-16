@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-14",
+  "updated": "2026-10-16",
   "items": [
     {
       "id": "startup-screen",
@@ -53,6 +53,24 @@
     },
     {
       "feature_id": "youtube-account",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "youtube-community",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "navidrome-support",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "photo-viewing",
       "platforms": [
         "Wii U"
       ]

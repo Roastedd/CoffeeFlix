@@ -1,7 +1,8 @@
 name: Roadmap after a release
 
 # When a version goes public, the features it brought (release/features.json) move to Released on the
-# roadmap and feature board, as a pull request. Nothing changes until that is merged.
+# roadmap and feature board, and the board's "Just shipped" block is rewritten from the release notes,
+# as one pull request. Nothing changes until that is merged.
 on:
   workflow_call:
   workflow_dispatch:
@@ -46,8 +47,12 @@ jobs:
         if: steps.release.outputs.ids != ''
         run: python3 tools/mark-shipped.py "${{ steps.release.outputs.version }}" ${{ steps.release.outputs.ids }}
 
+      - name: Rewrite "Just shipped" from the release notes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/update-just-shipped.py "${{ steps.release.outputs.version }}"
+
       - name: Open a pull request
-        if: steps.release.outputs.ids != ''
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.release.outputs.version }}
@@ -60,4 +65,4 @@ jobs:
           git commit -qam "Roadmap: $VERSION is public"
           git push -q origin "$branch"
           gh pr create --base master --head "$branch" --title "Roadmap: $VERSION is public" \
-            --body "Moves the features in $VERSION to Released. Merge to publish on the website, or close to skip."
+            --body "Moves the features in $VERSION to Released and shows $VERSION under Just shipped on the feature board. Merge to publish on the website, or close to skip."

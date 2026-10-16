@@ -53,6 +53,10 @@ Use Planned, In progress and Shipped only when work is accepted, underway or rel
 
 When an idea ships, set `"status": "shipped"` and add `"shipped_in": "2.4.0"` (the editor has a *Shipped in version* field). The badge then reads *Shipped in v2.4.0* and links to that release, the card's vote button becomes *What's new*, the idea leaves the *Most wanted* leaderboard and sorts after the ideas still waiting, and its GitHub comment gets a *Shipped in* line. Its votes stay.
 
+## "Just shipped"
+
+The block at the top of the board is generated from `docs/assets/latest-release.json` (version, release link, up to five highlights and a closing note). When a version is published, the *Roadmap after a release* workflow runs `tools/update-just-shipped.py`, which reads that release's notes on GitHub (the opening sentence and the bullet points), names the board ideas the version brought (`release/features.json` and cards marked shipped in it) and opens it in the same pull request as the Released moves. Merge that pull request and the block is current. It never goes back to an older version. By hand: `python3 tools/update-just-shipped.py 2.4.3` (or no version for the newest release); `--body-file` uses notes from a file instead of GitHub. Test: `python3 tools/test-just-shipped.py`.
+
 ## Reply to an idea
 
 Add a `"reply"` line to the idea in the catalogue (for example `"reply": "Thanks, I'll look at this after the next release."`), render and push. The text shows on the card as a *Dev reply* and is added to the voting comment on GitHub. Delete the line to remove it. Plain text only.
