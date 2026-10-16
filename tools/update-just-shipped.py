@@ -52,8 +52,16 @@ def lead(body):
     return sentence if len(sentence) <= 160 else ""
 
 
+BOARD = re.compile(r"^[ \t]*Board:[ \t]*(.+\S)[ \t]*$", re.M | re.I)
+
+
 def highlights(body):
-    out = [lead(body)] if lead(body) else []
+    """The page's lines for a release. A line "Board: ..." in the notes is used as the first one (a sentence written
+    for this page, up to 200 characters); without it the notes' opening sentence is."""
+    m = BOARD.search(body)
+    body = BOARD.sub("", body)
+    board = plain(m.group(1)) if m and len(plain(m.group(1))) <= 200 else ""
+    out = [board] if board else ([lead(body)] if lead(body) else [])
     for line in body.splitlines():
         m = re.match(r"\s{0,3}[-*+]\s+(.+)", line)
         if m and plain(m.group(1)):

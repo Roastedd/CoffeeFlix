@@ -1,0 +1,32 @@
+name: Welcome new issues
+
+# A new issue from anyone else gets a label and a short, friendly reply, so nobody waits in silence. Issues from the
+# forms already carry a label (bug or enhancement); a blank one gets "needs-triage" and a note about what helps.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  welcome:
+    if: github.repository == 'Roastedd/CoffeeFlix' && github.event.issue.user.login != 'Roastedd' && github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Label and reply
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number }}
+          LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+        run: |
+          case ",$LABELS," in
+            *,bug,*|*,enhancement,*)
+              gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body "Thanks for taking the time to write this up. I read every issue, and I'll reply here when I know more."
+              ;;
+            *)
+              gh issue edit "$NUMBER" --repo "$GITHUB_REPOSITORY" --add-label needs-triage
+              gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body "Thanks for writing! To help me look into it, could you say: which version (Settings > Updates and about), which part of the app (YouTube, Jellyfin, My Media...), what you did and what happened? If it's an idea for something new, the [feature board](https://roastedd.github.io/CoffeeFlix/features.html) is where those are voted on. I'll reply here."
+              ;;
+          esac

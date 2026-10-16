@@ -45,9 +45,12 @@ with tempfile.TemporaryDirectory() as d:
     assert "Ko-fi" not in page.split("<!-- BEGIN JUST SHIPPED -->")[1].split("<!-- END JUST SHIPPED -->")[0]
     assert page.count("<!-- BEGIN JUST SHIPPED -->") == 1
 
+    # a "Board:" line is the page's first line and is not repeated
+    r = js.update(root, "9.9.10", "Long opening sentence of the notes.\n\nBoard: Photos open fast and look right.\n\n- One\n- Two\n")
+    assert r["highlights"] == ["Photos open fast and look right.", "One", "Two"], r["highlights"]
     # an older version never replaces a newer one
     try:
-        js.update(root, "9.9.8", BODY)
+        js.update(root, "9.9.7", BODY)
         raise AssertionError("went back to an older version")
     except SystemExit:
         pass

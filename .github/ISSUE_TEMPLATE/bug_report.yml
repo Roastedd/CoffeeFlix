@@ -1,0 +1,47 @@
+name: Something isn't working
+description: A bug, a freeze, a video that won't play
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sorry about that, and thank you for telling me. The more of this you can fill in, the faster I can find it. Ideas for new things go in the *Feature idea* form instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead (a freeze, an error message, a black screen).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Which CoffeeFlix version?
+      description: Settings > Updates and about shows it (like 2.4.3).
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen?
+      options:
+        - YouTube
+        - Twitch
+        - Jellyfin
+        - Navidrome or other music
+        - Radio or podcasts
+        - My Media (files on the SD card or a network share)
+        - Settings or menus
+        - Something else
+  - type: dropdown
+    id: device
+    attributes:
+      label: Which device?
+      options:
+        - Wii U (Aroma)
+        - Wii U (Tiramisu)
+        - Fire TV or Android
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else?
+      description: How often it happens, your Wi-Fi or server, and the log if you have one (the app writes logs to the SD card, in wiiu/apps/coffeeflix/logs). Please remove anything private.

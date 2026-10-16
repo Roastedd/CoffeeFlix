@@ -25,6 +25,7 @@ def validate_catalogue(items):
             assert isinstance(item.get(key), str) and item[key].strip(), f"{item['id']}: {key} can't be empty"
         assert item["status"] in STATUSES, f"Unknown status {item['status']!r}"
         assert isinstance(item.get("reply", ""), str), "reply must be text"
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", item.get("since", "2000-01-01")), f"{item['id']}: since must be a date like 2026-10-16"
         version = item.get("shipped_in", "")
         assert isinstance(version, str) and (not version or re.fullmatch(r"\d+\.\d+(\.\d+)?", version)), f"{item['id']}: shipped_in must be a version like 2.4.0"
         assert not version or item["status"] == "shipped", f"{item['id']}: only shipped ideas can say which version shipped them"

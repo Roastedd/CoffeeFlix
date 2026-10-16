@@ -11,6 +11,7 @@ import http.server
 import importlib.util
 import json
 import re
+from datetime import date
 import secrets
 import subprocess
 import sys
@@ -25,7 +26,7 @@ spec.loader.exec_module(board)
 
 CATALOGUE = "docs/assets/feature-requests.json"
 PUBLISHED = (CATALOGUE, "docs/features.html", "docs/index.html")
-KEYS = ("id", "category", "title", "summary", "includes", "source", "issues", "status", "shipped_in", "reply")
+KEYS = ("id", "category", "title", "summary", "includes", "source", "issues", "status", "since", "shipped_in", "reply")
 
 
 def slug(text, taken):
@@ -66,6 +67,10 @@ def clean(ideas):
                  "includes": [line.strip() for line in includes if str(line).strip()],
                  "source": text("source"), "issues": issues, "status": text("status"), "reply": text("reply"),
                  "shipped_in": text("shipped_in").lstrip("vV")}
+        # When an idea became In progress (the weekly board check lists ideas that have been for over 60 days).
+        since = text("since")
+        if entry["status"] == "in-progress":
+            entry["since"] = since if re.fullmatch(r"\d{4}-\d{2}-\d{2}", since) else date.today().isoformat()
         for key in ("source", "issues", "reply", "shipped_in"):
             if not entry[key]:
                 del entry[key]
