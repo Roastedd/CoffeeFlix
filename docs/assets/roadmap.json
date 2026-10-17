@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-16",
+  "updated": "2026-10-17",
   "items": [
     {
       "id": "startup-screen",
@@ -71,6 +71,18 @@
     },
     {
       "feature_id": "photo-viewing",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "controller-keyboard",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "gamepad-search-next",
       "platforms": [
         "Wii U"
       ]

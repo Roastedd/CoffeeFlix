@@ -32,9 +32,16 @@
     "id": "controller-keyboard",
     "category": "Controls",
     "title": "Type without the GamePad",
-    "summary": "Use the on-screen keyboard with a Wii Remote or a Pro Controller, even when the GamePad isn’t within reach.",
-    "includes": [],
-    "status": "proposed"
+    "summary": "Type in search and other boxes with a Wii U Pro Controller or a Wii Remote, even when the GamePad’s screen is off.",
+    "includes": [
+      "A keyboard drawn on the TV, moved with the D-pad or a stick",
+      "Used automatically when the GamePad screen is off or you last used another controller",
+      "The GamePad keeps the system keyboard"
+    ],
+    "issues": [45],
+    "status": "in-progress",
+    "since": "2026-10-17",
+    "reply": "Built and being tried on Wii U for an upcoming update."
   },
   {
     "id": "jellyfin-autoplay",
@@ -172,5 +179,19 @@
     "status": "in-progress",
     "since": "2026-10-16",
     "reply": "Built and tried on Wii U. Large photos load much faster now. It’s planned for an upcoming update."
+  },
+  {
+    "id": "gamepad-search-next",
+    "category": "Controls",
+    "title": "Search for the next video from the GamePad",
+    "summary": "Pick what to watch next on the GamePad while the current video keeps playing on the TV.",
+    "includes": [
+      "A search button in the remote’s Up next tab",
+      "Results replace the suggestions, one button goes back"
+    ],
+    "issues": [46],
+    "status": "in-progress",
+    "since": "2026-10-17",
+    "reply": "Built and being tried on Wii U for an upcoming update."
   }
 ]
