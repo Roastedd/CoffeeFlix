@@ -193,5 +193,20 @@
     "status": "in-progress",
     "since": "2026-10-17",
     "reply": "Built and being tried on Wii U for an upcoming update."
+  },
+  {
+    "id": "supporter-updates",
+    "category": "Home & settings",
+    "title": "Supporter previews from Settings",
+    "summary": "Update to supporter previews from Settings, with the email you used on Ko-fi, instead of downloading each one by hand.",
+    "includes": [
+      "Type your Ko-fi email once in Settings > Updates and about",
+      "Previews arrive like a normal update, checked against a signature before anything is installed",
+      "Works on up to five consoles per supporter"
+    ],
+    "issues": [51],
+    "status": "in-progress",
+    "since": "2026-10-17",
+    "reply": "Built. It needs a one-time setup on my side, then it will switch on for supporters."
   }
 ]

@@ -86,6 +86,12 @@
       "platforms": [
         "Wii U"
       ]
+    },
+    {
+      "feature_id": "supporter-updates",
+      "platforms": [
+        "Wii U"
+      ]
     }
   ]
 }
