@@ -9,6 +9,9 @@
 #include "gfx/images.hpp"
 #include "player/player.hpp"
 #include "screens/screens.hpp"
+#ifdef __WIIU__
+#include "screens/game_library.hpp"
+#endif
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
 #include "services/navidrome.hpp"
@@ -30,6 +33,7 @@ struct HomeItem {
     int icon = ic::MOVIE;
     std::string service, title, subtitle, description, image, hero;
     float progress = -1;
+    float image_inset = 0;
     bool live = false;
     std::string badge;
     std::function<void()> open;
@@ -262,6 +266,7 @@ public:
                 const HomeItem& h = row.items[i];
                 CardInfo c;
                 c.image = h.image;
+                c.image_inset = h.image_inset;
                 c.title = h.title;
                 c.subtitle = h.subtitle;
                 c.progress = h.progress;
@@ -395,6 +400,21 @@ private:
         if (!dirty_) return;
         dirty_ = false;
         rows_.clear();
+#ifdef __WIIU__
+        Row games{N_("Recently played"), CARD_SQUARE, 186, {}, false};
+        for (const auto& played : game_library::recent()) {
+            HomeItem item;
+            item.icon = ic::GAMEPAD;
+            item.service = "Games";
+            item.title = played.game.name;
+            item.subtitle = played.game.wii ? "Wii VC" : "Wii U";
+            item.image = item.hero = played.game.icon;
+            item.image_inset = 12;
+            item.open = [played] { game_library::launch(played.game, played.option); };
+            games.items.push_back(std::move(item));
+        }
+        if (!games.items.empty()) rows_.push_back(std::move(games));
+#endif
         Row cont{N_("Continue watching"), CARD_WIDE, 300, {}, false};
         for (auto& jr : jf_resume_) cont.items.push_back(from_jellyfin(jr));
         // Ignore entries from services this build cannot open; keep their saved data intact.
