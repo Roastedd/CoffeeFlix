@@ -65,6 +65,9 @@ const RailEntry RAIL[] = {
     {SEC_RADIO, ic::RADIO, N_("Radio")},
     {SEC_PODCASTS, ic::PODCASTS, N_("Podcasts")},
     {SEC_MEDIA, ic::FOLDER, N_("My Media")},
+#ifdef __WIIU__
+    {SEC_GAMES, ic::GAMEPAD, N_("Games")},
+#endif
     {SEC_SETTINGS, ic::SETTINGS, N_("Settings")},
 };
 
@@ -130,7 +133,7 @@ void draw_rail() {
                        br.cy() - text::line_height(font::body) * 0.5f, tr(e.label), lc);
             gfx::pop_alpha();
         }
-        y += 54;
+        y += n > 10 ? 52 : 54;
     }
 }
 

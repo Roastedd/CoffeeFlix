@@ -12,6 +12,7 @@ std::unique_ptr<app::Screen> make_section_root(app::Section s) {
         case app::SEC_RADIO: return make_radio();
         case app::SEC_PODCASTS: return make_podcasts();
         case app::SEC_MEDIA: return make_media();
+        case app::SEC_GAMES: return make_games();
         case app::SEC_SETTINGS: return make_settings();
         default: return make_home();
     }
