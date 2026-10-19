@@ -33,7 +33,6 @@ struct HomeItem {
     int icon = ic::MOVIE;
     std::string service, title, subtitle, description, image, hero;
     float progress = -1;
-    float image_inset = 0;
     bool live = false;
     std::string badge;
     std::function<void()> open;
@@ -205,11 +204,18 @@ public:
         // --- hero -------------------------------------------------------------------
         const float hero_h = 350;
         const HomeItem* f = focused_item();
-        if (f && f->hero != hero_url_) {
+        std::string hero = f ? f->hero : "";
+#ifdef __WIIU__
+        if (f && f->service == "Games" && !hero.empty()) {
+            const images::Image* art = images::get(hero, 1280, 720);
+            if (art && art->failed) hero = f->image;
+        }
+#endif
+        if (f && hero != hero_url_) {
             prev_hero_ = hero_url_;
-            hero_url_ = f->hero;
+            hero_url_ = hero;
             hero_t_ = ui::time();
-            set_backdrop(f->hero);
+            set_backdrop(hero);
         }
         float ht = anim::smoothstep((float)(ui::time() - hero_t_) / 0.5f);
         draw_hero_image(prev_hero_, 1 - ht);
@@ -266,7 +272,6 @@ public:
                 const HomeItem& h = row.items[i];
                 CardInfo c;
                 c.image = h.image;
-                c.image_inset = h.image_inset;
                 c.title = h.title;
                 c.subtitle = h.subtitle;
                 c.progress = h.progress;
@@ -408,8 +413,8 @@ private:
             item.service = "Games";
             item.title = played.game.name;
             item.subtitle = played.game.wii ? "Wii VC" : "Wii U";
-            item.image = item.hero = played.game.icon;
-            item.image_inset = 12;
+            item.image = played.game.icon;
+            item.hero = game_library::boot_tv_image(played.game);
             item.open = [played] { game_library::launch(played.game, played.option); };
             games.items.push_back(std::move(item));
         }

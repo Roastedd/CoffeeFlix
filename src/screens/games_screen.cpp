@@ -72,7 +72,6 @@ public:
                 const Game& game = games_[visible[i]];
                 CardInfo card;
                 card.image = game.icon;
-                card.image_inset = 12;
                 card.title = game.name;
                 card.subtitle = game.usb ? "USB storage" : "Internal memory";
                 card.tag = game.wii ? "Wii VC" : "Wii U";

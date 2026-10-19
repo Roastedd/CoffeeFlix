@@ -8,6 +8,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <string_view>
 #include <sys/stat.h>
 #include <utility>
 
@@ -150,6 +151,12 @@ void Record(const Game& game, int option) {
     SaveLocked();
 }
 
+}
+
+std::string boot_tv_image(const Game& game) {
+    constexpr std::string_view suffix = "iconTex.tga";
+    if (!game.icon.ends_with(suffix)) return game.icon;
+    return game.icon.substr(0, game.icon.size() - suffix.size()) + "bootTvTex.tga";
 }
 
 std::vector<Game> cached() {

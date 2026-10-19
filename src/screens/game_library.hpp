@@ -34,6 +34,7 @@ struct Result {
 
 std::vector<Game> cached();
 std::vector<Recent> recent(size_t max = 12);
+std::string boot_tv_image(const Game& game);
 Result scan(const std::shared_ptr<Progress>& progress, bool full = false);
 void launch(const Game& game, int option);
 
