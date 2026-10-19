@@ -13,6 +13,7 @@
 
 #include "core/json.hpp"
 #include "core/util.hpp"
+#include "gfx/text.hpp"
 #include "platform/platform.hpp"
 #include "ui/ui.hpp"
 
@@ -239,8 +240,15 @@ Result scan(const std::shared_ptr<Progress>& progress, bool full) {
     {
         std::lock_guard<std::mutex> lock(gMutex);
         LoadLocked();
-        gGames = result.games;
-        SaveLocked();
+        const bool changed = gGames.size() != result.games.size() ||
+            !std::equal(gGames.begin(), gGames.end(), result.games.begin(), [](const Game& a, const Game& b) {
+                return a.titleId == b.titleId && a.usb == b.usb && a.wii == b.wii &&
+                    a.gamepad == b.gamepad && a.name == b.name && a.path == b.path && a.icon == b.icon;
+            });
+        if (changed) {
+            gGames = result.games;
+            SaveLocked();
+        }
     }
 #else
     (void)progress;
@@ -258,7 +266,7 @@ void launch(const Game& game, int option) {
             option == 1 ? CMPT_SCREEN_TYPE_TV :
             option == 2 ? CMPT_SCREEN_TYPE_BOTH : CMPT_SCREEN_TYPE_DRC;
         if (CMPTAcctSetDrcCtrlEnabled(useGamePad ? 1 : 0) < 0 || CMPTAcctSetScreenType(screen) < 0) {
-            ui::toast("Could not configure Wii VC controller mode", ui::ic::ERROR_OUTLINE);
+            ui::toast("Could not configure Wii VC controller mode", ic::ERROR_OUTLINE);
             return;
         }
         if (CMPTCheckScreenState() < 0 && screen != CMPT_SCREEN_TYPE_DRC) CMPTAcctSetScreenType(CMPT_SCREEN_TYPE_DRC);
