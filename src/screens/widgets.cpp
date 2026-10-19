@@ -96,7 +96,14 @@ bool card(Id id, const Rect& ir, CardShape shape, const CardInfo& c, Id group, i
     const images::Image* img = c.image.empty() ? nullptr : images::get(c.image, c.image_w, 0);
     if (img && img->ready) {
         gfx::fill_rrect(r, rad, Color(20, 18, 24, 255));
-        gfx::image_cover(img->tex, img->w, img->h, r, rad, Color(255, 255, 255, (uint8_t)(255 * images::fade(img))));
+        const Color tint(255, 255, 255, (uint8_t)(255 * images::fade(img)));
+        if (c.image_inset > 0) {
+            const float pad = c.image_inset;
+            gfx::image_contain(img->tex, img->w, img->h,
+                               Rect(r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad), tint, rad);
+        } else {
+            gfx::image_cover(img->tex, img->w, img->h, r, rad, tint);
+        }
     } else if (img && !img->failed) {
         skeleton(r, rad);
     } else {

@@ -29,6 +29,7 @@ struct CardInfo {
     bool live = false;           // red LIVE badge
     bool favorite = false;
     int image_w = 400;           // decode size hint
+    float image_inset = 0;
     ui::Color tint{0, 0, 0, 0};  // placeholder gradient color (default: accent-derived)
     std::string tag;                  // e.g. "Needs conversion" (top left of the image)
     ui::Color tag_color{0, 0, 0, 0};  // its background (default: dark)

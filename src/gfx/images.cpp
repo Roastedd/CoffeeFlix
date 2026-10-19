@@ -185,7 +185,7 @@ bool too_big(const std::string& data) {
     return stated_size(data, w, h) && over_limit(w, h);
 }
 
-SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
+SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags, bool tga) {
     int64_t stated_w = 0, stated_h = 0;
     if (stated_size(data, stated_w, stated_h) && over_limit(stated_w, stated_h)) {
         log_message(LOG_WARNING, "Images", "A picture of %lld x %lld pixels is too big to load", (long long)stated_w,
@@ -193,7 +193,7 @@ SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
         return nullptr;
     }
     SDL_RWops* rw = SDL_RWFromConstMem(data.data(), (int)data.size());
-    SDL_Surface* s = to_rgba(IMG_Load_RW(rw, 1));
+    SDL_Surface* s = to_rgba(tga ? IMG_LoadTyped_RW(rw, 1, "TGA") : IMG_Load_RW(rw, 1));
     if (!s) return nullptr;
     if (flags & BLUR) {
         int w = 64, h = std::max(1, (int)std::lround(64.0 * s->h / s->w));
@@ -208,6 +208,10 @@ SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
         if (k < 1.0f) s = scale_to(s, std::max(1, (int)(s->w * k)), std::max(1, (int)(s->h * k)));
     }
     return s;
+}
+
+SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
+    return decode(data, max_w, max_h, flags, false);
 }
 
 namespace {
@@ -254,7 +258,7 @@ void load_job(std::shared_ptr<Entry> e) {
         } else {
             ok = util::read_file(util::starts_with(e->url, "file://") ? e->url.substr(7) : e->url, data);
         }
-        SDL_Surface* s = ok ? decode(data, e->max_w, e->max_h, e->flags) : nullptr;
+        SDL_Surface* s = ok ? decode(data, e->max_w, e->max_h, e->flags, e->url.ends_with(".tga")) : nullptr;
         const bool hopeless = ok && !s && too_big(data);  // asking again gets the same picture
         std::lock_guard<std::mutex> lk(g_m);
         if (s) {

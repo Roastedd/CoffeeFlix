@@ -21,6 +21,7 @@ std::unique_ptr<app::Screen> make_twitch();
 std::unique_ptr<app::Screen> make_radio();
 std::unique_ptr<app::Screen> make_podcasts();
 std::unique_ptr<app::Screen> make_media();
+std::unique_ptr<app::Screen> make_games();
 std::unique_ptr<app::Screen> make_receive_files();
 std::unique_ptr<app::Screen> make_support();
 // Counts an app start; asks on Home, once, whether to say thanks (support_screen.cpp).
