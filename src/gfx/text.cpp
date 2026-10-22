@@ -69,10 +69,10 @@ TTF_Font* sized(Face& f, int px, bool bold) {
     return f.font;
 }
 
-TTF_Font* open_face(Face& f, SDL_RWops* rw, int px, int hinting) {
+TTF_Font* open_face(Face& f, SDL_RWops* rw, int px, int hinting, int index = 0) {
     f.tried = true;
     Uint64 start = SDL_GetPerformanceCounter();
-    f.font = rw ? TTF_OpenFontRW(rw, 1, px) : nullptr;
+    f.font = rw ? TTF_OpenFontIndexRW(rw, 1, px, index) : nullptr;
     if (f.font) {
         TTF_SetFontHinting(f.font, hinting);
         f.px = px;
@@ -120,7 +120,7 @@ TTF_Font* get_cjk_font(int which, int px) {
         // Unhinted: FreeType's autohinter would first go through all of the tens of thousands
         // of characters in these fonts, and then work out every glyph's strokes, which CJK
         // text doesn't gain much from.
-        if (!open_face(f, rw, px, TTF_HINTING_NONE)) {
+        if (!open_face(f, rw, px, TTF_HINTING_NONE, file.index)) {
             log_message(LOG_ERROR, "Text", "Couldn't open system font %d: %s", which, TTF_GetError());
             g_has_cjk[which] = false;
         }

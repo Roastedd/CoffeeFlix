@@ -319,6 +319,22 @@ void judge(MediaInfo& m) {
         return set(Verdict::CONVERT, tr("Audio format needs conversion"));
     }
     const std::string& vc = m.video_codec;
+#ifdef __ANDROID__
+    // Android decodes 8-bit 4:2:0 H.264, HEVC, VP8/VP9 and MPEG-4 with the system's hardware decoder
+    // (or the player's software fallback). 10-bit and HDR come out of the hardware decoders in formats
+    // the player doesn't convert yet, and software is too slow for them.
+    {
+        static const char* const playable[] = {"h264", "hevc", "vp8", "vp9", "mpeg4", "mpeg1video", "mpeg2video", "mjpeg"};
+        bool known = false;
+        for (const char* c : playable) known = known || vc == c;
+        if (m.hdr) return set(Verdict::CONVERT, tr("HDR video needs conversion"));
+        if (!known) return set(Verdict::CONVERT, tr("Video format needs conversion"));
+        if (m.bit_depth > 8 || !m.chroma_420 || m.pro_profile) return set(Verdict::CONVERT, tr("10-bit video needs conversion"));
+        if (std::max(m.width, m.height) > 1920) return set(Verdict::LIMITED, tr("Larger than 1080p, may not play smoothly"));
+        if (m.audio_tracks > 0 && !m.audio_supported) return set(Verdict::LIMITED, tr("No sound: unsupported audio"));
+        return set(Verdict::READY, nullptr);
+    }
+#endif
     bool h264 = vc == "h264";
     bool software_sd = (vc == "mpeg4" || vc == "mpeg1video" || vc == "mpeg2video") && (int64_t)m.width * m.height <= 720 * 576;
     // Upright or on its side alike: a 1080x1920 phone video is as big as 1080p.

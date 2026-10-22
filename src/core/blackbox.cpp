@@ -83,6 +83,7 @@ void tick(State& s) {
 void run() {
     platform::set_thread_name("black box");
     platform::raise_thread_priority();  // it has to run while something else spins or waits
+    platform::pin_to_core2();
     State& s = state();
     for (;;) {
         std::this_thread::sleep_for(std::chrono::milliseconds(s.period_ms.load()));

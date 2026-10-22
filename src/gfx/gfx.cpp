@@ -276,7 +276,9 @@ void init(SDL_Renderer* renderer) {
 
     int w = 0, h = 0;
     SDL_GetRendererOutputSize(renderer, &w, &h);
-    S.out_scale = h > 0 ? std::max(1.0f, h / 720.0f) : 1.0f;
+    int lw = 0, lh = 0;
+    SDL_RenderGetLogicalSize(renderer, &lw, &lh);  // set before gfx::init
+    S.out_scale = h > 0 ? std::max(1.0f, h / (lh > 0 ? (float)lh : 720.0f)) : 1.0f;
     S.verts.reserve(16384);
     S.idx.reserve(32768);
 }
@@ -302,6 +304,14 @@ void begin_frame(Color clear) {
 }
 
 void end_frame() { flush(); }
+
+void set_target(SDL_Texture* target) {
+    flush();
+    S.clips.clear();
+    SDL_SetRenderTarget(S.renderer, target);
+    SDL_RenderSetClipRect(S.renderer, nullptr);
+    S.batch_tex = S.atlas;
+}
 
 void flush() {
     if (S.idx.empty()) {

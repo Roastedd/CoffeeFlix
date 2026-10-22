@@ -12,8 +12,9 @@
 #include <cerrno>
 #include <cxxabi.h>
 #include <cstdlib>
+#include <cstring>
 
-#ifdef __WIIU__
+#if defined(__WIIU__) || defined(__ANDROID__)
 #include <mbedtls/entropy.h>
 #else
 #include <openssl/rand.h>
@@ -321,7 +322,7 @@ std::string random_hex(int bytes) {
 std::string secure_random_hex(int bytes) {
     unsigned char raw[32];
     if (bytes < 1 || bytes > (int)sizeof(raw)) return "";
-#ifdef __WIIU__
+#if defined(__WIIU__) || defined(__ANDROID__)
     mbedtls_entropy_context entropy;
     mbedtls_entropy_init(&entropy);
     const bool ok = mbedtls_entropy_func(&entropy, raw, (size_t)bytes) == 0;
@@ -345,6 +346,26 @@ double now_seconds() {
 }
 
 int64_t unix_time() { return (int64_t)time(nullptr); }
+
+void local_tm(std::tm* out) {
+    if (const char* fixed = getenv("COFFEEFLIX_NOW")) {
+        int y, mo, d, h = 12, mi = 0;
+        if (sscanf(fixed, "%d-%d-%d %d:%d", &y, &mo, &d, &h, &mi) >= 3) {
+            memset(out, 0, sizeof(*out));
+            out->tm_year = y - 1900;
+            out->tm_mon = mo - 1;
+            out->tm_mday = d;
+            out->tm_hour = h;
+            out->tm_min = mi;
+            out->tm_isdst = -1;
+            time_t t = mktime(out);  // fills in the weekday and the day of the year
+            localtime_r(&t, out);
+            return;
+        }
+    }
+    time_t t = time(nullptr);
+    localtime_r(&t, out);
+}
 
 std::string clock_hhmm() {
     time_t t = time(nullptr);

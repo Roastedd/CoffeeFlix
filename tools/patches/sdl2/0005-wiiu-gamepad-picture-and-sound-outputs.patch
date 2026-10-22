@@ -1,0 +1,172 @@
+diff --git a/include/SDL_system.h b/include/SDL_system.h
+index f82fb31..883a951 100644
+--- a/include/SDL_system.h
++++ b/include/SDL_system.h
+@@ -722,6 +722,28 @@ extern DECLSPEC void SDLCALL SDL_WiiUSetSWKBDInitialText(const char * text);
+  */
+ extern DECLSPEC int SDLCALL SDL_WiiUSetNVTextureMemory(SDL_Texture * texture, void *Yplane, void *UVplane, int pitch);
+ 
++/**
++ * Chooses what the GamePad gets of the window.
++ *
++ * 0 (the default): the window's picture, as usual. 1: no picture is sent to
++ * it: the GamePad keeps showing the last one, and the copy of a larger window
++ * isn't drawn either. 2: as 1, and the console stops its video stream to the
++ * GamePad (GX2SetDRCEnable); it comes back with the foreground. The TV is not
++ * affected.
++ *
++ * \param mode 0, 1 or 2
++ */
++extern DECLSPEC void SDLCALL SDL_WiiUSetGamePadPicture(int mode);
++
++/**
++ * Chooses which of the outputs the sound plays on. Both by default.
++ *
++ * \param tv SDL_TRUE to play on the TV
++ * \param gamepad SDL_TRUE to play on the GamePad (its speakers and the
++ *                headphones plugged into it)
++ */
++extern DECLSPEC void SDLCALL SDL_WiiUSetAudioOutputs(SDL_bool tv, SDL_bool gamepad);
++
+ /**
+  * Sets the swkbd's hint text.
+  *
+diff --git a/src/audio/wiiu/SDL_wiiuaudio.c b/src/audio/wiiu/SDL_wiiuaudio.c
+index da02839..25ff073 100644
+--- a/src/audio/wiiu/SDL_wiiuaudio.c
++++ b/src/audio/wiiu/SDL_wiiuaudio.c
+@@ -27,6 +27,7 @@
+ 
+ #include "SDL_audio.h"
+ #include "SDL_error.h"
++#include "SDL_system.h"
+ #include "SDL_timer.h"
+ #include "../SDL_audio_c.h"
+ #include "../SDL_audiodev_c.h"
+@@ -51,6 +52,26 @@ static void _WIIUAUDIO_framecallback();
+ static SDL_AudioDevice* cb_this;
+ #define cb_hidden cb_this->hidden
+ 
++/*  Which outputs the sound plays on (SDL_WiiUSetAudioOutputs): what's asked for, and what the
++    voices are mixed to now. The AX frame callback makes the second the first. */
++static volatile int wantTv = 1, wantGamePad = 1;
++static int haveTv = 1, haveGamePad = 1;
++static AXVoiceDeviceMixData silent_mix[AX_NUM_CHANNELS];
++
++void SDL_WiiUSetAudioOutputs(SDL_bool tv, SDL_bool gamepad) {
++    wantTv = tv ? 1 : 0;
++    wantGamePad = gamepad ? 1 : 0;
++}
++
++/*  Plays the voices on a device as at the start, or silent */
++static void _WIIUAUDIO_setoutput(AXDeviceType device, int on) {
++    for (int i = 0; i < cb_this->spec.channels; i++) {
++        AXVoiceDeviceMixData* mix = silent_mix;
++        if (on) mix = cb_this->spec.channels == 1 ? mono_mix[i] : stereo_mix[i];
++        AXSetVoiceDeviceMix(cb_hidden->voice[i], device, 0, mix);
++    }
++}
++
+ /*  Some helpers for AX-related math */
+ /*  Absolute address to an AXVoiceOffsets offset */
+ #define calc_ax_offset(offs, addr) (((void*)addr - offs.data) \
+@@ -304,6 +325,15 @@ static void _WIIUAUDIO_framecallback() {
+     AXVoiceOffsets offs[6];
+     void* endaddr;
+ 
++    if (wantGamePad != haveGamePad) {
++        haveGamePad = wantGamePad;
++        _WIIUAUDIO_setoutput(AX_DEVICE_TYPE_DRC, haveGamePad);
++    }
++    if (wantTv != haveTv) {
++        haveTv = wantTv;
++        _WIIUAUDIO_setoutput(AX_DEVICE_TYPE_TV, haveTv);
++    }
++
+     for (int i = 0; i < cb_this->spec.channels; i++) {
+         AXGetVoiceOffsets(cb_hidden->voice[i], &offs[i]);
+     }
+diff --git a/src/render/wiiu/SDL_rpresent_wiiu.c b/src/render/wiiu/SDL_rpresent_wiiu.c
+index d905a24..ecbb821 100644
+--- a/src/render/wiiu/SDL_rpresent_wiiu.c
++++ b/src/render/wiiu/SDL_rpresent_wiiu.c
+@@ -42,6 +42,22 @@
+ 
+ static SDL_bool tvDrcEnabled = SDL_FALSE;
+ 
++/* What the GamePad gets of the window (SDL_WiiUSetGamePadPicture), and whether the console's
++   video stream to it is stopped now */
++static int padPicture = 0;
++static SDL_bool padStreamStopped = SDL_FALSE;
++
++void SDL_WiiUSetGamePadPicture(int mode)
++{
++    padPicture = mode;
++}
++
++/* Leaving the foreground turns the GamePad's output back on (SDL_wiiuvideo.c) */
++void WIIU_SDL_ResetGamePadStream(void)
++{
++    padStreamStopped = SDL_FALSE;
++}
++
+ int WIIU_SDL_SetVSync(SDL_Renderer * renderer, const int vsync)
+ {
+     WIIU_VideoData *videodata = (WIIU_VideoData *) SDL_GetVideoDevice()->driverdata;
+@@ -148,10 +164,11 @@ int WIIU_SDL_RenderPresent(SDL_Renderer * renderer)
+     WIIU_TextureData *tdata = window;
+     Uint32 flags = SDL_GetWindowFlags(renderer->window);
+     SDL_bool keyboard = WIIU_SWKBD_IsScreenKeyboardShown(NULL, renderer->window);
++    const SDL_bool sendToPad = padPicture == 0;
+ 
+     /* The GamePad gets the window's 1280x720 copy, if it has one. So does the keyboard, which
+        then shows on the TV from there too (as it does from a 1280x720 window). */
+-    if (data->drcTex.driverdata && !(flags & SDL_WINDOW_WIIU_TV_ONLY) && WIIU_SDL_DrawDRCCopy(data)) {
++    if (sendToPad && data->drcTex.driverdata && !(flags & SDL_WINDOW_WIIU_TV_ONLY) && WIIU_SDL_DrawDRCCopy(data)) {
+         drc = (WIIU_TextureData *) data->drcTex.driverdata;
+         tdata = drc;
+     }
+@@ -182,7 +199,7 @@ int WIIU_SDL_RenderPresent(SDL_Renderer * renderer)
+         GX2CopyColorBufferToScanBuffer(keyboard ? &tdata->cbuf : &window->cbuf, GX2_SCAN_TARGET_TV);
+     }
+ 
+-    if (!(flags & SDL_WINDOW_WIIU_TV_ONLY)) {
++    if (sendToPad && !(flags & SDL_WINDOW_WIIU_TV_ONLY)) {
+         GX2CopyColorBufferToScanBuffer(&drc->cbuf, GX2_SCAN_TARGET_DRC);
+     }
+ 
+@@ -206,6 +223,12 @@ int WIIU_SDL_RenderPresent(SDL_Renderer * renderer)
+         tvDrcEnabled = SDL_TRUE;
+     }
+ 
++    /* The GamePad's video stream stopped, or running again */
++    if (tvDrcEnabled && (padPicture == 2) != padStreamStopped) {
++        padStreamStopped = (padPicture == 2);
++        GX2SetDRCEnable(!padStreamStopped);
++    }
++
+     return 0;
+ }
+ 
+diff --git a/src/video/wiiu/SDL_wiiuvideo.c b/src/video/wiiu/SDL_wiiuvideo.c
+index d8c3bfa..c75ff39 100644
+--- a/src/video/wiiu/SDL_wiiuvideo.c
++++ b/src/video/wiiu/SDL_wiiuvideo.c
+@@ -65,6 +65,9 @@
+ 
+ static SDL_bool running = SDL_FALSE;
+ 
++/* SDL_rpresent_wiiu.c */
++extern void WIIU_SDL_ResetGamePadStream(void);
++
+ static int WIIU_ForegroundAcquired(_THIS)
+ {
+ 	WIIU_VideoData *videodata;
+@@ -183,6 +186,7 @@ static int WIIU_ForegroundReleased(_THIS)
+ 	// This is necessary to avoid a black frame on leaving foreground
+ 	GX2SetTVEnable(TRUE);
+ 	GX2SetDRCEnable(TRUE);
++	WIIU_SDL_ResetGamePadStream();
+ 
+ 	videodata->hasForeground = SDL_FALSE;
+ 

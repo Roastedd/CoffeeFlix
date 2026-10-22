@@ -60,7 +60,7 @@ public:
                 y += 70;
             } else {
                 empty_state(Rect(x0, y, W - x0 - 60, 260), ic::SEARCH, tr("Find anything"),
-                            tr("One search looks through YouTube, your Jellyfin library, Twitch, radio stations and podcasts."));
+                            tr("One search looks through everything you have turned on."));
                 y += 300;
             }
             page_.end(y + page_.scroll());
@@ -248,9 +248,15 @@ private:
         tw_.clear();
         radio_.clear();
         pods_.clear();
-        jf_loading_ = jellyfin::signed_in();
-        nd_loading_ = navidrome::signed_in();
-        yt_loading_ = tw_loading_ = radio_loading_ = pods_loading_ = true;
+        // Only what is turned on in Settings > Make it yours is searched.
+        const bool yt_on = app::section_visible(app::SEC_YOUTUBE), tw_on = app::section_visible(app::SEC_TWITCH),
+                   radio_on = app::section_visible(app::SEC_RADIO), pods_on = app::section_visible(app::SEC_PODCASTS);
+        jf_loading_ = app::section_visible(app::SEC_JELLYFIN) && jellyfin::signed_in();
+        nd_loading_ = app::section_visible(app::SEC_NAVIDROME) && navidrome::signed_in();
+        yt_loading_ = yt_on;
+        tw_loading_ = tw_on;
+        radio_loading_ = radio_on;
+        pods_loading_ = pods_on;
         if (jf_loading_)
             scope_.run<jellyfin::List>([q] { return jellyfin::search(q); }, [this](jellyfin::List l) {
                 jf_ = std::move(l.items);
@@ -261,27 +267,32 @@ private:
                 nd_songs_ = std::move(l.songs);
                 nd_loading_ = false;
             });
-        scope_.run<youtube::Results>([q] { return youtube::search(q); }, [this](youtube::Results r) {
-            yt_ = std::move(r.items);
-            if (!r.error.empty()) errors_ = r.error;
-            yt_loading_ = false;
-        });
-        scope_.run<youtube::ChannelResults>([q] { return youtube::search_channels(q); }, [this](youtube::ChannelResults r) {
-            ytc_ = std::move(r.items);
-            if (ytc_.size() > 8) ytc_.resize(8);
-        });
-        scope_.run<twitch::Streams>([q] { return twitch::search(q); }, [this](twitch::Streams s) {
-            tw_ = std::move(s.items);
-            tw_loading_ = false;
-        });
-        scope_.run<radio::List>([q] { return radio::search(q, 30); }, [this](radio::List l) {
-            radio_ = std::move(l.items);
-            radio_loading_ = false;
-        });
-        scope_.run<podcasts::Shows>([q] { return podcasts::search(q); }, [this](podcasts::Shows s) {
-            pods_ = std::move(s.items);
-            pods_loading_ = false;
-        });
+        if (yt_on) {
+            scope_.run<youtube::Results>([q] { return youtube::search(q); }, [this](youtube::Results r) {
+                yt_ = std::move(r.items);
+                if (!r.error.empty()) errors_ = r.error;
+                yt_loading_ = false;
+            });
+            scope_.run<youtube::ChannelResults>([q] { return youtube::search_channels(q); }, [this](youtube::ChannelResults r) {
+                ytc_ = std::move(r.items);
+                if (ytc_.size() > 8) ytc_.resize(8);
+            });
+        }
+        if (tw_on)
+            scope_.run<twitch::Streams>([q] { return twitch::search(q); }, [this](twitch::Streams s) {
+                tw_ = std::move(s.items);
+                tw_loading_ = false;
+            });
+        if (radio_on)
+            scope_.run<radio::List>([q] { return radio::search(q, 30); }, [this](radio::List l) {
+                radio_ = std::move(l.items);
+                radio_loading_ = false;
+            });
+        if (pods_on)
+            scope_.run<podcasts::Shows>([q] { return podcasts::search(q); }, [this](podcasts::Shows s) {
+                pods_ = std::move(s.items);
+                pods_loading_ = false;
+            });
     }
 
     std::string query_, errors_;

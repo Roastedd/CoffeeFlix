@@ -120,8 +120,31 @@ bool number(const std::string& s, uint64_t& out) {
     if (s.empty() || s.size() > 12 || s.find_first_not_of("0123456789") != std::string::npos) return false;
     out = 0; for (char c : s) out = out * 10 + c - '0'; return true;
 }
+// The card's free space, counted once and then kept up by what is written. On the Wii U the system counts it by reading
+// the card's whole allocation table: on a big card that took 25 s, and it was done on the main thread when the Receive
+// files page opened (the app stood still) and again for every upload and every page load. Only the receiver's thread counts.
+std::mutex g_free_m;
+int64_t g_free = -1;
+int64_t known_free(const std::string& folder) {
+    {
+        std::lock_guard<std::mutex> lock(g_free_m);
+        if (g_free >= 0) return g_free;
+    }
+    const int64_t free = free_space(folder);
+    std::lock_guard<std::mutex> lock(g_free_m);
+    g_free = free;
+    return free;
+}
+void spent(int64_t bytes) {  // written to the card (negative: given back)
+    std::lock_guard<std::mutex> lock(g_free_m);
+    if (g_free >= 0) g_free = std::max<int64_t>(0, g_free - bytes);
+}
+void recount() {  // the card said no: count again next time
+    std::lock_guard<std::mutex> lock(g_free_m);
+    g_free = -1;
+}
 bool available(Server::State& s, uint64_t size) {
-    const int64_t free = free_space(s.folder);
+    const int64_t free = known_free(s.folder);
     { std::lock_guard<std::mutex> lock(s.mutex); s.status.free_bytes = free; }
     return free < 0 || (uint64_t)free >= size + RESERVE;
 }
@@ -182,7 +205,7 @@ void serve(Server::State& s, int fd) {
     }
     if (first[1] == s.path + "info") {
         json::Doc d(json_object()); auto* folders = json_array();
-        json_object_set_new(d.get(), "free", json_integer((json_int_t)free_space(s.folder)));
+        json_object_set_new(d.get(), "free", json_integer((json_int_t)known_free(s.folder)));
         json_object_set_new(d.get(), "max", json_integer((json_int_t)MAX_FILE));
         if (DIR* dir = opendir(s.folder.c_str())) {
             while (dirent* entry = readdir(dir)) {
@@ -292,7 +315,9 @@ void serve(Server::State& s, int fd) {
     // A resumable upload that only broke off keeps its bytes; cancelling on the Wii U or a disk problem discards them.
     const bool keep = !failure.empty() && resumable && !(s.cancel != cancel) && !disk_trouble;
     if (!failure.empty() && !keep) remove(temp.c_str());
-    const int64_t free = free_space(s.folder);
+    if (disk_trouble) recount();
+    else if (!saved.empty() || keep) spent((int64_t)received);
+    const int64_t free = known_free(s.folder);
     { std::lock_guard<std::mutex> lock(s.mutex); s.status.active = false; s.status.free_bytes = free; s.status.interrupted = keep;
       s.status.error = failure; s.status.bytes_per_second = 0; s.status.seconds_left = -1;
       if (!saved.empty()) { ++s.status.completed; s.status.saved_name = folder_name.empty() ? saved : folder_name + "/" + saved; } }
@@ -318,6 +343,13 @@ std::string page(const std::string& token) {
     };
     for (const char* label : labels)
         json_object_set_new(words.get(), label, json_string(tr(label)));
+    // What the page needs to know about the receiver (see its verdict() and MAX).
+    json_object_set_new(words.get(), "__max", json_integer((json_int_t)MAX_FILE));
+#ifdef __ANDROID__
+    json_object_set_new(words.get(), "__android", json_true());
+    json_object_set_new(words.get(), "Up to 2 GB per file. H.264 video works best; files are not converted.",
+                        json_string(tr(N_("Large files are fine. H.264 and HEVC video work best; files are not converted."))));
+#endif
     html = util::replace_all(html, "{{TOKEN}}", token);
     // The dictionary is application-owned text; escaping < also prevents script termination in translations.
     return util::replace_all(html, "{{WORDS}}", util::replace_all(json::dump(words.get()), "<", "\\u003c"));
@@ -337,6 +369,8 @@ void linger(int fd, int listener) {
 }
 void run(std::shared_ptr<Server::State> s) {
     cpu::ThreadTag tag("receive files");
+    const int64_t free = known_free(s->folder);
+    { std::lock_guard<std::mutex> lock(s->mutex); s->status.free_bytes = free; }
     while (!s->stop) {
         pollfd p{s->listener, POLLIN, 0}; if (poll(&p, 1, 200) <= 0) continue;
         int fd = accept(s->listener, nullptr, nullptr); if (fd < 0) continue;
@@ -356,6 +390,9 @@ bool valid_name(const std::string& name) {
     if (!unicode) return false;
     json_decref(unicode);
     static const std::string allowed = "|mp4|m4v|mkv|webm|avi|mov|ts|m2ts|mpg|mpeg|flv|3gp|mp3|m4a|aac|flac|ogg|opus|wav|wv|alac|oga|mka|jpg|jpeg|png|gif|webp|bmp|cbz|epub|srt|vtt|ass|ssa|";
+#ifdef __ANDROID__
+    if (name == "coffeeflix.json") return true;  // a Wii U's settings, for settings_import
+#endif
     const auto ext = util::file_extension(name);
     return !ext.empty() && allowed.find("|" + ext + "|") != std::string::npos;
 }
@@ -388,7 +425,7 @@ Server::Server(std::string folder) : state_(std::make_shared<State>()) {
         if (bind(fd, (sockaddr*)&addr, sizeof(addr)) == 0) port = p;
     }
     if (!port || listen(fd, 4) != 0) { close(fd); s.status.error = tr("Couldn't start the receiver"); return; }
-    s.listener = fd; s.authority = ip + ":" + std::to_string(port); s.status.free_bytes = free_space(s.folder);
+    s.listener = fd; s.authority = ip + ":" + std::to_string(port);  // the free space: counted on the receiver's thread
     url_ = "http://" + s.authority + s.path; worker_ = std::thread(run, state_);
     log_message(LOG_OK, "Transfer", "Receiver listening on port %d", port);
 }

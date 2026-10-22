@@ -1,6 +1,9 @@
 #include "services/radio.hpp"
 
+#include <algorithm>
+#include <map>
 #include <mutex>
+#include <set>
 
 #include "core/http.hpp"
 #include "core/i18n.hpp"
@@ -15,10 +18,10 @@ namespace radio {
 
 namespace {
 
-// Mirrors of the API; the first reachable one is remembered.
-const char* SERVERS[] = {"https://de1.api.radio-browser.info", "https://de2.api.radio-browser.info",
-                         "https://fi1.api.radio-browser.info", "https://nl1.api.radio-browser.info",
-                         "https://at1.api.radio-browser.info"};
+// Mirrors of the API; the first reachable one is remembered. "all" is the directory's own round robin over the servers that
+// are up; fi1, nl1 and at1 no longer answer (each cost a 15 s timeout before the next was tried).
+const char* SERVERS[] = {"https://all.api.radio-browser.info", "https://de1.api.radio-browser.info",
+                         "https://de2.api.radio-browser.info"};
 std::mutex g_m;
 int g_server = 0;
 
@@ -49,6 +52,11 @@ bool playable(const Station& s) {
 }
 
 List fetch(const std::string& path) {
+    if (store::kids_profile()) {  // the open directory isn't for a kids profile
+        List blocked;
+        blocked.error = tr("Not in a kids profile");
+        return blocked;
+    }
     List list;
     int start;
     {
@@ -95,7 +103,103 @@ std::string serialize(const Station& s) {
     return out;
 }
 
+// Taste: genre tag -> weight, kept in the store and faded a little with every play so it follows what is played lately.
+std::map<std::string, double> load_taste() {
+    std::map<std::string, double> t;
+    json::Doc d = json::Doc::parse(store::get_str("radio_taste", "{}"));
+    const char* key;
+    json_t* v;
+    if (json_is_object(d.get()))
+        json_object_foreach(d.get(), key, v) t[key] = json_number_value(v);
+    return t;
+}
+
+// Tags worth learning from: not a country or a codec, not too short.
+std::vector<std::string> tags_of(const Station& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    std::string all = util::lower(s.tags) + ",";
+    for (char c : all) {
+        if (c == ',') {
+            cur = util::trim(cur);
+            if (cur.size() >= 3 && cur.size() <= 24 && cur != util::lower(s.country) && cur != "radio" && cur != "fm" &&
+                cur != "am" && cur != "online" && cur != "music" && cur != "internet" && cur != "stream" &&
+                std::find(out.begin(), out.end(), cur) == out.end())
+                out.push_back(cur);
+            cur.clear();
+        } else {
+            cur += c;
+        }
+        if (out.size() >= 6) break;
+    }
+    return out;
+}
+
+void learn(const Station& s, double amount) {
+    std::vector<std::string> tags = tags_of(s);
+    if (tags.empty()) return;
+    std::lock_guard<std::mutex> lk(g_m);
+    auto t = load_taste();
+    for (auto& kv : t) kv.second *= 0.97;
+    for (auto& tag : tags) t[tag] += amount;
+    // Keep the strongest 40.
+    std::vector<std::pair<std::string, double>> v(t.begin(), t.end());
+    std::sort(v.begin(), v.end(), [](auto& a, auto& b) { return a.second > b.second; });
+    if (v.size() > 40) v.resize(40);
+    json_t* o = json_object();
+    for (auto& kv : v)
+        if (kv.second > 0.05) json_object_set_new(o, kv.first.c_str(), json_real(kv.second));
+    store::set_str("radio_taste", json::dump(o));
+    json_decref(o);
+}
+
 }  // namespace
+
+bool has_taste() { return !load_taste().empty(); }
+
+List for_you(int limit) {
+    if (store::kids_profile()) return List{};
+    List out;
+    out.ok = true;
+    std::map<std::string, double> t;
+    {
+        std::lock_guard<std::mutex> lk(g_m);
+        t = load_taste();
+    }
+    std::vector<std::pair<std::string, double>> top_tags(t.begin(), t.end());
+    std::sort(top_tags.begin(), top_tags.end(), [](auto& a, auto& b) { return a.second > b.second; });
+    if (top_tags.size() > 4) top_tags.resize(4);
+    std::set<std::string> have;
+    for (auto& f : favorites()) have.insert(f.uuid);
+    // Stations of each of the strongest tags, scored by how many of the learned tags they carry, then by votes.
+    struct Scored { Station s; double score; };
+    std::vector<Scored> pool;
+    for (auto& tg : top_tags) {
+        List l = by_tag(tg.first, 40);
+        if (!l.ok) {
+            if (pool.empty()) out.error = l.error;
+            continue;
+        }
+        for (auto& s : l.items) {
+            if (have.count(s.uuid)) continue;
+            have.insert(s.uuid);
+            double score = 0;
+            for (auto& st : tags_of(s)) {
+                auto it = t.find(st);
+                if (it != t.end()) score += it->second;
+            }
+            score = score * 10 + std::min(s.votes, 5000) / 500.0;
+            pool.push_back({std::move(s), score});
+        }
+    }
+    std::sort(pool.begin(), pool.end(), [](const Scored& a, const Scored& b) { return a.score > b.score; });
+    for (auto& p : pool) {
+        if ((int)out.items.size() >= limit) break;
+        out.items.push_back(std::move(p.s));
+    }
+    if (out.items.empty() && !out.error.empty()) out.ok = false;
+    return out;
+}
 
 List top(int limit) { return fetch("/json/stations/topclick/" + std::to_string(limit) + "?hidebroken=true"); }
 
@@ -132,6 +236,7 @@ player::Source make_source(const Station& s) {
     src.service = "radio";
     src.id = s.uuid;
     src.remember_position = false;
+    learn(s, 1.0);
     // Count the click (helps the directory rank stations); fire and forget.
     std::string uuid = s.uuid;
     tasks::submit(tasks::API, [uuid]() -> std::function<void()> {
@@ -144,7 +249,9 @@ player::Source make_source(const Station& s) {
 bool is_favorite(const Station& s) { return store::fav_has("radio", s.uuid); }
 
 bool toggle_favorite(const Station& s) {
-    return store::fav_toggle("radio", store::Fav{s.uuid, s.name, s.country, s.favicon, serialize(s)});
+    bool on = store::fav_toggle("radio", store::Fav{s.uuid, s.name, s.country, s.favicon, serialize(s)});
+    if (on) learn(s, 2.0);
+    return on;
 }
 
 std::vector<Station> favorites() {

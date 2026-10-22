@@ -112,7 +112,11 @@ public:
         }
         if (s == updater::UP_TO_DATE) {
             message(panel, ic::CHECK_CIRCLE, t.good, dev ? tr("You have the latest developer build") : tr("You have the latest version"),
+#ifdef __ANDROID__
+                    dev ? "Build again with tools/dev-update-android.sh, then look again here." : checked(updater::last_checked()));
+#else
                     dev ? tr("Build again with tools/dev-update.sh, then look again here.") : checked(updater::last_checked()));
+#endif
         } else if (s == updater::FAILED && !offer) {
             message(panel, ic::ERROR_OUTLINE, t.bad, dev ? tr("No developer build") : tr("Couldn't check for updates"), updater::error());
         } else {
@@ -129,16 +133,21 @@ public:
                 progress_bar(Rect(px, sy + 8, pw, 8), updater::progress());
                 std::string p = updater::cancelling()          ? std::string(tr("Stopping\xE2\x80\xA6"))
                                 : updater::progress() >= 1 && dev ? tr("Checking it against your computer's checksum\xE2\x80\xA6")
+                                : updater::progress() >= 1 && rel.supporter ? tr("Checking it against the supporter list's checksum\xE2\x80\xA6")
                                 : updater::progress() >= 1        ? tr("Checking it against GitHub's checksum\xE2\x80\xA6")
                                     : util::fmt(tr("%s of %s"), util::format_bytes((uint64_t)(updater::progress() * rel.size)).c_str(),
                                                 util::format_bytes(rel.size).c_str());
                 text::draw(font::small, px, sy + 26, p, t.text2);
             } else if (s == updater::READY) {
                 text::icon(ic::VERIFIED, 24, px + 12, sy + 16, t.good);
-                text::draw_wrapped(font::small_bold, Rect(px + 34, sy + 6, pw - 34, 56),
-                                   dev ? tr("Downloaded, checked and signed with your key. It installs when you close CoffeeFlix.")
-                                       : tr("Downloaded and checked against GitHub's checksum. It installs when you close CoffeeFlix."),
-                                   t.text2, 2);
+#ifdef __ANDROID__
+                const char* ready = dev ? "Downloaded, checked and signed with your key. Choose Install and confirm on the TV."
+                                        : "Downloaded and checked against GitHub's checksum. Choose Install and confirm on the TV.";
+#else
+                const char* ready = dev ? tr("Downloaded, checked and signed with your key. It installs when you close CoffeeFlix.")
+                                        : tr("Downloaded and checked against GitHub's checksum. It installs when you close CoffeeFlix.");
+#endif
+                text::draw_wrapped(font::small_bold, Rect(px + 34, sy + 6, pw - 34, 56), ready, t.text2, 2);
             } else if (s == updater::FAILED) {
                 text::icon(ic::ERROR_OUTLINE, 24, px + 12, sy + 16, t.bad);
                 text::draw_fit(font::small_bold, px + 34, sy + 6, pw - 34, updater::error(), t.bad);
@@ -162,9 +171,14 @@ public:
             right -= 14;
             return hit;
         };
+#ifdef __ANDROID__
+        const char* note = offer ? "Android asks you to confirm the install. Open CoffeeFlix again afterwards."
+                           : dev ? "To get releases again, turn off Developer updates in Settings." : "";
+#else
         const char* note = offer ? tr("The version you have now is kept, and you can switch back to it in Settings.")
                            : dev ? tr("To get releases again, turn off Developer updates in Settings.")
                                  : "";
+#endif
         switch (s) {
             case updater::AVAILABLE:
                 if (put("download", tr("Download"), ic::CLOUD_DOWNLOAD, BTN_PRIMARY, true)) updater::download();
@@ -178,8 +192,13 @@ public:
                 if (!updater::cancelling() && put("cancel", tr("Cancel"), ic::CLOSE, BTN_NORMAL, true)) updater::cancel();
                 break;
             case updater::READY:
+#ifdef __ANDROID__
+                note = "The installer replaces CoffeeFlix and closes it. Open it again from Your Apps.";
+                if (put("install", "Install", ic::SYSTEM_UPDATE, BTN_PRIMARY, true)) updater::install_now();
+#else
                 note = tr("CoffeeFlix closes and goes back to the Wii U Menu. Start it again from there.");
                 if (put("install", tr("Install and close"), ic::SYSTEM_UPDATE, BTN_PRIMARY, true)) updater::install_now();
+#endif
                 if (put("drop", tr("Don't install"), 0, BTN_GHOST, false)) updater::cancel();
                 break;
             case updater::FAILED:
@@ -219,9 +238,15 @@ private:
             }
             if (unlock) updater::set_developer(true);
             platform::rumble(0.25f);
+#ifdef __ANDROID__
+            toast(unlock ? "Developer updates are on. Builds come from tools/dev-update-android.sh on your computer."
+                         : tr("Developer updates are off, and hidden again."),
+                  unlock ? ic::KEY : ic::LOCK);
+#else
             toast(unlock ? tr("Developer updates are on. Builds come from tools/dev-update.sh on your computer.")
                          : tr("Developer updates are off, and hidden again."),
                   unlock ? ic::KEY : ic::LOCK);
+#endif
         }
     }
 

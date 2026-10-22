@@ -6,6 +6,7 @@
 #include <cmath>
 #include <unordered_map>
 
+#include "audio/mixer.hpp"
 #include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
@@ -17,6 +18,7 @@
 #include "player/thumbnailer.hpp"
 #include "screens/media_actions.hpp"
 #include "screens/screens.hpp"
+#include "screens/surprise.hpp"
 #include "screens/widgets.hpp"
 #include "services/smb.hpp"
 #include "ui/ui.hpp"
@@ -296,7 +298,10 @@ public:
         if (root_) {
             if (button(id(g, "receive"), Rect(W - 340, y + 18, 280, 48), tr("Receive files"), ic::FILE_UPLOAD, BTN_PRIMARY, g))
                 app::push(make_receive_files());
-            title_right = W - 360;
+            const float sw = measure_button(tr("Surprise me"), ic::SHUFFLE);
+            const float sx = W - 340 - 16 - sw;
+            if (button(id(g, "surprise"), Rect(sx, y + 18, sw, 48), tr("Surprise me"), ic::SHUFFLE, BTN_NORMAL, g)) surprise_menu();
+            title_right = sx - 20;
         } else {
             // Header buttons, from the right.
             const char* sl = sort_label(sort_);
@@ -597,6 +602,57 @@ private:
     }
 
     std::string path_, title_, dir_;
+    // "Surprise me": the kind of surprise, the search (on a worker, so the screen stays alive), and what it found.
+    void surprise_menu() {
+        struct Kind { const char* label; int icon; SurpriseScope scope; };
+        std::vector<Kind> kinds = {{tr("Everything"), ic::SHUFFLE, SURPRISE_ALL},
+                                   {tr("Videos"), ic::MOVIE, SURPRISE_VIDEOS},
+                                   {tr("Music"), ic::LIBRARY_MUSIC, SURPRISE_MUSIC},
+                                   {tr("Photos"), ic::IMAGE, SURPRISE_PHOTOS}};
+        const int last = (int)store::get_int("surprise_scope", SURPRISE_ALL);  // the one chosen last comes first
+        std::stable_sort(kinds.begin(), kinds.end(), [last](const Kind& a, const Kind& b) { return (a.scope == last) > (b.scope == last); });
+        std::vector<MenuItem> items;
+        for (const Kind& k : kinds) items.push_back({k.label, k.icon, [this, s = k.scope] { surprise_start(s); }, ""});
+        show_menu(tr("Surprise me"), tr("What kind of surprise?"), std::move(items));
+    }
+
+    void surprise_start(SurpriseScope scope) {
+        if (searching_) return;
+        store::set_int("surprise_scope", scope);
+        searching_ = true;
+        ui::toast(tr("Looking for something\xE2\x80\xA6"), ic::SHUFFLE);
+        audio::play(audio::SFX_SHUFFLE);
+        SurpriseOptions o;
+        o.roots.push_back(platform::media_root());  // the CoffeeFlix folder first, then the card
+        platform::Volume vols[8];
+        const int n = platform::volumes(vols, 8);
+        for (int i = 0; i < n; i++)
+            if (vols[i].path != platform::media_root()) o.roots.push_back(vols[i].path);
+        o.skip_top = {"wiiu", "System Volume Information", "$RECYCLE.BIN"};  // the console's own files are not media
+        o.scope = scope;
+        o.seed = (uint64_t)(util::now_seconds() * 1e6) ^ (uint64_t)util::unix_time() * 0x9E3779B97F4A7C15ull;
+        o.avoid = recent_surprises();
+        surprise_scope_.run<Surprise>([o] { return pick_surprise(o); }, [this, scope](Surprise p) {
+            searching_ = false;
+            surprise_present(p, scope);
+        });
+    }
+
+    void surprise_present(const Surprise& p, SurpriseScope scope) {
+        if (!p.ok) {
+            ui::toast(tr("Nothing found. Try another kind."), ic::INFO);
+            return;
+        }
+        remember_surprise(p.path);
+        const std::string path = p.path;
+        std::vector<MenuItem> items;
+        items.push_back({tr("Open"), kind_icon(p.kind), [path] { open_surprise(path); }, ""});
+        items.push_back({tr("Another one"), ic::SHUFFLE, [this, scope] { surprise_start(scope); }, ""});
+        show_menu(strip_ext(util::file_name(path)), util::file_name(util::parent_dir(path)), std::move(items));
+    }
+
+    bool searching_ = false;
+    tasks::Scope surprise_scope_;
     bool root_ = false, received_ = false, editable_ = false;
     bool loading_ = true;
     SortMode sort_ = SORT_NAME;

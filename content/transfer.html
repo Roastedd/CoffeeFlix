@@ -17,7 +17,7 @@ const fill=(s,...args)=>{let i=0;return text(s).replace(/%[sd]/g,()=>args[i++]);
 document.documentElement.lang=navigator.language||'en';
 document.querySelectorAll('[data-text]').forEach(el=>el.textContent=text(el.dataset.text));
 $('summary').textContent=text('Ready to receive');
-const MAX=2147483647;
+const MAX=words.__max||2147483647;
 /*probe*/
 // Reads just enough of an MP4/MOV or Matroska/WebM file to tell whether the Wii U can play it.
 // Nothing leaves the browser; a file that can't be read gives null and is simply sent.
@@ -137,6 +137,13 @@ async function probeMkv(file){
 function verdict(info){
  const v=info.video,w=v.width||0,h=v.height||0,big=Math.max(w,h),small=Math.min(w,h);
  const reason=(level,text)=>({level,reason:text});
+ if(typeof words==='object'&&words.__android){ // Android: the system's decoders (8-bit H.264, HEVC, VP9...) and a software fallback
+  if(v.dolby||v.transfer===16||v.transfer===18)return reason('convert','HDR video needs conversion');
+  if(!['h264','hevc','vp8','vp9','mpeg4','mpeg2'].includes(v.codec))return reason('convert','Video format needs conversion');
+  if(v.bits>8||(v.codec==='h264'&&v.profile&&![66,77,88,100].includes(v.profile)))return reason('convert','10-bit video needs conversion');
+  if(info.audio.length&&info.audio.every(a=>a==='unsupported'))return reason('limits','No sound: unsupported audio');
+  return reason('ready','');
+ }
  if(v.dolby||v.transfer===16||v.transfer===18)return reason('convert','HDR video needs conversion');
  if(v.codec==='hevc')return reason('convert','HEVC (H.265) video needs conversion');
  const soft=v.codec==='mpeg4'||v.codec==='mpeg2';
@@ -173,7 +180,7 @@ const uploadId=file=>{const s=file.name+'|'+file.size+'|'+file.lastModified;retu
 const items=[];let active=false, stopped=false, request=null, free=-1;
 const pause=async ms=>{for(let t=0;t<ms&&!stopped;t+=200)await new Promise(r=>setTimeout(r,200));};
 // The receiver's own rules, checked here first: an answer to a refused multi-GB upload can be lost in a reset.
-const ALLOWED=/\.(mp4|m4v|mkv|webm|avi|mov|ts|m2ts|mpg|mpeg|flv|3gp|mp3|m4a|aac|flac|ogg|opus|wav|wv|alac|oga|mka|jpg|jpeg|png|gif|webp|bmp|cbz|epub|srt|vtt|ass|ssa)$/i;
+const ALLOWED=/(\.(mp4|m4v|mkv|webm|avi|mov|ts|m2ts|mpg|mpeg|flv|3gp|mp3|m4a|aac|flac|ogg|opus|wav|wv|alac|oga|mka|jpg|jpeg|png|gif|webp|bmp|cbz|epub|srt|vtt|ass|ssa)|^coffeeflix\.json)$/i;
 const badName=(n,limit)=>!n||new TextEncoder().encode(n).length>limit||n[0]==='.'||/[ .]$/.test(n)||/[\/\\:*?"<>|\u0000-\u001f\u007f]/.test(n);
 const SUBTITLES=/\.(srt|vtt|ass|ssa)$/i, VIDEOS=/\.(mp4|m4v|mkv|webm|avi|mov|ts|m2ts|mpg|mpeg|flv|3gp)$/i;
 function render(){

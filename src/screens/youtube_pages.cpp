@@ -9,12 +9,15 @@
 #include <memory>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <thread>
 
+#include "core/sleep_timer.hpp"
 #include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/store.hpp"
+#include "services/kids.hpp"
 #include "core/util.hpp"
 #include "gfx/images.hpp"
 #include "logger/logger.hpp"
@@ -83,7 +86,7 @@ void Feed::remove(const std::string& video_id) {
 
 CardInfo video_card(const youtube::Video& v) {
     CardInfo c;
-    c.image = youtube::thumbnail(v.id);
+    c.image = youtube::thumbnail(v);
     c.image_w = 360;
     c.title = v.title;
     std::string sub = v.channel;
@@ -152,14 +155,27 @@ public:
     bool fullscreen() const override { return true; }
     bool draws_background() const override { return true; }
     app::Section section() const override { return app::SEC_YOUTUBE; }
+    // The GamePad remote: the video on the TV and its controls on the GamePad, until it ends (then the
+    // card with the next video is the GamePad's, with the TV black).
+    bool tv_scene() const override { return player::state() != player::ENDED && video_ && video_->tv_scene(); }
     void on_enter() override { if (video_) video_->on_enter(); }
     bool on_back() override { return player::state() != player::ENDED && video_ && video_->on_back(); }
     void frame() override {
-        const bool autoplay = store::get_bool("yt_autoplay", true);
+        const bool kids = store::kids_profile();  // a kids profile asks for nothing to play next
+        const bool autoplay = !kids && store::get_bool("yt_autoplay", true);
         const bool ended = player::state() == player::ENDED;
-        if (!requested_ && !current_.live && player::started() &&
+        if (!kids && !requested_ && !current_.live && player::started() &&
             (ended || (player::duration() > 0 && player::duration() - player::position() < 45))) load_next();
-        if (!ended) { ended_at_ = 0; video_->frame(); return; }
+        if (!ended) {
+            ended_at_ = 0;
+            video_->frame();
+            if (queued_) {  // picked on the GamePad remote's list: now the old player isn't in the middle of a frame
+                youtube::Video v = std::move(*queued_);
+                queued_.reset();
+                begin(std::move(v));
+            }
+            return;
+        }
         using namespace ui;
         gfx::fill_rect(Rect(0, 0, W, H), gfx::BLACK);
         if (auto tex = player::video_texture()) { auto r = player::fit_rect((int)W,(int)H); gfx::image_rotated(tex,Rect(r.x,r.y,r.w,r.h),player::video_rotation()); }
@@ -169,7 +185,7 @@ public:
         card.kind = EndKind::VIDEO;
         card.title = current_.title; card.subtitle = current_.channel;
         card.has_next = ready; card.loading = loading_; card.autoplay = autoplay;
-        card.counting = ready && autoplay && !cancelled_;
+        card.counting = ready && autoplay && !cancelled_ && !sleep_timer::end_pending();  // (not after the sleep timer's stop)
         card.elapsed = util::now_seconds() - ended_at_;
         if (ready) {
             card.next_title = next_.title; card.next_subtitle = next_.channel;
@@ -191,7 +207,9 @@ private:
         scope_.reset(); video_.reset(); current_=std::move(video); next_={}; requested_=loading_=cancelled_=false; ended_at_=0;
         if (seen_.size()>=100) seen_.clear();
         seen_.insert(current_.id); remember_watched(current_);
-        player::open(youtube::make_source(current_)); video_=make_video_player(); video_->on_enter();
+        player::open(youtube::make_source(current_));
+        video_ = make_video_player({}, [this](const youtube::Video& v) { queued_ = v; });
+        video_->on_enter();
     }
     void load_next() {
         requested_=loading_=true; const auto id=current_.id;
@@ -202,6 +220,7 @@ private:
     }
     youtube::Video current_,next_; std::set<std::string> seen_; tasks::Scope scope_;
     std::unique_ptr<app::Screen> video_; bool requested_=false,loading_=false,cancelled_=false; double ended_at_=0;
+    std::optional<youtube::Video> queued_;
 };
 }
 
@@ -659,7 +678,7 @@ GridSpec video_grid(Feed& f, bool on_channel) {
     gs.item = [&f](int i) { return video_card(f.res.items[i]); };
     gs.on_click = [&f](int i) { play(f.res.items[i]); };
     gs.on_focus = [&f](int i) { set_backdrop(youtube::thumbnail_hq(f.res.items[i].id)); };
-    gs.on_x = [&f, on_channel](int i) {
+    if (!store::kids_profile()) gs.on_x = [&f, on_channel](int i) {  // no "More" menu for a kids profile
         MenuOptions o;
         o.show_channel = !on_channel;
         std::string id = f.res.items[i].id;
@@ -731,24 +750,37 @@ public:
         draw_avatar(ch_.avatar, av);
         float tx = av.r() + 28;
         Id ag = id(g, "actions");
+        const bool kids = store::kids_profile();  // a kids profile only watches: nothing to subscribe to or look further into
+        bool kids_exist = false;
+        for (const auto& p : store::profiles()) kids_exist |= p.kids;
+        const bool allow_offer = !kids && kids_exist;  // a grown-up can allow the channel for the kids profiles
+        const bool allowed = kids::allowed(ch_.id);
+        const char* allow_label = allowed ? tr("Allowed for kids") : tr("Allow for kids");
+        const float allow_w = allow_offer ? measure_button(allow_label, allowed ? ic::CHECK : ic::ADD) : 0;
         bool sub = subscribed(ch_.id);
         const char* label = sub ? tr("Subscribed") : tr("Subscribe");
-        float bw = measure_button(label, sub ? ic::CHECK : ic::PERSON_ADD);
-        float tw = cw - (tx - x0) - bw - 30;
+        float bw = kids ? 0.0f : measure_button(label, sub ? ic::CHECK : ic::PERSON_ADD);
+        float tw = cw - (tx - x0) - bw - 30 - (allow_offer ? allow_w + 16 : 0);
         text::draw_fit(font::headline, tx, y + 4, tw, ch_.name.empty() ? tr("Channel") : ch_.name, t.text);
         text::draw_fit(font::body, tx, y + 50, tw, joined({ch_.handle, ch_.subscribers, ch_.videos}), t.text2);
         std::string desc = ch_.description.substr(0, ch_.description.find('\n'));
         if (!desc.empty()) text::draw_fit(font::small, tx, y + 80, tw, desc, t.text3);
-        if (button(id(ag, "sub"), Rect(x0 + cw - bw, y + 26, bw, 52), label, sub ? ic::CHECK : ic::PERSON_ADD,
-                   sub ? BTN_NORMAL : BTN_PRIMARY, ag, F_DEFAULT))
+        if (!kids && button(id(ag, "sub"), Rect(x0 + cw - bw, y + 26, bw, 52), label, sub ? ic::CHECK : ic::PERSON_ADD,
+                            sub ? BTN_NORMAL : BTN_PRIMARY, ag, F_DEFAULT))
             set_subscribed(ch_.id, ch_.name, ch_.avatar, !sub);
+        if (allow_offer && button(id(ag, "allow"), Rect(std::round(x0 + cw - bw - 16 - allow_w), std::round(y + 26) + 0.5f, std::ceil(allow_w), 52)  /* half a pixel down: on a whole pixel this see-through pill shows a hairline along its middle */, allow_label,
+                                  allowed ? ic::CHECK : ic::ADD, BTN_NORMAL, ag)) {
+            if (allowed) kids::remove(ch_.id);
+            else if (!kids::add({ch_.id, ch_.name, ch_.avatar})) toast(tr("The kids' list is full"), ic::ERROR_OUTLINE);
+            else toast(tr("Allowed for kids"), ic::CHECK_CIRCLE);
+        }
         y += 132;
 
         static const char* const TABS[] = {N_("Videos"), N_("Shorts"), N_("Live"), N_("Playlists")};
         static const int ICONS[] = {ic::SMART_DISPLAY, ic::BOLT, ic::SENSORS, ic::PLAYLIST_PLAY};
         Id tg = id(g, "tabs");
         float cx = x0;
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < (kids ? 0 : 4); i++) {  // a kids profile has the videos, no tabs
             const char* tab = tr(TABS[i]);
             float w = text::measure(font::small_bold, tab) + 64;
             if (chip(id(tg, (int64_t)i), Rect(cx, y, w, 44), tab, tab_ == i, tg, ICONS[i]) && tab_ != i) {
@@ -758,7 +790,7 @@ public:
             }
             cx += w + 12;
         }
-        y += 72;
+        y += kids ? 8 : 72;
         // The header and tabs aren't a shelf or grid: scroll back up to them when they're focused.
         if (focus_in_group(ag) || focus_in_group(tg)) page_.focus_range(0, y + page_.scroll());
 
@@ -776,7 +808,8 @@ public:
             y += playlists_grid(g, x0, y);
         }
         page_.end(y + page_.scroll());
-        hint_bar({{"A", tr("Select")}, {"X", tr("More")}, {"B", tr("Back")}});
+        if (kids) hint_bar({{"A", tr("Select")}, {"B", tr("Back")}});  // no More menu there
+        else hint_bar({{"A", tr("Select")}, {"X", tr("More")}, {"B", tr("Back")}});
     }
 
 private:

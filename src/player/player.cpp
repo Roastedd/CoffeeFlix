@@ -13,6 +13,9 @@ extern "C" {
 
 #include <algorithm>
 #include <atomic>
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
 #include <cmath>
 #include <condition_variable>
 #include <cstring>
@@ -27,6 +30,9 @@ extern "C" {
 #include "core/cpu.hpp"
 #include "core/http.hpp"
 #include "core/i18n.hpp"
+#include "core/screentime.hpp"
+#include "core/sleep_timer.hpp"
+#include "core/stats.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
 #include "core/util.hpp"
@@ -257,7 +263,9 @@ struct Session {
     AVCodecContext* adec = nullptr;
     AVCodecContext* sdec = nullptr;
     AVRational vtb{1, 1}, atb{1, 1};
-    bool hw = false;
+    bool hw = false;         // the Wii U's hardware decoder (decoding levels, picture thinning)
+    bool mediacodec = false; // Android's: through FFmpeg's *_mediacodec decoders, pictures back in memory
+    std::atomic<bool> decoder_failed{false};  // MediaCodec reported an error: update() reopens in software
     PacketQueue vq, aq;
     std::thread opener, vthread, athread;
     std::atomic<bool> video_eof{false}, audio_eof{false};
@@ -328,6 +336,7 @@ struct Session {
     int net_retries = 0, early_ends = 0;
     double buffering_since = 0;
     double last_progress_report = 0;
+    double stats_played = 0, stats_last = 0;  // seconds played since the activity page was told, and the last step
     std::vector<char> skipped;  // per src.skip_segments: already jumped over
     std::string skip_notice;
 
@@ -474,8 +483,9 @@ AVFormatContext* open_input(Session& s, const std::string& url, Input& in) {
     fmt->interrupt_callback.callback = interrupt_cb;
     fmt->interrupt_callback.opaque = &s.abort;
     const bool network = util::starts_with(url, "http://") || util::starts_with(url, "https://");
+    const bool rtmp = util::starts_with(url, "rtmp://") || util::starts_with(url, "rtmps://");  // playlist streams
     in.network = network;
-    in.remote = network || smb::is_url(url);
+    in.remote = network || rtmp || smb::is_url(url);
     if (smb::is_url(url)) {  // FFmpeg has no SMB protocol: custom I/O
         std::string err;
         if (!(fmt->pb = smb_io_open(url, &s.abort, err))) {
@@ -492,7 +502,8 @@ AVFormatContext* open_input(Session& s, const std::string& url, Input& in) {
         // Developers can try another number of downloads at once (Settings > Playback).
         http_io_set_connections(developer() ? (int)store::get_int("dev_connections", 0) : 0);
         bool no_ranges = false;
-        if ((fmt->pb = http_io_open(url, headers, &s.abort, audio_track, err, &no_ranges))) {
+        if ((fmt->pb = http_io_open(url, headers, &s.abort, audio_track, err, &no_ranges,
+                                      url == s.src.url ? s.src.direct_url : std::string()))) {
             fmt->flags |= AVFMT_FLAG_CUSTOM_IO;
             in.chunked = true;
         } else if (no_ranges && !s.abort) {  // a media server that sends whole files: FFmpeg's client below
@@ -506,6 +517,7 @@ AVFormatContext* open_input(Session& s, const std::string& url, Input& in) {
     AVIOContext* custom_pb = fmt->pb;  // not freed by avformat_open_input() on failure
 
     AVDictionary* opts = nullptr;
+    if (s.src.http_only) av_dict_set(&opts, "protocol_whitelist", "http,https,tcp,tls,crypto", 0);
     if (network && custom_pb) {
         fmt->probesize = 1 << 20;
         fmt->max_analyze_duration = 2 * AV_TIME_BASE;
@@ -523,6 +535,10 @@ AVFormatContext* open_input(Session& s, const std::string& url, Input& in) {
         if (http::verify_tls() && util::file_exists(http::ca_bundle()))
             av_dict_set(&opts, "ca_file", http::ca_bundle().c_str(), 0);
         av_dict_set(&opts, "http_persistent", "1", 0);
+        fmt->probesize = 1 << 20;
+        fmt->max_analyze_duration = 2 * AV_TIME_BASE;
+    } else if (rtmp) {
+        av_dict_set(&opts, "rw_timeout", "15000000", 0);  // not "timeout": for RTMP that means listening
         fmt->probesize = 1 << 20;
         fmt->max_analyze_duration = 2 * AV_TIME_BASE;
     } else {
@@ -552,17 +568,65 @@ bool reserve_hw_decoder(Session& s) {
     return false;
 }
 
+#ifdef __ANDROID__
+// The MediaCodec decoder for a stream, when it is one they all take: 8-bit 4:2:0 (10-bit comes back in
+// formats the player doesn't convert yet), in the profiles every device has. Null: decode in software.
+const AVCodec* mediacodec_decoder(const AVCodecParameters* p) {
+    if (p->codec_type != AVMEDIA_TYPE_VIDEO) return nullptr;
+    if (p->format != AV_PIX_FMT_NONE && p->format != AV_PIX_FMT_YUV420P && p->format != AV_PIX_FMT_YUVJ420P &&
+        p->format != AV_PIX_FMT_NV12)
+        return nullptr;
+    const char* name = nullptr;
+    switch (p->codec_id) {
+        case AV_CODEC_ID_H264:
+            if (p->profile == AV_PROFILE_H264_HIGH_10 || p->profile == AV_PROFILE_H264_HIGH_422 ||
+                p->profile == AV_PROFILE_H264_HIGH_444_PREDICTIVE)
+                return nullptr;
+            name = "h264_mediacodec";
+            break;
+        case AV_CODEC_ID_HEVC:
+            if (p->profile != AV_PROFILE_UNKNOWN && p->profile != AV_PROFILE_HEVC_MAIN) return nullptr;
+            name = "hevc_mediacodec";
+            break;
+        case AV_CODEC_ID_VP9:
+            if (p->profile > 0) return nullptr;
+            name = "vp9_mediacodec";
+            break;
+        case AV_CODEC_ID_VP8: name = "vp8_mediacodec"; break;
+        case AV_CODEC_ID_MPEG4: name = "mpeg4_mediacodec"; break;
+        default: return nullptr;
+    }
+    return avcodec_find_decoder_by_name(name);
+}
+#endif
+
+// Whether a hardware decoder could take this stream (what reserve_hw_decoder() is for).
+bool hardware_decoding_possible(const AVCodecParameters* p) {
+    if (platform::is_wiiu()) return p->codec_id == AV_CODEC_ID_H264;
+#ifdef __ANDROID__
+    return mediacodec_decoder(p) != nullptr;
+#else
+    return false;
+#endif
+}
+
 AVCodecContext* open_decoder(AVStream* st, bool allow_hw, bool* used_hw) {
     const AVCodec* codec = nullptr;
     if (used_hw) *used_hw = false;
     AVCodecParameters* p = st->codecpar;
-    if (allow_hw && p->codec_id == AV_CODEC_ID_H264 && p->width <= 1920 && p->height <= 1088 &&
+#ifdef __ANDROID__
+    if (allow_hw) {
+        codec = mediacodec_decoder(p);
+        if (codec && used_hw) *used_hw = true;
+    }
+#endif
+    if (allow_hw && !codec && p->codec_id == AV_CODEC_ID_H264 && p->width <= 1920 && p->height <= 1088 &&
         p->format != AV_PIX_FMT_YUV420P10LE && p->profile != AV_PROFILE_H264_HIGH_10 &&
         p->profile != AV_PROFILE_H264_HIGH_422 && p->profile != AV_PROFILE_H264_HIGH_444_PREDICTIVE) {
         codec = avcodec_find_decoder_by_name("h264_wiiu");
         if (codec && used_hw) *used_hw = true;
     }
-    // By name for H.264 so a software fallback never picks h264_wiiu again.
+    // By name for H.264 so a software fallback never picks h264_wiiu (or h264_mediacodec) again.
     if (!codec) codec = p->codec_id == AV_CODEC_ID_H264 ? avcodec_find_decoder_by_name("h264") : avcodec_find_decoder(p->codec_id);
     if (!codec) return nullptr;
     AVCodecContext* ctx = avcodec_alloc_context3(codec);
@@ -571,9 +635,29 @@ AVCodecContext* open_decoder(AVStream* st, bool allow_hw, bool* used_hw) {
     if (!(used_hw && *used_hw) && p->codec_type == AVMEDIA_TYPE_VIDEO) {
         ctx->thread_count = platform::is_wiiu() ? 3 : 0;
         ctx->thread_type = FF_THREAD_SLICE | FF_THREAD_FRAME;
+        if (platform::is_wiiu() && p->codec_id == AV_CODEC_ID_H264) {
+            // The Wii U's processor has no SIMD for this: the cheapest ways to a software picture. The loop filter
+            // is skipped on pictures nothing refers to (hardly visible), and the decoder may take shortcuts.
+            ctx->skip_loop_filter = AVDISCARD_NONREF;
+            ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+        }
     }
     if (used_hw && *used_hw) platform::attach_video_frames(ctx);  // decoded where the GPU draws them
-    if (avcodec_open2(ctx, codec, nullptr) < 0) {
+    AVDictionary* opts = nullptr;
+#ifdef __ANDROID__
+    // For trying the system's other decoders: adb shell setprop debug.coffeeflix.codec c2.android.avc.decoder
+    // (the names are in `adb shell dumpsys media.player`); without it the system's first choice.
+    if (used_hw && *used_hw) {
+        char name[PROP_VALUE_MAX] = "";
+        if (__system_property_get("debug.coffeeflix.codec", name) > 0) {
+            av_dict_set(&opts, "codec_name", name, 0);
+            log_message(LOG_OK, "Player", "Asking MediaCodec for the decoder %s", name);
+        }
+    }
+#endif
+    const int opened = avcodec_open2(ctx, codec, &opts);
+    av_dict_free(&opts);
+    if (opened < 0) {
         platform::detach_video_frames(ctx);
         avcodec_free_context(&ctx);
         if (used_hw && *used_hw) {
@@ -660,20 +744,49 @@ const char* codec_display_name(AVCodecID id) {
     }
 }
 
+// A picture no larger than `max_dim` either way (cover art can be 3000 pixels square: 36 MB of texture for a card 250 pixels wide).
+SDL_Surface* shrunk(SDL_Surface* rgba, int max_dim) {
+    const int big = std::max(rgba->w, rgba->h);
+    if (big <= max_dim) return rgba;
+    const float k = (float)max_dim / big;
+    SDL_Surface* out = SDL_CreateRGBSurfaceWithFormat(0, std::max(1, (int)(rgba->w * k)), std::max(1, (int)(rgba->h * k)), 32,
+                                                      SDL_PIXELFORMAT_RGBA32);
+    if (!out) return rgba;
+    SDL_SetSurfaceBlendMode(rgba, SDL_BLENDMODE_NONE);
+    if (SDL_BlitScaled(rgba, nullptr, out, nullptr) != 0) {
+        SDL_FreeSurface(out);
+        return rgba;
+    }
+    SDL_FreeSurface(rgba);
+    return out;
+}
+
 void extract_artwork(Session& s, AVFormatContext* fmt) {
     for (unsigned i = 0; i < fmt->nb_streams; i++) {
         AVStream* st = fmt->streams[i];
         if (!(st->disposition & AV_DISPOSITION_ATTACHED_PIC) || st->attached_pic.size <= 0) continue;
+        // Keyed by the picture itself, so the tracks of one album (the same cover in each) share one texture, not one each.
+        const std::string key = util::fmt("player-art-%016llx", (unsigned long long)util::hash64(
+                                    std::string_view((const char*)st->attached_pic.data, std::min<size_t>(st->attached_pic.size, 1 << 20))));
+        if (images::has(key)) {
+            std::lock_guard<std::mutex> lk(s.meta_m);
+            s.art_key = key;
+            return;
+        }
         SDL_RWops* rw = SDL_RWFromConstMem(st->attached_pic.data, st->attached_pic.size);
         SDL_Surface* surf = IMG_Load_RW(rw, 1);
         if (!surf) return;
-        std::string key = util::fmt("player-art-%u", s.id);
+        if ((long long)surf->w * surf->h > 16000000LL) {   // not a cover: refused, as every other picture of this size is
+            SDL_FreeSurface(surf);
+            return;
+        }
         SDL_Surface* copy = SDL_ConvertSurfaceFormat(surf, SDL_PIXELFORMAT_RGBA32, 0);
         SDL_FreeSurface(surf);
         if (!copy) return;
+        copy = shrunk(copy, 1024);
+        SDL_Surface* blur = SDL_ConvertSurfaceFormat(copy, SDL_PIXELFORMAT_RGBA32, 0);   // of the shrunk one
         // Texture upload must happen on the main thread.
-        tasks::on_main([key, copy]() {
-            SDL_Surface* blur = SDL_ConvertSurfaceFormat(copy, SDL_PIXELFORMAT_RGBA32, 0);
+        tasks::on_main([key, copy, blur]() {
             images::put(key, copy);
             if (blur) images::put(key, blur, images::BLUR);
         });
@@ -903,10 +1016,16 @@ void demux_loop(std::shared_ptr<Session> sp, int idx) {
         const double at = pts == AV_NOPTS_VALUE ? -1
                           : ts_to_sec(pts, st->time_base) -
                                 (in.fmt->start_time != AV_NOPTS_VALUE ? in.fmt->start_time / (double)AV_TIME_BASE : 0);
-        if (pkt->stream_index == in.video) {
-            s.vq.push(av_packet_clone(pkt), gen, at, s.video_damage);
-        } else if (pkt->stream_index == in.audio) {
-            s.aq.push(av_packet_clone(pkt), gen, at);
+        if (pkt->stream_index == in.video || pkt->stream_index == in.audio) {
+            AVPacket* copy = av_packet_clone(pkt);
+            if (!copy) {   // out of memory: that packet is lost, not the app
+                static uint32_t said = 0;
+                if (said++ % 100 == 0) log_message(LOG_WARNING, "Player", "No memory for a packet (%u so far): dropped", said);
+                av_packet_unref(pkt);
+                continue;
+            }
+            if (pkt->stream_index == in.video) s.vq.push(copy, gen, at, s.video_damage);
+            else s.aq.push(copy, gen, at);
         } else if (idx == 0) {
             std::lock_guard<std::mutex> lk(s.sub_m);
             if (pkt->stream_index == s.sub_stream && s.sdec) {
@@ -1182,6 +1301,10 @@ void video_loop(std::shared_ptr<Session> sp) {
             s.decoded++;
             av_packet_free(&qp.pkt);
             if (keyframe_seen) s.video_in++;
+            if (r == AVERROR_EXTERNAL && s.mediacodec) {
+                s.decoder_failed = true;
+                continue;
+            }
             if (r < 0 && r != AVERROR(EAGAIN)) continue;
         }
 
@@ -1195,6 +1318,7 @@ void video_loop(std::shared_ptr<Session> sp) {
                 avcodec_flush_buffers(s.vdec);
                 break;
             }
+            if (r == AVERROR_EXTERNAL && s.mediacodec) s.decoder_failed = true;
             if (r < 0) break;
             s.video_out++;
             int64_t ts = frame->best_effort_timestamp != AV_NOPTS_VALUE ? frame->best_effort_timestamp : frame->pts;
@@ -1508,6 +1632,7 @@ void load_subtitles_async(std::shared_ptr<Session> sp, std::string u, uint32_t g
         bool ok = util::starts_with(u, "http") ? [&] {
             http::Request req;
             req.url = u; req.timeout = 15; req.cancel = &sp->abort; req.private_url = true;
+            req.require_tls = sp->src.http_only && util::starts_with(u, "https://");
             http::Response r = http::perform(req);
             data = std::move(r.body);
             return r.ok();
@@ -1529,11 +1654,16 @@ void open_session(std::shared_ptr<Session> sp) {
         if (t2 - t >= 0.05) s.startup += util::fmt("%s %.1f s, ", step.c_str(), t2 - t);
         t = t2;
     };
+    // One stream at a time on some accounts: the last channel's connection goes first.
+    for (int i = 0; s.src.one_connection && g_closers > 0 && i < 300 && !s.abort; i++)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (s.src.resolve) {
         s.step = 0;
         std::string err;
         Source resolved = s.src;
+        resolved.resolve_cancel = &s.abort;
         bool ok = resolved.resolve(resolved, err);
+        resolved.resolve_cancel = nullptr;
         if (s.abort) return;
         if (!ok) {
             set_error(s, err.empty() ? tr("Couldn't load this stream") : err);
@@ -1634,12 +1764,16 @@ void open_session(std::shared_ptr<Session> sp) {
         }
         // The video_decoding setting, or the safer level the player fell back to for this video when
         // the hardware gave no pictures.
-        s.decoding = platform::is_wiiu()
+        // Android has two levels: hardware (0) and software (2, also what a video falls back to).
+        s.decoding = platform::is_wiiu() || platform::is_android()
                          ? std::clamp(std::max((int)store::get_int("video_decoding", 0), decoding_floor(s.original)), 0, 2)
                          : 2;
-        bool hw_reserved = s.decoding < 2 && st->codecpar->codec_id == AV_CODEC_ID_H264 && reserve_hw_decoder(s);
-        s.vdec = open_decoder(st, hw_reserved, &s.hw);
-        if (hw_reserved && !s.hw) g_hw_busy = 0;
+        bool hw_reserved = s.decoding < 2 && hardware_decoding_possible(st->codecpar) && reserve_hw_decoder(s);
+        bool used_hw = false;
+        s.vdec = open_decoder(st, hw_reserved, &used_hw);
+        s.hw = used_hw && platform::is_wiiu();
+        s.mediacodec = used_hw && !platform::is_wiiu();
+        if (hw_reserved && !used_hw) g_hw_busy = 0;
         if (s.vdec && s.hw && s.decoding == 1) s.vdec->skip_frame = AVDISCARD_NONREF;
         if (s.vdec)
             log_message(LOG_OK, "Player", "Video decoder: %s%s", s.vdec->codec->name,
@@ -1686,7 +1820,7 @@ void open_session(std::shared_ptr<Session> sp) {
     {
         std::lock_guard<std::mutex> lk(s.meta_m);
         s.codec_head = vinfo;
-        s.codec_tail = s.hw ? " \xC2\xB7 HW" : "";
+        s.codec_tail = s.hw || s.mediacodec ? " \xC2\xB7 HW" : "";
         if (!ainfo.empty()) s.codec_tail += vinfo.empty() ? ainfo : " \xC2\xB7 " + ainfo;
         s.codec = s.codec_head + (s.fps > 0 ? util::fmt(" \xC2\xB7 %ld fps", std::lround(s.fps)) : "") + s.codec_tail;
     }
@@ -1706,12 +1840,21 @@ void open_session(std::shared_ptr<Session> sp) {
         s.src.min_bitrate = s.src.bitrate;
     }
 
+    if (s.src.sustainable_bitrate > 0 && s.src.bitrate > s.src.sustainable_bitrate) {
+        log_message(LOG_WARNING, "Player", "File needs %d kbps, measured safe host budget is %d kbps: trying a lighter source",
+                    s.src.bitrate / 1000, s.src.sustainable_bitrate / 1000);
+        set_error(s, tr("This file needs a faster connection. Choose a lighter source."));
+        return;
+    }
     fill_metadata(s, f0);
     extract_artwork(s, f0);
 
-    // External subtitles: the first track is loaded now when it should be on from the start.
+    // Resolve saved subtitle preferences by language, never by a previous file's index.
     int subtitle = -1;
-    if (!s.src.external_subs.empty() && s.src.subs_auto && store::get_bool("subs_default_on", true)) subtitle = 1000;
+    if (s.src.subtitle_mode == 1) {
+        const auto wanted = language_code(s.src.subtitle_language);
+        for (const auto& track : s.sub_tracks) if (wanted.empty() || track.language == wanted) { subtitle = track.index; break; }
+    } else if (s.src.subtitle_mode < 0 && !s.src.external_subs.empty() && s.src.subs_auto && store::get_bool("subs_default_on", true)) subtitle = 1000;
     if (subtitle >= 1000) {
         const std::string u = s.src.external_subs[subtitle - 1000].second;
         if (util::starts_with(u, "http")) {
@@ -1800,12 +1943,19 @@ void teardown(std::shared_ptr<Session> sp) {
     if (s.athread.joinable()) s.athread.join();
     s.vq.flush();
     s.aq.flush();
+    {
+        // Decoded pictures nobody will show: up to 15 of them (50 MB at 1080p60) held until the session's destructor, which can
+        // run after the next video has taken its decoder's memory.
+        std::lock_guard<std::mutex> lk(s.fm);
+        s.frames.clear();
+        s.spare.clear();
+    }
     if (s.vdec) {
         platform::detach_video_frames(s.vdec);
         avcodec_free_context(&s.vdec);
     }
-    if (s.hw) {
-        s.hw = false;
+    if (s.hw || s.mediacodec) {
+        s.hw = s.mediacodec = false;
         g_hw_busy = 0;
     }
     if (s.adec) avcodec_free_context(&s.adec);
@@ -1839,7 +1989,24 @@ void start_wall(Session& s, double pts) {
     s.wall_running = true;
 }
 
+// Tells the activity page how long it has played since last time.
+void note_played(Session& s) {
+    if (s.stats_played <= 0) return;
+    stats::Played p;
+    p.service = s.src.service;
+    p.id = s.src.id;
+    p.title = s.src.title;
+    p.duration = s.live ? 0 : s.duration;
+    p.video = s.has_video;
+    p.live = s.live;
+    stats::playing(p, s.stats_played);
+    if (store::kids_profile()) screentime::playing(s.stats_played);  // counted for a kids profile's screen time, whether or not activity is kept
+    s.stats_played = 0;
+}
+
 void report_progress(Session& s, bool force) {
+    note_played(s);
+    if (force) stats::flush();  // paused, stopped
     if (s.live) return;
     double t = now();
     if (!force && t - s.last_progress_report < 10) return;
@@ -2030,11 +2197,18 @@ bool video_refilled(Session& s, double seconds) {
 // reopen with the next safer decoding level (without unreferenced pictures, then software).
 // Returns true when it replaced the session.
 bool decoder_watchdog(Session& s, double t) {
-    if (!s.hw || s.video_out > 0 || s.opened_at <= 0) return false;
+    if (s.mediacodec && s.decoder_failed) {
+        note_decoding_floor(s.original, 2);
+        log_message(LOG_WARNING, "Player", "The hardware decoder failed after %d pictures: trying software decoding",
+                    s.video_out.load());
+        retry();
+        return true;
+    }
+    if (!(s.hw || s.mediacodec) || s.video_out > 0 || s.opened_at <= 0) return false;
     int vin = s.video_in;
     double since_open = t - s.opened_at;
     if (vin < 45 && !(since_open > 15 && s.vq.count() > 0)) return false;
-    int next = std::min(s.decoding + 1, 2);
+    int next = s.mediacodec ? 2 : std::min(s.decoding + 1, 2);  // MediaCodec has no middle level
     note_decoding_floor(s.original, next);
     log_message(LOG_WARNING, "Player", "No pictures from the hardware decoder (%d packets in %.0f s): trying %s", vin,
                 since_open, next == 1 ? "it without unreferenced pictures" : "software decoding");
@@ -2087,15 +2261,78 @@ bool buffering_watchdog(Session& s, double t) {
     return false;
 }
 
+// What was chosen for subtitles in a video, kept for the next time it is opened (the shared services: YouTube, Jellyfin, My Media; Movies / TV
+// keeps its own, per show). One store value, newest first, `key=choice;` with the choice "off", "on" or a language code; at most 200 videos.
+std::mutex g_sub_choice_m;
+constexpr size_t SUB_CHOICES = 200;
+
+std::string sub_choice_key(const Source& src) {
+    return util::fmt("%016llx", (unsigned long long)util::hash64(src.service + "\n" + src.id));
+}
+
+std::string read_sub_choice(const std::string& key) {
+    std::lock_guard<std::mutex> lk(g_sub_choice_m);
+    const std::string all = store::get_str("sub_choices", "");
+    size_t at = 0;
+    while (at < all.size()) {
+        size_t end = all.find(';', at);
+        if (end == std::string::npos) end = all.size();
+        if (end - at > key.size() + 1 && all.compare(at, key.size(), key) == 0 && all[at + key.size()] == '=')
+            return all.substr(at + key.size() + 1, end - at - key.size() - 1);
+        at = end + 1;
+    }
+    return "";
+}
+
+void write_sub_choice(const std::string& key, const std::string& value) {
+    std::lock_guard<std::mutex> lk(g_sub_choice_m);
+    const std::string all = store::get_str("sub_choices", "");
+    std::string out = key + "=" + value + ";";
+    size_t at = 0, kept = 1;
+    while (at < all.size() && kept < SUB_CHOICES) {
+        size_t end = all.find(';', at);
+        if (end == std::string::npos) end = all.size();
+        const std::string entry = all.substr(at, end - at);
+        if (!entry.empty() && entry.compare(0, key.size() + 1, key + "=") != 0) {
+            out += entry + ";";
+            kept++;
+        }
+        at = end + 1;
+    }
+    store::set_str("sub_choices", out);
+}
+
 void start_session(const Source& src, int pref_audio, const Source* prepared = nullptr) {
     const Source* was = g_s ? &g_s->original : nullptr;
     if (!was || was->service != src.service || was->id != src.id || was->url != src.url) g_hd60_too_slow = false;
     close();
     auto s = std::make_shared<Session>();
     s->id = g_next_id++ & 0xFFFF;
-    s->src = prepared ? *prepared : src;
-    if (prepared) s->src.resolve = nullptr;
-    s->original = src;
+    Source remembered = src;
+    if (remembered.subtitle_mode < 0 && !remembered.on_track_choice && !remembered.live && !remembered.service.empty() &&
+        !remembered.id.empty()) {
+        // The subtitles chosen for this video last time (or none): back as they were. Only an explicit choice is kept.
+        const std::string key = sub_choice_key(remembered);
+        const std::string choice = read_sub_choice(key);
+        if (choice == "off") remembered.subtitle_mode = 0;
+        else if (!choice.empty()) {
+            remembered.subtitle_mode = 1;
+            remembered.subtitle_language = choice == "on" ? "" : choice;
+        }
+        remembered.on_track_choice = [key](bool subtitles, const std::string& language, bool enabled) {
+            if (subtitles) write_sub_choice(key, !enabled ? "off" : language.empty() ? "on" : language);
+        };
+    }
+    s->src = prepared ? *prepared : remembered;
+    if (prepared) {
+        s->src.resolve = nullptr;
+        if (s->src.subtitle_mode < 0) {   // a prepared source is made from the plain one: it gets the same memory
+            s->src.subtitle_mode = remembered.subtitle_mode;
+            s->src.subtitle_language = remembered.subtitle_language;
+            s->src.on_track_choice = remembered.on_track_choice;
+        }
+    }
+    s->original = remembered;
     s->pref_audio = pref_audio;
     s->gen = 1;
     s->user_paused = false;
@@ -2247,8 +2484,9 @@ bool prepare_auto_lower(Session& s, double t) {
     Source requested = original; requested.bitrate_cap = cap; requested.audio_language = chosen_language(s);
     struct Prepared { Source source; bool ok = false; };
     s.adaptation.run<Prepared>([requested, session]() mutable {
-        Prepared result; result.source = requested;
+        Prepared result; result.source = requested; result.source.resolve_cancel = &session->abort;
         std::string error; result.ok = result.source.resolve(result.source, error);
+        result.source.resolve_cancel = nullptr;
         return result;
     }, [session, requested, cap, generation, previous_bitrate](Prepared result) mutable {
         if (g_s != session || session->abort) return;
@@ -2288,8 +2526,49 @@ void anticipate_slow_connection(Session& s, double t) {
 // 1080p60 on the Wii U that leaving out pictures only keeps up with by long freezes (video_loop):
 // reopens at the same place, where the service picks 720p60 (max_fps). Returns true when it
 // replaced the session.
+// Live streams and radio that were lost are started again up to LIVE_RESTARTS times; the count starts over when it is another
+// stream or when three minutes went by without one.
+constexpr int LIVE_RESTARTS = 4;
+int g_live_restarts = 0;
+double g_live_restart_at = -1e9;
+size_t g_live_restart_key = 0;
+
+// A link that stops working half way (YouTube's addresses expire, or belong to the connection that asked) is asked for again from the
+// service, twice at most for a video: a new address, from where it stopped. Asking the same one again, as a retry does, gets the same refusal.
+int g_resolve_again = 0;
+size_t g_resolve_again_key = 0;
+bool resolve_again_allowed(const Session& s) {
+    const size_t key = std::hash<std::string>()(s.original.service + '\n' + s.original.id);
+    if (key != g_resolve_again_key) {
+        g_resolve_again_key = key;
+        g_resolve_again = 0;
+    }
+    if (g_resolve_again >= 2) return false;
+    ++g_resolve_again;
+    return true;
+}
+
+bool live_restart_allowed(const Session& s) {
+    const size_t key = video_key(s.original);
+    const double t = now();
+    if (key != g_live_restart_key || t - g_live_restart_at > 180) {
+        g_live_restart_key = key;
+        g_live_restarts = 0;
+    }
+    if (g_live_restarts >= LIVE_RESTARTS) return false;
+    ++g_live_restarts;
+    g_live_restart_at = t;
+    return true;
+}
+
 bool decoder_step_down(Session& s) {
     if (!s.decoder_too_slow || g_hd60_too_slow || s.original.qualities.empty() || !s.original.resolve) return false;
+    // A 1080p quality chosen with its frame rate (Settings) stays 1080p: the pictures the decoder has no time for are
+    // left out instead, never a lower quality than the one asked for.
+    if (quality_height(s.original.quality) > 720 && quality_fps(s.original.quality) > 0) {
+        s.decoder_too_slow = false;
+        return false;
+    }
     s.decoder_too_slow = false;
     g_hd60_too_slow = true;
     log_message(LOG_WARNING, "Player",
@@ -2338,6 +2617,8 @@ void shutdown() {
     for (AVFrame*& f : g_bound) av_frame_free(&f);
     avformat_network_deinit();
 }
+
+Source Lineup::play(int i, const Show&) const { return source(i); }
 
 void open(const Source& src) {
     g_queue.clear();
@@ -2751,6 +3032,7 @@ void set_audio_track(int index) {
         std::lock_guard<std::mutex> lk(g_s->meta_m);
         g_s->src.audio_language = g_s->original.audio_language = language;
     }
+    if (src.on_track_choice) src.on_track_choice(false, language_code(language), true);
     if (index == current) return;
     const bool paused = g_s->user_paused;
     if (external) { reopen_with_language(language); if (paused) set_paused(true); return; }
@@ -2777,10 +3059,19 @@ int subtitle_track() {
 void set_subtitle_track(int index) {
     if (!g_s || !g_s->started) return;
     Session& s = *g_s;
+    std::string language;
     if (index >= 0) {
         auto tracks = subtitle_tracks();
-        if (std::none_of(tracks.begin(), tracks.end(), [index](const Track& t) { return t.index == index; })) return;
+        auto it = std::find_if(tracks.begin(), tracks.end(), [index](const Track& t) { return t.index == index; });
+        if (it == tracks.end()) return;
+        language = it->language;
     }
+    {
+        std::lock_guard<std::mutex> lk(s.meta_m);
+        s.src.subtitle_mode = s.original.subtitle_mode = index < 0 ? 0 : 1;
+        s.src.subtitle_language = s.original.subtitle_language = language;
+    }
+    if (s.src.on_track_choice) s.src.on_track_choice(true, language, index >= 0);
     std::unique_lock<std::mutex> subtitle_lock(s.sub_m);
     const auto generation = ++s.sub_generation;
     s.subs.clear();
@@ -2924,6 +3215,8 @@ void update() {
     Session& s = *sp;
     int st = s.state;
     double t = now();
+    if (st == PLAYING && s.stats_last > 0) s.stats_played += std::min(0.5, t - s.stats_last);  // time played, for the activity page
+    s.stats_last = t;
     if (st == OPENING && t - s.created > 60 && !s.abort) {
         s.abort = true;  // FFmpeg's interrupt callback ends whatever the opener is waiting for
         set_error(s, tr(STEP_TIMEOUTS[std::clamp((int)s.step, 0, 3)]));
@@ -2973,9 +3266,36 @@ void update() {
                             s.last_clock, s.has_video ? video_ahead(s) : 0.0, s.net_retry_at - t);
             }
             if ((st == BUFFERING || queued < 2.0) && t >= s.net_retry_at) {
+                if (s.live && live_restart_allowed(s)) {
+                    // A live stream or a radio station has no place to ask again from: it is started afresh (a YouTube or
+                    // Twitch stream asks for a new address), a few times, before it is an error. A dropped connection or one
+                    // failed segment used to end it for good.
+                    log_message(LOG_WARNING, "Player", "Live stream lost: starting it again (try %d of %d)", g_live_restarts, LIVE_RESTARTS);
+                    Source src = s.original;
+                    src.audio_language = chosen_language(s);
+                    auto queue = std::move(g_queue);
+                    int qi = g_queue_index;
+                    start_session(src, s.pref_audio);
+                    g_queue = std::move(queue);
+                    g_queue_index = qi;
+                    return;
+                }
                 if (!s.seekable || s.net_retries >= 4) {
                     s.abort = true;
                     set_error(s, tr("Connection lost"));
+                    return;
+                }
+                if (s.net_retries >= 1 && s.original.resolve && !s.original.service.empty() && !s.original.id.empty() &&
+                    resolve_again_allowed(s)) {
+                    log_message(LOG_WARNING, "Player", "The link stopped working at %.1f s: asking the service for a new one", s.last_clock);
+                    Source src = s.original;
+                    src.audio_language = chosen_language(s);
+                    src.start = std::max(src.start, s.last_clock);
+                    auto queue = std::move(g_queue);
+                    int qi = g_queue_index;
+                    start_session(src, s.pref_audio);
+                    g_queue = std::move(queue);
+                    g_queue_index = qi;
                     return;
                 }
                 ++s.net_retries;
@@ -3186,10 +3506,12 @@ void update() {
             s.clock_now = s.last_clock;
             s.state = ENDED;
             audio::stream_pause(true);
+            note_played(s);
+            stats::flush();
             if (s.src.remember_position) store::resume_remove(s.src.service, s.src.id);
             if (s.src.on_stop) s.src.on_stop(s.last_clock, true);
             log_message(LOG_OK, "Player", "Finished: %s", s.src.title.c_str());
-            if (has_next()) next();
+            if (has_next() && !sleep_timer::end_pending()) next();
             return;
         }
     }

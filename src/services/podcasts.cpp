@@ -1,8 +1,11 @@
 #include "services/podcasts.hpp"
+#include "services/kids.hpp"
 
 #include <tinyxml2.h>
 
 #include <algorithm>
+#include <map>
+#include <set>
 
 #include "core/http.hpp"
 #include "core/i18n.hpp"
@@ -55,10 +58,83 @@ std::string upsize_artwork(std::string url) {
     return url;
 }
 
+constexpr const char* TASTE = "podcast_taste";  // genre -> plays, "name=count;..." (small, so plain text)
+
+std::map<std::string, double> genre_taste() {
+    std::map<std::string, double> t;
+    for (auto& part : util::split(store::get_str(TASTE, ""), ';')) {
+        size_t eq = part.rfind('=');
+        if (eq != std::string::npos && eq > 0) t[part.substr(0, eq)] = atof(part.c_str() + eq + 1);
+    }
+    // Subscribed shows count double.
+    for (auto& f : store::favs("podcast"))
+        if (!f.extra.empty()) t[f.extra] += 2;
+    return t;
+}
+
+void learn_genre(const std::string& genre) {
+    if (genre.empty() || genre.find(';') != std::string::npos || genre.find('=') != std::string::npos) return;
+    std::map<std::string, double> t;
+    for (auto& part : util::split(store::get_str(TASTE, ""), ';')) {
+        size_t eq = part.rfind('=');
+        if (eq != std::string::npos && eq > 0) t[part.substr(0, eq)] = atof(part.c_str() + eq + 1) * 0.95;
+    }
+    t[genre] += 1;
+    std::string out;
+    for (auto& kv : t)
+        if (kv.second > 0.1) out += (out.empty() ? "" : ";") + kv.first + "=" + util::fmt("%.2f", kv.second);
+    store::set_str(TASTE, out);
+}
+
 }  // namespace
+
+bool has_taste() { return !genre_taste().empty(); }
+
+Shows for_you(int limit) {
+    if (store::kids_profile()) {
+        Shows blocked;
+        blocked.error = tr("Not in a kids profile");
+        return blocked;
+    }
+    Shows out;
+    out.ok = true;
+    std::vector<std::pair<std::string, double>> genres;
+    for (auto& kv : genre_taste())
+        if (kv.first != "Podcasts") genres.push_back(kv);
+    std::sort(genres.begin(), genres.end(), [](auto& a, auto& b) { return a.second > b.second; });
+    if (genres.size() > 3) genres.resize(3);
+    std::set<std::string> have;
+    for (auto& s : subscriptions()) have.insert(s.feed_url);
+    std::vector<Shows> lists;
+    for (auto& g : genres) {
+        Shows l = search(g.first);
+        if (!l.ok) {
+            if (out.items.empty()) out.error = l.error;
+            continue;
+        }
+        lists.push_back(std::move(l));
+    }
+    // Round robin, so the strongest genre leads but the others show up.
+    for (size_t i = 0; (int)out.items.size() < limit; i++) {
+        bool any = false;
+        for (auto& l : lists) {
+            if (i >= l.items.size()) continue;
+            any = true;
+            Show& s = l.items[i];
+            if (have.insert(s.feed_url).second) out.items.push_back(std::move(s));
+        }
+        if (!any) break;
+    }
+    if (out.items.empty() && !out.error.empty()) out.ok = false;
+    return out;
+}
 
 Shows search(const std::string& query) {
     Shows out;
+    if (store::kids_profile()) {
+        out.error = tr("Not in a kids profile");
+        return out;
+    }
     http::Response r = http::get(util::env_or("COFFEEFLIX_ITUNES_API", "https://itunes.apple.com") +
                                  "/search?media=podcast&entity=podcast&limit=40&term=" +
                                  util::url_encode(query), {}, 15);
@@ -151,6 +227,11 @@ Shows kept_top(const std::string& country, Shows out) {
 }  // namespace
 
 Shows top(const std::string& country) {
+    if (store::kids_profile()) {
+        Shows blocked;
+        blocked.error = tr("Not in a kids profile");
+        return blocked;
+    }
     Shows out;
     const std::string ids = chart_ids(country, out.error);
     if (ids.empty()) return kept_top(country, out);
@@ -174,6 +255,11 @@ Shows top(const std::string& country) {
 }
 
 Feed load(const std::string& feed_url) {
+    if (store::kids_profile() && !kids::podcast_allowed(feed_url)) {  // only the feeds a grown-up chose
+        Feed blocked;
+        blocked.error = tr("Not in a kids profile");
+        return blocked;
+    }
     Feed f;
     http::Request req;
     req.url = feed_url;
@@ -250,6 +336,7 @@ player::Source make_source(const Show& show, const Episode& ep) {
     s.subtitle = show.title;
     s.artwork = ep.image.empty() ? upsize_artwork(show.artwork) : ep.image;
     s.service = "podcast";
+    learn_genre(show.genre);
     s.id = ep.guid;
     s.chunked_http = true;  // the redirects through the trackers once, not for every read (http_io.hpp)
     s.extra = show.feed_url + "\x1f" + ep.url;  // lets "Continue listening" resume directly

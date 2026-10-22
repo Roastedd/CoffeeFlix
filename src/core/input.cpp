@@ -1,5 +1,7 @@
 #include "core/input.hpp"
 
+#include "platform/platform.hpp"
+
 #include <cmath>
 
 namespace {
@@ -120,6 +122,20 @@ void input_update(Input& in, const RawInput& raw, float dt) {
     }
     if (raw.touch || in.touch_ended) touch_velocity(in.tvx, in.tvy);
     if (in.touch_ended && !in.dragging) in.tap = true;
+    // A phone has no X button: a finger held still on something is the same as pressing X while it is focused.
+    static const bool phone = platform::is_phone();
+    static float touch_held = 0;
+    static bool long_fired = false;
+    in.long_press = false;
+    if (in.touch_began) { touch_held = 0; long_fired = false; }
+    else if (raw.touch) touch_held += dt;
+    if (phone && raw.touch && !in.dragging && !long_fired && touch_held >= 0.55f) {
+        long_fired = true;
+        in.long_press = true;
+        in.pressed |= bit(BTN_X);
+        in.repeat |= bit(BTN_X);
+    }
+    if (in.touch_ended && long_fired) in.tap = false;
     in.touching = raw.touch;
 
     // Pointer

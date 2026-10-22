@@ -12,5 +12,7 @@ void begin(bool video_foreground);
 void draw();
 
 bool intro_running();
+// Brings the screensaver up now (the photo frame), whatever the time idle; any button puts it away.
+void show_now();
 
 }  // namespace ambient

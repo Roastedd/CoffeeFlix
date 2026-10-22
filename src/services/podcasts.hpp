@@ -33,6 +33,10 @@ struct Feed {
 
 Shows search(const std::string& query);
 Shows top(const std::string& country = "us");
+// Shows in the genres of what is subscribed to and played (Apple's search for the genre), minus what is subscribed to,
+// the strongest genre first. Empty (ok) with no history. Blocks on the network.
+bool has_taste();
+Shows for_you(int limit = 30);
 Feed load(const std::string& feed_url);
 
 bool is_subscribed(const std::string& feed_url);

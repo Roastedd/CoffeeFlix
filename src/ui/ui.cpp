@@ -12,6 +12,7 @@
 #include "core/util.hpp"
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
+#include "platform/platform.hpp"
 
 namespace ui {
 
@@ -129,6 +130,7 @@ const Reg* pick(const std::vector<Reg>& v, const Reg& from, int dx, int dy, int 
     for (auto& c : v) {
         if (c.id == from.id || c.layer != layer) continue;
         if ((c.flags & F_SIDE_ENTRY) && dy != 0 && c.group != from.group) continue;
+        if ((from.flags & F_SIDE_ENTRY) && dy != 0 && c.group != from.group) continue;  // up and down in a side rail stay in it
         const Rect& r = c.r;
         float primary, ortho_gap, center_diff;
         if (dx > 0) {
@@ -280,6 +282,12 @@ void do_navigation() {
             }
         }
     }
+    if (!next && dy != 0 && (cur->flags & F_WRAP) && cur->group) {  // off the end of a short list: round to the other end
+        for (auto& c : g_cur) {
+            if (c.id == cur->id || c.layer != top || c.group != cur->group || !(c.flags & F_WRAP)) continue;
+            if (!next || (dy > 0 ? c.r.cy() < next->r.cy() : c.r.cy() > next->r.cy())) next = &c;
+        }
+    }
     if (next) {
         if (cur->group && !(cur->flags & F_NO_MEMORY)) g_group_memory[cur->group] = cur->id;
         g_focus = next->id;
@@ -379,6 +387,11 @@ Item focusable(Id id, const Rect& r, Id group, int flags) {
         bool visible = sr.intersects(clip);
         auto hit = [&](float x, float y) { return visible && sr.contains(x, y) && clip.contains(x, y); };
         if (g_in->pointer_moved && hit(g_in->px, g_in->py) && g_focus != id) {
+            g_focus = id;
+            g_last_focus_group = group;
+            if (group && !(flags & F_NO_MEMORY)) g_group_memory[group] = id;
+        }
+        if (g_in->long_press && hit(g_in->touch_start_x, g_in->touch_start_y) && g_focus != id) {  // the finger's item takes X
             g_focus = id;
             g_last_focus_group = group;
             if (group && !(flags & F_NO_MEMORY)) g_group_memory[group] = id;
@@ -568,7 +581,20 @@ void toast(const std::string& msg, int icon, Color c) {
     if (g_toasts.size() > 3) g_toasts.pop_front();
 }
 
-void set_backdrop(const std::string& url) {
+// The ambient backdrop is drawn from a 64-pixel blur, so it needs no more than the small size a poster site keeps: Metahub's
+// "medium" background is a 1920x1080 progressive JPEG of about 900 KB (a title in focus asked for one on slow Wi-Fi in 6 s and
+// took a decoder thread), its "small" one a 480x270 baseline JPEG of 16 KB.
+static std::string small_backdrop(const std::string& url) {
+    static const char kMedium[] = "images.metahub.space/background/medium/";
+    const size_t at = url.find(kMedium);
+    if (at == std::string::npos) return url;
+    std::string out = url;
+    out.replace(at + std::string("images.metahub.space/background/").size(), 6, "small");
+    return out;
+}
+
+void set_backdrop(const std::string& original) {
+    const std::string url = small_backdrop(original);
     if (url == g_backdrop) return;
     g_prev_backdrop = g_backdrop;
     g_backdrop = url;
@@ -662,6 +688,8 @@ void button_glyph(float cx, float cy, const char* button, float size) {
 }
 
 void hint_bar(std::initializer_list<Hint> hints, float y) {
+    static const bool phone = platform::is_phone();  // taps, not buttons
+    if (phone) return;
     float x = W - 48;
     for (auto it = std::rbegin(hints); it != std::rend(hints); ++it) {
         float lw = text::measure(font::small_bold, it->label);
@@ -819,7 +847,7 @@ bool toggle_row(Id id, const Rect& r, const char* label, const char* desc, bool*
     Item it = focusable(id, r, group, flags);
     if (it.clicked) {
         *value = !*value;
-        audio::play(audio::SFX_TOGGLE);
+        audio::play(*value ? audio::SFX_TOGGLE : audio::SFX_TOGGLE_OFF);
     }
     row_base(r, it, id);
     const Theme& t = g_theme;
@@ -852,15 +880,71 @@ bool value_row(Id id, const Rect& r, const char* label, const char* value, int i
         x += 40;
     }
     // The label gets the room it needs, as long as the value keeps some.
-    float room = br.r() - 52 - x - 24, vw = 0;
+    const float edge = (flags & F_INFO) ? 28.0f : 52.0f;  // what is kept clear on the right (the arrow's room)
+    float room = br.r() - edge - x - 24, vw = 0;
     if (value && *value) {
         float lw = text::measure(font::label, label);
         vw = std::min({text::measure(font::body, value), br.w * 0.5f, std::max(room - lw, room * 0.35f)});
-        text::draw_fit(font::body, br.r() - 52 - vw, br.cy() - text::line_height(font::body) * 0.5f, vw, value, fg2);
+        text::draw_fit(font::body, br.r() - edge - vw, br.cy() - text::line_height(font::body) * 0.5f, vw, value, fg2);
     }
     text::draw_fit(font::label, x, br.cy() - text::line_height(font::label) * 0.5f, room - vw, label, fg);
-    text::icon(ic::CHEVRON_RIGHT, 26, br.r() - 30, br.cy(), fg2);
+    if (!(flags & F_INFO)) text::icon(ic::CHEVRON_RIGHT, 26, br.r() - 30, br.cy(), fg2);
     return it.clicked;
+}
+
+namespace {
+Id g_slider_drag = 0;  // the slider a finger is on
+}
+
+// The slider's input and drawing, for a slider that has (or has not) the focus.
+static bool slider_core(Id id, const Rect& r, float* value, float step, bool focused, bool draw_focus) {
+    const Theme& t = g_theme;
+    bool changed = false;
+    Input& in = *g_in;
+    auto set = [&](float v) {
+        v = std::clamp(std::round(v / step) * step, 0.0f, 1.0f);
+        if (std::fabs(v - *value) > 1e-4f) {
+            *value = v;
+            changed = true;
+        }
+    };
+    if (focused) {
+        if (in.rep(BTN_LEFT)) { in.eat(BTN_LEFT); set(*value - step); }
+        if (in.rep(BTN_RIGHT)) { in.eat(BTN_RIGHT); set(*value + step); }
+    }
+    if (in.touch_began && Rect(r.x - 20, r.y - 16, r.w + 40, r.h + 32).contains(in.tx, in.ty)) g_slider_drag = id;
+    if (g_slider_drag == id) {
+        set((in.tx - r.x) / r.w);
+        in.tap = false;  // dragging a slider is not a tap on what is under it
+        if (!in.touching) g_slider_drag = 0;
+    }
+    const float v = std::clamp(*value, 0.0f, 1.0f);
+    const float th = 8, cy = r.cy();
+    gfx::fill_rrect(Rect(r.x, cy - th * 0.5f, r.w, th), th * 0.5f, Color(255, 255, 255, focused ? 70 : 45));
+    if (v > 0) gfx::fill_rrect_hgrad(Rect(r.x, cy - th * 0.5f, std::max(th, r.w * v), th), th * 0.5f, t.accent, t.accent2);
+    const float kr = focused && draw_focus ? 13.0f : 10.0f;
+    gfx::fill_circle(r.x + r.w * v, cy + 1, kr + 2, Color(0, 0, 0, 70));
+    gfx::fill_circle(r.x + r.w * v, cy, kr, gfx::WHITE);
+    return changed;
+}
+
+bool slider(Id id, const Rect& r, float* value, float step, Id group, int flags, bool draw_focus) {
+    const Item it = focusable(id, r, group, flags);
+    return slider_core(id, r, value, step, it.focused, draw_focus);
+}
+
+bool slider_row(Id id, const Rect& r, const char* label, float* value, float step, Id group, int flags) {
+    const Item it = focusable(id, r, group, flags);
+    row_base(r, it, id);
+    const Theme& t = g_theme;
+    const Color fg = gfx::lerp(t.text, gfx::rgb(0x15121A), it.f);
+    const Color fg2 = gfx::lerp(t.text2, Color(21, 18, 26, 170), it.f);
+    const Rect br = r.offset(bump_x(id), bump_y(id));
+    const float track_x = br.x + br.w * 0.46f, track_w = br.w * 0.54f - 110;
+    text::draw_fit(font::label, br.x + 24, br.cy() - text::line_height(font::label) * 0.5f, track_x - br.x - 40, label, fg);
+    const std::string pct = std::to_string((int)std::round(*value * 100)) + "%";
+    text::draw(font::body, br.r() - 28, br.cy() - text::line_height(font::body) * 0.5f, pct, fg2, text::RIGHT);
+    return slider_core(id, Rect(track_x, br.cy() - 14, track_w, 28), value, step, it.focused, false);
 }
 
 void progress_bar(const Rect& r, float progress, float buffered, bool knob, float knob_scale) {
