@@ -8,6 +8,8 @@
 #include "gfx/anim.hpp"
 #include "gfx/images.hpp"
 #include "player/player.hpp"
+#include "app/greeting.hpp"
+#include "app/personal.hpp"
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
@@ -43,16 +45,6 @@ struct Row {
     std::vector<HomeItem> items;
     bool loading = false;
 };
-
-const char* greeting() {
-    time_t t = time(nullptr);
-    struct tm lt;
-    localtime_r(&t, &lt);
-    if (lt.tm_hour < 5) return tr("Up late?");
-    if (lt.tm_hour < 12) return tr("Good morning");
-    if (lt.tm_hour < 18) return tr("Good afternoon");
-    return tr("Good evening");
-}
 
 HomeItem from_resume(const store::Resume& r) {
     HomeItem h;
@@ -196,10 +188,10 @@ public:
         float x0 = content_x();
         Id g = id("home");
         build_rows();
-        if (ui::time() > 8 && !player::active()) maybe_ask_for_support();  // once, after the tenth start
 
         // --- hero -------------------------------------------------------------------
-        const float hero_h = 350;
+        const bool compact = H < 640;  // a phone: less hero, so a row of cards shows under it
+        const float hero_h = compact ? 244 : 350;
         const HomeItem* f = focused_item();
         if (f && f->hero != hero_url_) {
             prev_hero_ = hero_url_;
@@ -208,16 +200,19 @@ public:
             set_backdrop(f->hero);
         }
         float ht = anim::smoothstep((float)(ui::time() - hero_t_) / 0.5f);
-        draw_hero_image(prev_hero_, 1 - ht);
-        draw_hero_image(hero_url_, ht);
+        draw_hero_image(prev_hero_, 1 - ht, hero_h + 50);
+        draw_hero_image(hero_url_, ht, hero_h + 50);
 
         float ty = 64;
-        text::draw(font::label, x0, ty, greeting(), t.accent);
+        {
+            const std::string& hello = greeting::current();  // chosen once, so it doesn't change while Home is open
+            if (!hello.empty()) text::draw_fit(font::label, x0, ty, 760, hello, t.accent);
+        }
         ty += 38;
         if (f) {
             gfx::push_alpha(0.4f + 0.6f * ht);
             float slide = (1 - anim::ease_out_cubic(ht)) * 16;
-            auto lines = text::wrap(font::display, f->title, 640, 2);
+            auto lines = text::wrap(font::display, f->title, compact ? 800 : 640, compact ? 1 : 2);
             for (auto& l : lines) {
                 text::draw_shadowed(font::display, x0 - slide, ty, l, t.text);
                 ty += text::line_height(font::display);
@@ -238,11 +233,11 @@ public:
             }
             text::draw_fit(font::body_bold, mx, ty + 10, 640 - (mx - x0), f->subtitle, t.text2);
             ty += 48;
-            if (!f->description.empty()) text::draw_wrapped(font::body, Rect(x0, ty, 620, 80), f->description, t.text2, 2);
+            if (!compact && !f->description.empty()) text::draw_wrapped(font::body, Rect(x0, ty, 620, 80), f->description, t.text2, 2);
             gfx::pop_alpha();
         } else {
             text::draw(font::display, x0, ty, "CoffeeFlix", t.text);
-            text::draw(font::body, x0, ty + 64, tr("YouTube, Twitch, Jellyfin, radio, podcasts and your own files."), t.text2);
+            text::draw(font::body, x0, ty + 64, tr("Your media, your way."), t.text2);
         }
 
         // --- shelves --------------------------------------------------------------------
@@ -292,18 +287,18 @@ public:
     }
 
 private:
-    void draw_hero_image(const std::string& url, float a) {
+    void draw_hero_image(const std::string& url, float a, float bottom) {  // `bottom`: where the picture has faded out
         if (url.empty() || a <= 0.01f) return;
         const images::Image* img = images::get(url, 1280, 720);
         if (!img || !img->ready) return;
         float fa = a * images::fade(img, 0.4f);
-        Rect r(W * 0.38f, 0, W * 0.62f, 400);
+        Rect r(W * 0.38f, 0, W * 0.62f, bottom);
         float zoom = 1.0f + 0.04f * anim::smoothstep((float)(ui::time() - hero_t_) / 8.0f);
         gfx::image_cover(img->tex, img->w, img->h, r.scaled(zoom), 0, Color(255, 255, 255, (uint8_t)(235 * fa)), 0.3f);
         // Fade into the page on the left and bottom.
         const Theme& t = theme();
-        gfx::fill_rect_hgrad(Rect(r.x - 2, 0, 360, 400), t.bg_top, t.bg_top.with_a(0));
-        gfx::fill_rect_vgrad(Rect(r.x, 250, r.w, 152), t.bg_top.with_a(0), Color(12, 9, 16, 255));
+        gfx::fill_rect_hgrad(Rect(r.x - 2, 0, 360, bottom), t.bg_top, t.bg_top.with_a(0));
+        gfx::fill_rect_vgrad(Rect(r.x, bottom - 150, r.w, 152), t.bg_top.with_a(0), Color(12, 9, 16, 255));
         gfx::fill_rect_vgrad(Rect(r.x, 0, r.w, 60), Color(12, 9, 16, 120), Color(12, 9, 16, 0));
     }
 
@@ -329,11 +324,15 @@ private:
             {tr("Podcasts"), tr("Shows and episodes"), ic::PODCASTS, app::SEC_PODCASTS, 0xD81B60},
             {tr("My Media"), tr("SD card and network"), ic::FOLDER, app::SEC_MEDIA, 0x00897B},
         };
+        std::vector<Tile> shown;  // the services turned on in Settings > Make it yours
+        for (const Tile& tile : tiles)
+            if (app::section_visible(tile.s)) shown.push_back(tile);
+        if (shown.empty()) return 0;
         ShelfSpec s;
         s.title = tr("Explore");
-        s.count = (int)std::size(tiles);
+        s.count = (int)shown.size();
         s.item_w = 220;
-        s.item = [&tiles](int i) {
+        s.item = [&tiles = shown](int i) {
             CardInfo c;
             c.title = tiles[i].title;
             c.subtitle = tiles[i].sub;
@@ -341,7 +340,7 @@ private:
             c.tint = gfx::rgb(tiles[i].color).alpha(0.85f);
             return c;
         };
-        s.on_click = [&tiles](int i) { app::open_section(tiles[i].s); };
+        s.on_click = [&tiles = shown](int i) { app::open_section(tiles[i].s); };
         return shelf(id(g, "explore"), x0, y, s, &page_) + 20;
     }
 
@@ -349,10 +348,11 @@ private:
         refreshed_ = ui::time();
         dirty_ = true;
         scope_.reset();
-        jf_loading_ = jellyfin::signed_in();
-        nd_loading_ = navidrome::signed_in();
-        tw_loading_ = !store::favs("twitch").empty();
-        yt_loading_ = true;
+        // A service turned off in Settings > Make it yours is not asked for anything.
+        jf_loading_ = app::section_visible(app::SEC_JELLYFIN) && jellyfin::signed_in();
+        nd_loading_ = app::section_visible(app::SEC_NAVIDROME) && navidrome::signed_in();
+        tw_loading_ = app::section_visible(app::SEC_TWITCH) && !store::favs("twitch").empty();
+        yt_loading_ = app::section_visible(app::SEC_YOUTUBE);
         if (jf_loading_) {
             scope_.run<std::pair<jellyfin::List, jellyfin::List>>(
                 [] { return std::make_pair(jellyfin::resume(), jellyfin::next_up()); },
@@ -382,12 +382,13 @@ private:
         }
         yt_personal_ = yt::has_for_you();
         bool personal = yt_personal_;
-        scope_.run<youtube::Results>([personal] { return personal ? yt::for_you() : youtube::trending(); },
-                                     [this](youtube::Results r) {
-            yt_ = std::move(r.items);
-            yt_loading_ = false;
-            dirty_ = true;
-        });
+        if (yt_loading_)
+            scope_.run<youtube::Results>([personal] { return personal ? yt::for_you() : youtube::trending(); },
+                                         [this](youtube::Results r) {
+                yt_ = std::move(r.items);
+                yt_loading_ = false;
+                dirty_ = true;
+            });
     }
 
     void build_rows() {
@@ -396,39 +397,94 @@ private:
         dirty_ = false;
         rows_.clear();
         Row cont{N_("Continue watching"), CARD_WIDE, 300, {}, false};
-        for (auto& jr : jf_resume_) cont.items.push_back(from_jellyfin(jr));
-        // Ignore entries from services this build cannot open; keep their saved data intact.
-        int resumed = 0;
-        for (auto& r : store::resume_list(60)) {
-            if (r.service != "youtube" && r.service != "podcast" && r.service != "local" && r.service != "smb" &&
-                r.service != "dlna") continue;
-            cont.items.push_back(from_resume(r));
-            if (++resumed == 12) break;
+        const bool jf_on = app::section_visible(app::SEC_JELLYFIN), nd_on = app::section_visible(app::SEC_NAVIDROME),
+                   tw_on = app::section_visible(app::SEC_TWITCH), radio_on = app::section_visible(app::SEC_RADIO),
+                   yt_on = app::section_visible(app::SEC_YOUTUBE);
+        // What was started in a service that is turned off stays out of Continue watching too.
+        auto shown = [](const std::string& service) {
+            const app::Section s = personal::section_of_service(service);
+            return s == app::SEC_NONE || app::section_visible(s);
+        };
+        if (jf_on)
+            for (auto& jr : jf_resume_) {
+                HomeItem h = from_jellyfin(jr);
+                h.more = [this, jr] {
+                    show_menu(h_title(jr), "", {{tr("Remove from Continue watching"), ic::REMOVE, [this, jr] {
+                                                     jellyfin::hide_from_resume(jr);
+                                                     jf_resume_.erase(std::remove_if(jf_resume_.begin(), jf_resume_.end(),
+                                                                                     [&](const jellyfin::Item& x) { return x.id == jr.id; }),
+                                                                      jf_resume_.end());
+                                                     removed();
+                                                 }}});
+                };
+                cont.items.push_back(std::move(h));
+            }
+        std::vector<store::Resume> recent;
+        for (auto& r : store::resume_list(60)) if (r.service != "movie" && shown(r.service)) recent.push_back(r);
+        std::stable_sort(recent.begin(), recent.end(), [](const auto& a, const auto& b) { return a.updated > b.updated; });
+        for (size_t i = 0; i < std::min<size_t>(12, recent.size()); ++i) {
+            HomeItem h = from_resume(recent[i]);
+            add_remove(h, recent[i]);
+            cont.items.push_back(std::move(h));
         }
         cont.loading = cont.items.empty() && jf_loading_;
         rows_.push_back(std::move(cont));
 
         Row next{N_("Next up"), CARD_WIDE, 300, {}, false};
-        for (auto& it : jf_next_) next.items.push_back(from_jellyfin(it));
+        if (jf_on) for (auto& it : jf_next_) next.items.push_back(from_jellyfin(it));
         rows_.push_back(std::move(next));
 
-        if (!nd_albums_.empty() || nd_loading_) {
+        if (nd_on && (!nd_albums_.empty() || nd_loading_)) {
             Row nd_row{N_("Recently added to Navidrome"), CARD_SQUARE, 180, {}, nd_loading_};
             for (auto& al : nd_albums_) nd_row.items.push_back(from_navidrome_album(al));
             rows_.push_back(std::move(nd_row));
         }
 
         Row live{N_("Live on Twitch"), CARD_WIDE, 300, {}, tw_loading_};
-        for (auto& s : tw_live_) live.items.push_back(from_twitch(s));
+        if (tw_on) for (auto& s : tw_live_) live.items.push_back(from_twitch(s));
         rows_.push_back(std::move(live));
 
         Row stations{N_("Your radio stations"), CARD_SQUARE, 160, {}, false};
-        for (auto& s : radio::favorites()) stations.items.push_back(from_station(s));
+        if (radio_on) for (auto& s : radio::favorites()) stations.items.push_back(from_station(s));
         rows_.push_back(std::move(stations));
 
         Row yt{yt_personal_ ? N_("Recommended for you") : N_("Popular on YouTube"), CARD_WIDE, 300, {}, yt_loading_};
-        for (auto& v : yt_) yt.items.push_back(from_youtube(v));
+        if (yt_on) for (auto& v : yt_) yt.items.push_back(from_youtube(v));
         rows_.push_back(std::move(yt));
+    }
+
+    // --- taking things off Continue watching (X on a card)
+    void removed() {
+        dirty_ = true;
+        toast(tr("Removed from Continue watching"), ic::CHECK_CIRCLE);
+    }
+
+    static std::string h_title(const jellyfin::Item& it) { return it.type == "Episode" ? it.series_name : it.name; }
+
+    void add_remove(HomeItem& h, const store::Resume& r) {
+        MenuItem remove{tr("Remove from Continue watching"), ic::REMOVE, [this, r] {
+                            store::resume_remove(r.service, r.id);
+                            removed();
+                        }};
+        if (r.service == "youtube") {
+            youtube::Video v;
+            v.id = r.id;
+            v.title = r.title;
+            v.channel = r.subtitle;
+            h.more = [v, remove] {
+                yt::MenuOptions o;
+                o.extra.push_back(remove);
+                yt::video_menu(v, o);
+            };
+            return;
+        }
+        std::vector<MenuItem> items;
+        items.push_back(remove);
+        if (r.position > 0 && r.service != "movie") {
+            HomeItem from_start = from_resume([&] { store::Resume c = r; c.position = 0; return c; }());
+            items.push_back({tr("Play from the start"), ic::REPLAY_10, from_start.open});
+        }
+        h.more = [title = r.title, items] { show_menu(title, "", items); };
     }
 
     std::vector<Row> rows_;

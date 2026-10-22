@@ -10,11 +10,11 @@ BUILD    := build-desktop
 TARGET   := $(BUILD)/coffeeflix
 PREFIX   := deps/host
 
-SRCS := $(shell find src -name '*.cpp' -not -path 'src/platform/wiiu/*')
+SRCS := $(shell find src -name '*.cpp' -not -path 'src/platform/wiiu/*' -not -path 'src/platform/android/*')
 OBJS := $(SRCS:%.cpp=$(BUILD)/%.o)
 DEPS := $(OBJS:.o=.d)
 
-PKGS       := sdl2 SDL2_ttf SDL2_image libcurl jansson tinyxml2 libzip libcrypto
+PKGS       := sdl2 SDL2_ttf SDL2_image libjpeg libcurl jansson tinyxml2 libzip libcrypto
 PKG_CONFIG := pkg-config
 LIBDIRS    :=
 

@@ -10,11 +10,14 @@
 #include <cstdint>
 #include <string>
 
+#include "gfx/focus.hpp"
+
 namespace images {
 
 enum Flags {
     BLUR = 1,       // tiny, blurred copy for ambient backdrops
     NO_EVICT = 2,   // keep resident (app icons)
+    FOCUS = 4,      // once decoded, find where the people are in it (focus_of)
 };
 
 struct Image {
@@ -22,6 +25,7 @@ struct Image {
     int w = 0, h = 0;
     bool ready = false;
     bool failed = false;
+    bool preview = false;   // the camera's own tiny preview of a photo, until the picture itself is decoded
     double ready_time = 0;
 };
 
@@ -31,6 +35,11 @@ void begin_frame();
 
 // Returns nullptr for an empty url. The returned pointer is valid for this frame.
 const Image* get(const std::string& url, int max_w = 0, int max_h = 0, int flags = 0);
+// Where the people are in a photo asked for with FOCUS, once it has loaded. False before then.
+bool focus_of(const std::string& url, focus::Focus& out);
+// Whatever is loaded of this picture, at any size (not the blurred one), the largest: to show while the size wanted loads.
+// nullptr when none is. Cheap to call, but not for every thumbnail in a grid.
+const Image* best_loaded(const std::string& url);
 // 0..1 fade-in progress for a freshly loaded image.
 float fade(const Image* img, float duration = 0.25f);
 // Insert an image produced locally (e.g. embedded album art). Takes the surface.
@@ -47,5 +56,10 @@ bool stated_size(const std::string& data, int64_t& w, int64_t& h);
 bool too_big(const std::string& data);
 void clear();
 size_t bytes_used();
+// Whether put() has a ready picture under this key.
+bool has(const std::string& key, int flags = 0);
+// Lets go of every loaded size of one picture at once (a screensaver's pictures are not looked at again): its textures go through the
+// same delayed destruction as an eviction. A picture still being loaded is left to finish.
+void release(const std::string& url, int min_width = 0);   // min_width: leave the smaller sizes (the grid's thumbnails)
 
 }  // namespace images

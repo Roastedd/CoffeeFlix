@@ -22,6 +22,9 @@ struct Release {
     std::string sha256;   // lower-case hex, as GitHub published it
     int64_t size = 0;
     bool dev = false;     // a developer build (below), not a release
+    bool supporter = false;  // a supporter preview (below)
+    int revision = 0;     // supporter previews: which preview of this version (2.5.5 revision 1, then 2 with fixes)
+    std::string token;    // supporter previews: the gate's pass for the download (not kept)
     std::string build_id, build_name;  // signed developer catalog identity
 };
 
@@ -73,6 +76,17 @@ const std::vector<Release>& developer_builds();
 // Selecting only checks availability. Cross-build changes always need an explicit download.
 // False while a download or staged installation must first be cancelled.
 bool select_build(const std::string& id);
+
+// Supporter updates: people who support CoffeeFlix on Ko-fi get the previews from a small gate (supporter-gate/) after typing the
+// email they used on Ko-fi. The list of builds is signed with the supporter key (its public half is in updater.cpp), so
+// the gate only relays it. A supporter is offered whichever is newer: the preview or the public release.
+bool supporter_available();           // this build knows where the gate is (content/supporter-server.txt)
+bool supporter_on();                  // an email is set
+std::string supporter_email();        // as typed, "" when off
+// Sets (or, with "", clears) the email, and looks for an update at once. False when it can't be changed now (a download runs).
+bool set_supporter_email(const std::string& email);
+// How the gate answered the last time: "" (not asked or fine), or a sentence for the user.
+const std::string& supporter_message();
 
 // The very last thing before exiting, once nothing reads bundled files: the swap.
 void finish_on_exit();

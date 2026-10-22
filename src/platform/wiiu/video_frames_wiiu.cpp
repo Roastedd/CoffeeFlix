@@ -9,8 +9,11 @@ extern "C" {
 
 #include <SDL2/SDL_system.h>
 #include <coreinit/cache.h>
+#include <h264/decode.h>
 
 #include <malloc.h>
+#include <mutex>
+#include <vector>
 
 #include "logger/logger.hpp"
 
@@ -29,14 +32,64 @@ struct VideoFrames {
 
 void free_frame(void*, uint8_t* data) { free(data); }
 
+// Blocks the hardware decoder refused (H264DECCheckMemSegmentation), kept so the heap does not offer
+// the same ones again. Freed with the last decoder.
+std::mutex g_refused_lock;  // decoders open and close on other threads
+std::vector<void*> g_refused;
+int g_attached = 0, g_allocated = 0, g_refusals = 0;
+constexpr size_t MAX_REFUSED_BYTES = 24u << 20;   // about seven 1080p blocks: enough that the heap does not offer them again soon
+constexpr int MAX_TRIES = 12;
+
 // From the default heap (MEM2, which the GPU reads), aligned for the hardware decoder (1 KB,
-// more than the GPU's 256 bytes).
+// more than the GPU's 256 bytes). The decoder only writes into memory its own check accepts
+// (h264_wiiu): a picture in any other block is decoded elsewhere and copied by the CPU, 30-40 ms
+// of each picture, which on 1080p60 left about 30 a second and a busy thread (Oct 17 log: the
+// same video at 20 ms a picture, then at 32 when the pool's blocks had landed in other memory).
+// So a refused block is put aside and another asked for.
 AVBufferRef* alloc_frame(int size) {
-    void* p = memalign(1024, size);
+    void* p = nullptr;
+    int refused = 0;
+    for (int i = 0; i < MAX_TRIES; i++) {
+        p = memalign(1024, size);
+        if (!p) {  // the set-aside blocks may be what is in the way: let them go and try once more
+            std::vector<void*> let_go;
+            {
+                std::lock_guard<std::mutex> lk(g_refused_lock);
+                let_go.swap(g_refused);
+            }
+            for (void* q : let_go) free(q);
+            if (let_go.empty()) break;
+            p = memalign(1024, size);
+            if (!p) break;
+        }
+        // Out of the CPU cache before anything else writes it: nothing the CPU had there can land on
+        // top of a picture later.
+        DCFlushRange(p, size);
+        if (H264DECCheckMemSegmentation(p, size) == 0) break;
+        refused++;
+        if (i == MAX_TRIES - 1) break;  // every try refused: it is used anyway (copied, as before)
+        std::lock_guard<std::mutex> lk(g_refused_lock);
+        if (g_refused.size() * (size_t)size >= MAX_REFUSED_BYTES) {
+            free(g_refused.front());
+            g_refused.erase(g_refused.begin());
+        }
+        g_refused.push_back(p);
+        p = nullptr;
+    }
+    bool say = false;
+    int total_refused = 0, total_frames = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_refused_lock);
+        g_allocated++;
+        g_refusals += refused;
+        total_refused = g_refusals;
+        total_frames = g_allocated;
+        say = refused && (g_refusals <= 8 || g_refusals % 25 == 0);
+    }
+    if (say)
+        log_message(LOG_WARNING, "Player", "Decoder memory: %d block%s refused before one fit (%d refused of %d frames so far)",
+                    refused, refused == 1 ? "" : "s", total_refused, total_frames);
     if (!p) return nullptr;
-    // Out of the CPU cache before anything else writes it: nothing the CPU had there can land on
-    // top of a picture later.
-    DCFlushRange(p, size);
     AVBufferRef* b = av_buffer_create((uint8_t*)p, size, free_frame, nullptr, 0);
     if (!b) free(p);
     return b;
@@ -67,6 +120,10 @@ int get_buffer(AVCodecContext* ctx, AVFrame* f, int flags) {
 }  // namespace
 
 void attach_video_frames(AVCodecContext* ctx) {
+    {
+        std::lock_guard<std::mutex> lk(g_refused_lock);
+        g_attached++;
+    }
     ctx->opaque = new VideoFrames;
     ctx->get_buffer2 = get_buffer;
     log_message(LOG_OK, "Player", "Direct hardware pictures with retained decoder targets and GPU completion waits");
@@ -79,6 +136,11 @@ void detach_video_frames(AVCodecContext* ctx) {
     ctx->opaque = nullptr;
     av_buffer_pool_uninit(&v->pool);
     delete v;
+    std::lock_guard<std::mutex> lk(g_refused_lock);
+    if (--g_attached <= 0) {
+        for (void* p : g_refused) free(p);
+        g_refused.clear();
+    }
 }
 
 bool show_video_frame(SDL_Texture* tex, const AVFrame* f) {

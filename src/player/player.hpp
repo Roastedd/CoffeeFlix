@@ -24,15 +24,43 @@ struct SkipSegment {
     std::string label;  // "Skipped sponsor"
 };
 
+struct Source;
+
+// Live channels to change between while one plays: the player carries it for the screen.
+struct Lineup {
+    struct Show {
+        std::string title;
+        int64_t start = 0, end = 0;  // unix time
+    };
+    virtual ~Lineup() = default;
+    virtual int size() const = 0;
+    virtual std::string name(int i) const = 0;
+    virtual std::string logo(int i) const = 0;
+    virtual int number(int i) const { return i + 1; }
+    virtual std::string title() const = 0;  // what they are ("News", "Favorites")
+    virtual Source source(int i) const = 0;
+    // From the listings: what's on now and next (false while it isn't known; asks for it).
+    virtual bool shows(int i, Show& now, Show& next) const { return false; }
+    // Its guide: past shows it has recordings of, and what's still to come. Played with play().
+    virtual bool schedule(int i, std::vector<Show>& out) const { return false; }
+    virtual bool can_play(int i, const Show& s) const { return false; }
+    virtual Source play(int i, const Show& s) const;
+};
+
 struct Source {
     std::string url;             // video+audio, or audio only
     std::string audio_url;       // optional separate audio stream (YouTube DASH)
     std::vector<std::pair<std::string, std::string>> headers;
     std::string user_agent;
+    std::string direct_url;      // where `url` is known to redirect to (a source's probe): asked first, `url` if it fails
     bool chunked_http = false;   // download http(s) files through libcurl in ranged chunks (YouTube, media servers)
+    bool http_only = false;      // untrusted remote playlists may only open HTTP(S) resources
+    int sustainable_bitrate = 0; // optional automatic selection ceiling from measured host capacity
     double start = 0;            // seconds
     bool live = false;           // no seeking, unknown duration
     std::vector<std::pair<std::string, std::string>> external_subs;  // {label, url or path}
+    int subtitle_mode = -1;      // -1: normal default, 0: explicit off, 1: prefer a language
+    std::string subtitle_language;
     bool subs_auto = true;       // turn the first external track on (with the "on by default" setting)
     std::vector<SkipSegment> skip_segments;
 
@@ -75,9 +103,20 @@ struct Source {
     // to turn an id into stream URLs (YouTube, Jellyfin, Twitch). Return false
     // and set the error message to fail playback.
     std::function<bool(Source& src, std::string& error)> resolve;
+    // Borrowed only during resolve(): lets a service abort network work when playback closes.
+    const std::atomic<bool>* resolve_cancel = nullptr;
+
+    // Live TV: the channels around this one, and which it is. A recording of one of its
+    // shows keeps them, to go back to live.
+    std::shared_ptr<Lineup> lineup;
+    int lineup_index = -1;
+    // The server lets an account have one stream at a time: the one before is closed first.
+    bool one_connection = false;
 
     // Service hooks (called on the main thread)
     std::function<void(double position, bool paused)> on_progress;  // ~every 10 s
+    // Explicit user choices only; automatic fallback never changes saved preferences.
+    std::function<void(bool subtitles, const std::string& language, bool enabled)> on_track_choice;
     std::function<void(double position, bool finished)> on_stop;
 };
 

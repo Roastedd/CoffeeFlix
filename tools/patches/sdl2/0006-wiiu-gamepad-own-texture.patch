@@ -1,0 +1,55 @@
+diff --git a/include/SDL_system.h b/include/SDL_system.h
+index 883a951..cdd3fc1 100644
+--- a/include/SDL_system.h
++++ b/include/SDL_system.h
+@@ -744,6 +744,20 @@ extern DECLSPEC void SDLCALL SDL_WiiUSetGamePadPicture(int mode);
+  */
+ extern DECLSPEC void SDLCALL SDL_WiiUSetAudioOutputs(SDL_bool tv, SDL_bool gamepad);
+ 
++/**
++ * Makes the GamePad show a texture of its own instead of the window's picture.
++ *
++ * The texture is drawn to as a render target (SDL_TEXTUREACCESS_TARGET, any
++ * size, drawn at the GamePad's 16:9). It is shown from the next
++ * SDL_RenderPresent on, until this is called with NULL. The TV keeps the
++ * window's picture. While the system keyboard is open, or the GamePad's picture
++ * is not sent (SDL_WiiUSetGamePadPicture), the window's picture is used. Call
++ * it with NULL before destroying the texture.
++ *
++ * \param texture a render target texture, or NULL for the window's picture
++ */
++extern DECLSPEC void SDLCALL SDL_WiiUSetGamePadTexture(SDL_Texture * texture);
++
+ /**
+  * Sets the swkbd's hint text.
+  *
+diff --git a/src/render/wiiu/SDL_rpresent_wiiu.c b/src/render/wiiu/SDL_rpresent_wiiu.c
+index ecbb821..5870e62 100644
+--- a/src/render/wiiu/SDL_rpresent_wiiu.c
++++ b/src/render/wiiu/SDL_rpresent_wiiu.c
+@@ -46,6 +46,13 @@ static SDL_bool tvDrcEnabled = SDL_FALSE;
+    video stream to it is stopped now */
+ static int padPicture = 0;
+ static SDL_bool padStreamStopped = SDL_FALSE;
++/* A picture of its own for the GamePad (SDL_WiiUSetGamePadTexture) */
++static SDL_Texture *padTexture = NULL;
++
++void SDL_WiiUSetGamePadTexture(SDL_Texture *texture)
++{
++    padTexture = texture;
++}
+ 
+ void SDL_WiiUSetGamePadPicture(int mode)
+ {
+@@ -168,7 +175,10 @@ int WIIU_SDL_RenderPresent(SDL_Renderer * renderer)
+ 
+     /* The GamePad gets the window's 1280x720 copy, if it has one. So does the keyboard, which
+        then shows on the TV from there too (as it does from a 1280x720 window). */
+-    if (sendToPad && data->drcTex.driverdata && !(flags & SDL_WINDOW_WIIU_TV_ONLY) && WIIU_SDL_DrawDRCCopy(data)) {
++    /* Its own picture goes to the GamePad as it is: drawn there already, at the size it wants */
++    if (sendToPad && !keyboard && padTexture && padTexture->driverdata && !(flags & SDL_WINDOW_WIIU_TV_ONLY)) {
++        drc = (WIIU_TextureData *) padTexture->driverdata;
++    } else if (sendToPad && data->drcTex.driverdata && !(flags & SDL_WINDOW_WIIU_TV_ONLY) && WIIU_SDL_DrawDRCCopy(data)) {
+         drc = (WIIU_TextureData *) data->drcTex.driverdata;
+         tdata = drc;
+     }

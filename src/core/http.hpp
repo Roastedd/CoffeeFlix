@@ -66,6 +66,9 @@ bool verify_tls();
 // Ends the transfers in progress now, each failing as cancelled; ones started afterwards go ahead.
 // For the app closing: its worker threads wait for the transfers, and not every request can be told.
 void cancel_running();
+// While paused every request fails at once ("Network paused"): the system asked the app to stop using the network
+// (developer option), and it is let go again when the system allows it or the app is back in front.
+void set_paused(bool paused);
 const std::string& ca_bundle();
 
 Response perform(const Request& req);

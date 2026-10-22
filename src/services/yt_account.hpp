@@ -33,6 +33,7 @@ bool signed_in();
 std::string name();
 std::string photo();
 int version();    // changes on sign-in, sign-out and switching, for screens to reload
+void reload();    // another profile's sign-in is in the store now
 void sign_out();  // forgets the account and withdraws the token at Google (in the background)
 
 // The Wii U user's other accounts: signing in to one keeps the account signed in before among

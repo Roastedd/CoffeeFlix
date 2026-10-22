@@ -43,6 +43,7 @@ State& state() {
 void beat() {
     platform::set_thread_name("heartbeat");
     platform::raise_thread_priority();  // it has to run while something else spins or waits
+    platform::pin_to_core2();
     State& s = state();
     uint32_t frames_before = 0;
     double last = 0;  // when the last line went out (0: none to count the frames since)

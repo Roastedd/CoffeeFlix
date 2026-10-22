@@ -35,6 +35,7 @@ struct Input {
     // touch (GamePad screen) / mouse
     bool touching = false, touch_began = false, touch_ended = false;
     bool tap = false;           // released without dragging
+    bool long_press = false;    // held still for a moment (phones: it presses X, the item's menu); that touch isn't a tap
     bool dragging = false;
     bool drag_began = false;    // dragging became true this frame
     int drag_axis = 0;          // AXIS_X or AXIS_Y, whichever the drag started along

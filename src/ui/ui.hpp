@@ -20,7 +20,9 @@ using Id = uint64_t;
 using gfx::Color;
 using gfx::Rect;
 
-constexpr float W = 1280, H = 720;
+// The logical screen everything is laid out in: 1280x720 on the Wii U and a TV. A phone sets it once at start
+// (app.cpp) to its own shape and a size that makes the controls big enough for a finger.
+inline float W = 1280, H = 720;
 
 Id id(const char* s);
 Id id(Id parent, const char* s);
@@ -68,6 +70,8 @@ enum ItemFlags {
     F_SILENT = 2,       // no move sound when focused
     F_NO_MEMORY = 4,    // don't remember as the group's last item
     F_SIDE_ENTRY = 8,   // only reachable horizontally from other groups (side rails)
+    F_INFO = 32,        // value_row: only shows something, so no arrow
+    F_WRAP = 16,        // up from the first of the group's items with this flag goes to the last, and down from the last to the first
 };
 
 struct Item {
@@ -131,6 +135,11 @@ bool chip(Id id, const Rect& r, const char* label, bool selected, Id group = 0, 
 // Settings-style rows
 bool toggle_row(Id id, const Rect& r, const char* label, const char* desc, bool* value, Id group = 0, int flags = 0);
 bool value_row(Id id, const Rect& r, const char* label, const char* value, int icon = 0, Id group = 0, int flags = 0);
+// A slider for a value from 0 to 1 over `r`: left and right move it by `step` when it has the focus, and a finger or the
+// mouse drags it. True on the frames it changes. `draw_focus` off: the caller draws what shows the focus.
+bool slider(Id id, const Rect& r, float* value, float step = 0.05f, Id group = 0, int flags = 0, bool draw_focus = true);
+// A row with a label on the left and a slider and its percentage on the right.
+bool slider_row(Id id, const Rect& r, const char* label, float* value, float step = 0.05f, Id group = 0, int flags = 0);
 // Horizontal progress/seek bar with optional buffered range.
 void progress_bar(const Rect& r, float progress, float buffered = 0, bool knob = false, float knob_scale = 1);
 

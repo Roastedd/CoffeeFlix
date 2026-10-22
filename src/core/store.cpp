@@ -53,10 +53,22 @@ json_t* section(const char* name) { return object_in(g_root, name); }
 // Each Wii U user's own, under "users" > id: their Jellyfin and YouTube sign-ins.
 const char* const USER_SETTINGS[] = {"jf_server",        "jf_server_name",  "jf_user_id",       "jf_user_name",
                                      "jf_token",         "jf_device_id",    "yt_account_token", "yt_account_name",
-                                     "yt_account_photo", "yt_history_sync", "nd_server",        "nd_server_name",
-                                     "nd_user",          "nd_token",        "nd_salt",          "nd_bitrate"};
-const char* const USER_FAVORITES[] = {"yt_account_channel"};
-std::string g_user;  // empty: one set for everyone
+                                     "yt_account_photo", "yt_history_sync", "yt_ratings",
+                                     "nd_server",        "nd_server_name",  "nd_user",          "nd_token",
+                                     "nd_salt",          "nd_bitrate",
+};
+const char* const USER_FAVORITES[] = {"yt_account_channel",
+};
+std::string g_user;       // empty: one set for everyone
+std::string g_wiiu_user;  // the console user, whose sign-ins the main profile keeps
+std::string g_profile = "main";
+bool g_own = false;       // a profile besides the main one: it keeps its own favorites, resume points, searches
+const char* const OWN_SETTINGS[] = {"yt_brain",  // the recommendations, kept with the profile's own
+                                    "startup_page", "last_section", "hidden_sections",
+                                    "greeting_style", "greeting_last", "last_seen_day",
+                                    "surprise_recent", "surprise_scope", "stats_data", "stats_on",
+                                    "birthday", "birthday_style", "birthday_every", "birthday_last",
+                                    "st_week", "st_weekend", "st_quiet", "st_from", "st_to", "st_used", "st_override"};  // and what it chose for its own Home
 
 template <size_t N>
 bool listed(const char* const (&list)[N], const char* name) {
@@ -69,11 +81,15 @@ json_t* user_section(const char* name) { return object_in(object_in(section("use
 
 // Where a setting or a favorite list is kept.
 json_t* settings_for(const char* key) {
+    if (g_own && listed(OWN_SETTINGS, key)) return user_section("settings");
     return !g_user.empty() && listed(USER_SETTINGS, key) ? user_section("settings") : section("settings");
 }
 json_t* favorites_for(const char* service) {
+    if (g_own) return user_section("favorites");
     return !g_user.empty() && listed(USER_FAVORITES, service) ? user_section("favorites") : section("favorites");
 }
+// A whole section (continue watching, recent searches): the main profile's are the shared ones.
+json_t* data_section(const char* name) { return g_own ? user_section(name) : section(name); }
 
 // The other accounts of a service, kept for switching: {"settings": {...}, "favorites": {...}}
 // each, the service's keys of the lists above (its prefix). Most recently used first.
@@ -196,7 +212,10 @@ void tick() {
 
 void set_user(const std::string& id) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
+    g_wiiu_user = id;
     g_user = id;
+    g_profile = MAIN_PROFILE;
+    g_own = false;
     if (id.empty()) return;
     log_message(LOG_OK, "Store", "Sign-ins of Wii U user %s", id.c_str());
     bool moved = false;
@@ -222,6 +241,29 @@ std::string get_str(const char* key, const std::string& def) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
     json_t* v = json_object_get(settings_for(key), key);
     return json_is_string(v) ? json::str(v) : def;
+}
+std::string get_str_of(const std::string& profile, const char* key, const std::string& def) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    const bool own = g_own;
+    const std::string user = g_user;
+    g_own = profile != MAIN_PROFILE;  // looked at from that profile, then back
+    g_user = g_own ? profile : g_wiiu_user;
+    json_t* v = json_object_get(settings_for(key), key);
+    const std::string out = json_is_string(v) ? json::str(v) : def;
+    g_own = own;
+    g_user = user;
+    return out;
+}
+void set_str_of(const std::string& profile, const char* key, const std::string& v) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    const bool own = g_own;
+    const std::string user = g_user;
+    g_own = profile != MAIN_PROFILE;
+    g_user = g_own ? profile : g_wiiu_user;
+    json_object_set_new(settings_for(key), key, json_string(v.c_str()));
+    g_own = own;
+    g_user = user;
+    mark_dirty();
 }
 void set_bool(const char* key, bool v) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
@@ -415,7 +457,7 @@ void fav_replace(const char* service, const std::vector<Fav>& list) {
 
 void resume_save(const Resume& r) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* obj = section("resume");
+    json_t* obj = data_section("resume");
     std::string key = key_of(r.service, r.id);
     bool finished = r.duration > 0 && (r.position > r.duration * 0.95 || r.duration - r.position < 30);
     g_resume_version++;
@@ -454,7 +496,7 @@ void resume_save(const Resume& r) {
 
 double resume_position(const std::string& service, const std::string& id) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* o = json_object_get(section("resume"), key_of(service, id).c_str());
+    json_t* o = json_object_get(data_section("resume"), key_of(service, id).c_str());
     return json::real(o, {"position"}, 0);
 }
 
@@ -463,7 +505,7 @@ std::vector<Resume> resume_list(size_t max) {
     std::vector<Resume> out;
     const char* k;
     json_t* o;
-    json_object_foreach(section("resume"), k, o) {
+    json_object_foreach(data_section("resume"), k, o) {
         Resume r;
         r.service = json::str(o, {"service"});
         r.id = json::str(o, {"id"});
@@ -484,14 +526,14 @@ std::vector<Resume> resume_list(size_t max) {
 
 void resume_remove(const std::string& service, const std::string& id) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_object_del(section("resume"), key_of(service, id).c_str());
+    json_object_del(data_section("resume"), key_of(service, id).c_str());
     g_resume_version++;
     mark_dirty();
 }
 
 void resume_clear() {
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_object_clear(section("resume"));
+    json_object_clear(data_section("resume"));
     g_resume_version++;
     mark_dirty();
 }
@@ -503,7 +545,7 @@ uint32_t resume_version() { return g_resume_version; }
 std::vector<std::string> recent_searches(const char* service) {
     std::lock_guard<std::recursive_mutex> lk(g_m);
     std::vector<std::string> out;
-    json_t* a = array_in(section("searches"), service);
+    json_t* a = array_in(data_section("searches"), service);
     for (size_t i = 0; i < json_array_size(a); i++) out.push_back(json::str(json_array_get(a, i)));
     return out;
 }
@@ -512,7 +554,7 @@ void add_recent_search(const char* service, const std::string& q) {
     std::string t = util::trim(q);
     if (t.empty()) return;
     std::lock_guard<std::recursive_mutex> lk(g_m);
-    json_t* a = array_in(section("searches"), service);
+    json_t* a = array_in(data_section("searches"), service);
     for (size_t i = 0; i < json_array_size(a); i++) {
         if (util::lower(json::str(json_array_get(a, i))) == util::lower(t)) {
             json_array_remove(a, i);
@@ -522,6 +564,161 @@ void add_recent_search(const char* service, const std::string& q) {
     json_array_insert_new(a, 0, json_string(t.c_str()));
     while (json_array_size(a) > 12) json_array_remove(a, json_array_size(a) - 1);
     mark_dirty();
+}
+
+
+// --- profiles ---
+
+namespace {
+
+json_t* profiles_root() { return object_in(g_root, "profiles"); }
+
+Profile read_profile(json_t* o, const std::string& id) {
+    Profile p;
+    p.id = id;
+    p.name = json::str(o, {"name"});
+    p.color = (int)json::num(o, {"color"}, 0);
+    p.kids = id != MAIN_PROFILE && json::boolean(json_object_get(o, "kids"), false);
+    return p;
+}
+
+json_t* find_profile(const std::string& id) {
+    if (id == MAIN_PROFILE) return object_in(profiles_root(), "main");
+    json_t* list = json_object_get(profiles_root(), "list");
+    for (size_t i = 0; i < json_array_size(list); i++) {
+        json_t* o = json_array_get(list, i);
+        if (json::str(o, {"id"}) == id) return o;
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+std::string clean_profile_name(const std::string& name) {
+    size_t a = 0, b = name.size();
+    while (a < b && isspace((unsigned char)name[a])) a++;
+    while (b > a && isspace((unsigned char)name[b - 1])) b--;
+    std::string out;
+    size_t chars = 0;
+    for (size_t i = a; i < b; i++) {
+        const unsigned char c = (unsigned char)name[i];
+        if ((c & 0xC0) != 0x80) {  // the first byte of a character
+            if (chars == MAX_PROFILE_NAME) break;
+            chars++;
+        }
+        if (c < 0x20) continue;  // no control characters
+        out += (char)c;
+    }
+    while (!out.empty() && isspace((unsigned char)out.back())) out.pop_back();
+    return out;
+}
+
+std::vector<Profile> profiles() {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    std::vector<Profile> out;
+    out.push_back(read_profile(find_profile(MAIN_PROFILE), MAIN_PROFILE));
+    json_t* list = json_object_get(profiles_root(), "list");
+    for (size_t i = 0; i < json_array_size(list); i++) {
+        json_t* o = json_array_get(list, i);
+        out.push_back(read_profile(o, json::str(o, {"id"})));
+    }
+    return out;
+}
+
+Profile profile(const std::string& id) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_t* o = find_profile(id);
+    return o ? read_profile(o, id) : Profile{};
+}
+
+bool has_other_profiles() {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    return json_array_size(json_object_get(profiles_root(), "list")) > 0;
+}
+
+std::string active_profile() {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    return g_profile;
+}
+
+std::string last_profile() {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    const std::string last = json::str(profiles_root(), {"last"});
+    return !last.empty() && find_profile(last) ? last : std::string(MAIN_PROFILE);
+}
+
+bool kids_profile() {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    return g_own && profile(g_profile).kids;
+}
+
+bool switch_profile(const std::string& id) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    if (!find_profile(id)) return false;
+    g_profile = id;
+    g_own = id != MAIN_PROFILE;
+    g_user = g_own ? id : g_wiiu_user;
+    json_object_set_new(profiles_root(), "last", json_string(id.c_str()));
+    mark_dirty();
+    log_message(LOG_OK, "Store", "Profile %s", id.c_str());
+    return true;
+}
+
+std::string add_profile(const std::string& name, int color, bool kids) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_t* root = profiles_root();
+    json_t* list = array_in(root, "list");
+    if (json_array_size(list) + 1 >= MAX_PROFILES) return "";
+    const int64_t n = std::max<int64_t>(2, json::num(root, {"next"}, 2));
+    json_object_set_new(root, "next", json_integer(n + 1));
+    const std::string id = "p" + std::to_string(n);
+    json_t* o = json_object();
+    json_object_set_new(o, "id", json_string(id.c_str()));
+    json_object_set_new(o, "name", json_string(clean_profile_name(name).c_str()));
+    json_object_set_new(o, "color", json_integer(color));
+    json_object_set_new(o, "kids", json_boolean(kids));
+    json_array_append_new(list, o);
+    mark_dirty();
+    return id;
+}
+
+void rename_profile(const std::string& id, const std::string& name) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_t* o = find_profile(id);
+    if (!o) return;
+    json_object_set_new(o, "name", json_string(clean_profile_name(name).c_str()));
+    mark_dirty();
+}
+
+void set_profile_color(const std::string& id, int color) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_t* o = find_profile(id);
+    if (!o) return;
+    json_object_set_new(o, "color", json_integer(color));
+    mark_dirty();
+}
+
+void set_profile_kids(const std::string& id, bool kids) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    json_t* o = find_profile(id);
+    if (!o || id == MAIN_PROFILE) return;
+    json_object_set_new(o, "kids", json_boolean(kids));
+    mark_dirty();
+}
+
+bool remove_profile(const std::string& id) {
+    std::lock_guard<std::recursive_mutex> lk(g_m);
+    if (id == MAIN_PROFILE || id == g_profile) return false;
+    json_t* list = json_object_get(profiles_root(), "list");
+    for (size_t i = 0; i < json_array_size(list); i++) {
+        if (json::str(json_array_get(list, i), {"id"}) != id) continue;
+        json_array_remove(list, i);
+        json_object_del(object_in(g_root, "users"), id.c_str());  // everything it kept
+        if (json::str(profiles_root(), {"last"}) == id) json_object_del(profiles_root(), "last");
+        mark_dirty();
+        return true;
+    }
+    return false;
 }
 
 }  // namespace store

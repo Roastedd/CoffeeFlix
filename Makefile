@@ -39,13 +39,13 @@ TARGET      := coffeeflix
 BUILD       := build
 
 # Find all subdirectories recursively inside src/
-SOURCES     := $(shell find src -type d -not -path 'src/platform/desktop*')
+SOURCES     := $(shell find src -type d -not -path 'src/platform/desktop*' -not -path 'src/platform/android*')
 DATA        :=
 
 # Objects are named by basename, so two sources with the same file name in
 # different folders would silently overwrite each other: refuse to build.
 ifneq ($(BUILD),$(notdir $(CURDIR)))
-DUPLICATES  := $(shell find src -name '*.cpp' -o -name '*.c' | grep -v 'src/platform/desktop' | xargs -rn1 basename | sort | uniq -d)
+DUPLICATES  := $(shell find src -name '*.cpp' -o -name '*.c' | grep -v 'src/platform/desktop' | grep -v 'src/platform/android' | xargs -rn1 basename | sort | uniq -d)
 ifneq ($(strip $(DUPLICATES)),)
 $(error Duplicate source file names (rename one of each): $(DUPLICATES))
 endif
@@ -83,7 +83,7 @@ LDFLAGS 	:= -g $(ARCH) $(RPXSPECS) -Wl,--gc-sections -Wl,-Map,$(notdir $*.map)
 PKGCONF 	:= $(DEVKITPRO)/portlibs/wiiu/bin/powerpc-eabi-pkg-config
 LIBS 		:= -lavformat -lavcodec -lswresample -lswscale -lavutil -lsmb2 \
 			   $(shell $(PKGCONF) --libs --static SDL2_ttf SDL2_image libcurl jansson libzip) \
-			   -ltinyxml2 -lgif -lbrotlidec -lbrotlicommon -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
+			   -ltinyxml2 -lgif -ljpeg -lbrotlidec -lbrotlicommon -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level

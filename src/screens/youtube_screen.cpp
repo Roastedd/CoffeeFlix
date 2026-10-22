@@ -13,6 +13,7 @@
 #include "screens/youtube_common.hpp"
 #include "services/youtube.hpp"
 #include "services/yt_account.hpp"
+#include "services/locale_bias.hpp"
 #include "services/yt_recs.hpp"
 #include "ui/ui.hpp"
 
@@ -290,6 +291,7 @@ private:
         r->title = std::move(title);
         r->feed.fetch = [fetch](const std::string& c) {
             youtube::Results res = fetch(c);
+            locale_bias::filter(res.items, 6);
             std::set<std::string> titles;
             res.items.erase(std::remove_if(res.items.begin(), res.items.end(), [&](const youtube::Video& v) {
                 return !titles.insert(v.title).second || yt_recs::hidden(v);
@@ -322,8 +324,8 @@ public:
         trending_.load();
         for (auto& tp : youtube::topics()) {
             auto f = std::make_unique<Feed>();
-            std::string q = tp.query;
-            f->fetch = [q](const std::string& c) { return youtube::search(q, youtube::PARAMS_POPULAR_WEEK, c); };
+            std::string q = tp.query, name = tp.name;  // the English name: how yt_recs knows the topic
+            f->fetch = [name, q](const std::string& c) { return c.empty() ? yt_recs::topic_feed(name, q) : youtube::Results(); };
             topic_feeds_.push_back(std::move(f));
         }
         load_subscriptions();
@@ -395,10 +397,9 @@ public:
             const char* name = tr(tps[i].name);
             float w = cw[i + 1];
             if (chip(id(top, (int64_t)i), Rect(cx, y, w, 42), name, false, top, tps[i].icon)) {
-                std::string q = tps[i].query;
-                app::push(std::make_unique<VideoGridScreen>(name, tr("Popular this week"), [q](const std::string& c) {
-                    return youtube::search(q, youtube::PARAMS_POPULAR_WEEK, c);
-                }));
+                std::string q = tps[i].query, en = tps[i].name;
+                app::push(std::make_unique<VideoGridScreen>(name, yt_recs::has_profile() ? tr("Picked for you") : tr("Popular this week"),
+                                                           [en, q](const std::string& c) { return c.empty() ? yt_recs::topic_feed(en, q) : youtube::Results(); }));
             }
             cx += w + 12;
         }

@@ -26,6 +26,11 @@ void reset();
 // Builds the feed. Blocks on the network: run it on a task thread.
 youtube::Results for_you();
 
+// A topic's page (Music, Gaming...: the English name of youtube::topics() and its popular search), built from what
+// was watched in that category, with the popular list filling up. Without a history in it, the popular list less
+// whatever is made for another country (services/locale_bias). Blocks on the network.
+youtube::Results topic_feed(const std::string& topic, const std::string& fallback_query);
+
 // What Discover is built from.
 struct Profile {
     std::vector<youtube::Video> watched;     // enjoyed lately, newest first, one per channel

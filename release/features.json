@@ -1,4 +1,30 @@
 {
   "_comment": "Feature-board ids each release brings, by version. Kept with the release notes. When a version goes public, tools/mark-shipped.py moves these to Released.",
-  "2.4.3": ["startup-screen", "gamepad-default-view"]
+  "2.4.3": [
+    "startup-screen",
+    "gamepad-default-view"
+  ],
+  "2.5.0": [
+    "youtube-account",
+    "navidrome-support"
+  ],
+  "2.5.5": [
+    "personalize-home",
+    "photo-viewing",
+    "controller-keyboard",
+    "gamepad-search-next",
+    "supporter-updates",
+    "youtube-community"
+  ],
+  "2.5.6": [
+    "youtube-account",
+    "navidrome-support",
+    "personalize-home",
+    "photo-viewing",
+    "controller-keyboard",
+    "gamepad-search-next",
+    "supporter-updates",
+    "youtube-community",
+    "remember-subtitles"
+  ]
 }
