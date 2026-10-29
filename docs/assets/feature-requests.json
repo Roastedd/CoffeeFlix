@@ -11,9 +11,10 @@
       "A birthday surprise, Surprise me for your own files, and a look at what you’ve watched",
       "Take things off Continue watching"
     ],
-    "status": "in-progress",
+    "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Built and being tested on Wii U now. The start screen came out in 2.4.3; the rest is planned for an upcoming update."
+    "reply": "Built and being tested on Wii U now. The start screen came out in 2.4.3; the rest is planned for an upcoming update.",
+    "shipped_in": "2.5.6"
   },
   {
     "id": "display-options",
@@ -38,10 +39,13 @@
       "Used automatically when the GamePad screen is off or you last used another controller",
       "The GamePad keeps the system keyboard"
     ],
-    "issues": [45],
-    "status": "in-progress",
+    "issues": [
+      45
+    ],
+    "status": "shipped",
     "since": "2026-10-17",
-    "reply": "Built and being tried on Wii U for an upcoming update."
+    "reply": "Built and being tried on Wii U for an upcoming update.",
+    "shipped_in": "2.5.6"
   },
   {
     "id": "jellyfin-autoplay",
@@ -61,7 +65,10 @@
       "Browse and play files over FTP, including a phone acting as your media server",
       "Calibre-Web and Kavita libraries, read in CoffeeFlix next to the local EPUB and CBZ reader"
     ],
-    "issues": [11, 12],
+    "issues": [
+      11,
+      12
+    ],
     "status": "needs-research",
     "reply": "I'm checking what the Wii U can handle before promising anything here."
   },
@@ -74,9 +81,12 @@
       "Like and dislike videos while signed in",
       "YouTube Kids profile support"
     ],
-    "issues": [13],
-    "status": "in-progress",
-    "reply": "Like and dislike (with the counts) and Kids profiles with their own YouTube are built and being tested for an upcoming update."
+    "issues": [
+      13
+    ],
+    "status": "shipped",
+    "reply": "Like and dislike (with the counts) and Kids profiles with their own YouTube are built and being tested for an upcoming update.",
+    "shipped_in": "2.5.6"
   },
   {
     "id": "youtube-community",
@@ -87,10 +97,13 @@
       "Return YouTube Dislike counts",
       "Calmer titles and thumbnails in the spirit of DeArrow, with an option to see the originals"
     ],
-    "issues": [13],
-    "status": "in-progress",
+    "issues": [
+      13
+    ],
+    "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Dislike counts from Return YouTube Dislike are built. For titles and thumbnails I made CoffeeFlix’s own DeArrow-style options (calmer titles, a frame from the video) instead of using the DeArrow service. Both are in testing for an upcoming update."
+    "reply": "Dislike counts from Return YouTube Dislike are built. For titles and thumbnails I made CoffeeFlix’s own DeArrow-style options (calmer titles, a frame from the video) instead of using the DeArrow service. Both are in testing for an upcoming update.",
+    "shipped_in": "2.5.6"
   },
   {
     "id": "twitch-account",
@@ -101,7 +114,9 @@
       "Your followed channels",
       "Collect channel points while you watch"
     ],
-    "issues": [13],
+    "issues": [
+      13
+    ],
     "status": "needs-research",
     "reply": "Signing in depends on what Twitch allows on a console, so I'm checking that first."
   },
@@ -115,7 +130,9 @@
       "Chat with 7TV and BTTV emotes",
       "Polls and predictions where possible"
     ],
-    "issues": [13],
+    "issues": [
+      13
+    ],
     "status": "needs-research"
   },
   {
@@ -124,10 +141,13 @@
     "title": "Navidrome and Subsonic music servers",
     "summary": "Play your own music library from a Navidrome or other Subsonic-compatible server.",
     "includes": [],
-    "issues": [17],
-    "status": "in-progress",
+    "issues": [
+      17
+    ],
+    "status": "shipped",
     "since": "2026-10-16",
-    "reply": "A community pull request (#27) added this. It’s merged into my development version and being tested on Wii U for an upcoming update."
+    "reply": "A community pull request (#27) added this. It’s merged into my development version and being tested on Wii U for an upcoming update.",
+    "shipped_in": "2.5.6"
   },
   {
     "id": "dvd-playback",
@@ -140,7 +160,9 @@
       "DVD menus",
       "Music CDs and disc images (ISO) considered too"
     ],
-    "issues": [23],
+    "issues": [
+      23
+    ],
     "status": "needs-research",
     "reply": "I’m checking whether the Wii U lets apps read a USB DVD drive, and aiming to play every kind of DVD at the best quality it can show."
   },
@@ -153,8 +175,11 @@
       "Keep the subtitle language you chose for each show",
       "Keep subtitles off when you turned them off"
     ],
-    "issues": [29],
-    "status": "proposed"
+    "issues": [
+      29
+    ],
+    "status": "shipped",
+    "shipped_in": "2.5.6"
   },
   {
     "id": "m3u-playlists",
@@ -162,7 +187,9 @@
     "title": "M3U playlists",
     "summary": "Open M3U playlists from the SD card or a USB drive and play your videos and music straight from them, like WiiMC.",
     "includes": [],
-    "issues": [38],
+    "issues": [
+      38
+    ],
     "status": "proposed"
   },
   {
@@ -176,9 +203,10 @@
       "Details: date taken, camera, size",
       "A slideshow like the Wii Photo Channel, with music, that zooms in on one person and stays wide for a group"
     ],
-    "status": "in-progress",
+    "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Built and tried on Wii U. Large photos load much faster now. It’s planned for an upcoming update."
+    "reply": "Built and tried on Wii U. Large photos load much faster now. It’s planned for an upcoming update.",
+    "shipped_in": "2.5.6"
   },
   {
     "id": "gamepad-search-next",
@@ -189,10 +217,13 @@
       "A search button in the remote’s Up next tab",
       "Results replace the suggestions, one button goes back"
     ],
-    "issues": [46],
-    "status": "in-progress",
+    "issues": [
+      46
+    ],
+    "status": "shipped",
     "since": "2026-10-17",
-    "reply": "Built and being tried on Wii U for an upcoming update."
+    "reply": "Built and being tried on Wii U for an upcoming update.",
+    "shipped_in": "2.5.6"
   },
   {
     "id": "supporter-updates",
@@ -204,9 +235,12 @@
       "Previews arrive like a normal update, checked against a signature before anything is installed",
       "Works on up to five consoles per supporter"
     ],
-    "issues": [51],
-    "status": "in-progress",
+    "issues": [
+      51
+    ],
+    "status": "shipped",
     "since": "2026-10-17",
-    "reply": "Built. It needs a one-time setup on my side, then it will switch on for supporters."
+    "reply": "Built. It needs a one-time setup on my side, then it will switch on for supporters.",
+    "shipped_in": "2.5.6"
   }
 ]

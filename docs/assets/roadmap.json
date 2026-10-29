@@ -1,26 +1,6 @@
 {
-  "updated": "2026-10-17",
+  "updated": "2026-10-29",
   "items": [
-    {
-      "id": "startup-screen",
-      "title": "Pick your start screen",
-      "summary": "Choose where CoffeeFlix opens. This is included in the 2.4.3 supporter preview and has been tried on Wii U.",
-      "platforms": [
-        "Wii U"
-      ],
-      "status": "shipped",
-      "shipped_in": "2.4.3"
-    },
-    {
-      "id": "gamepad-default-view",
-      "title": "GamePad controls when you need them",
-      "summary": "Browse on both screens, then control playback from the GamePad. The 2.4.3 preview has passed its Wii U check.",
-      "platforms": [
-        "Wii U"
-      ],
-      "status": "shipped",
-      "shipped_in": "2.4.3"
-    },
     {
       "id": "release-channels",
       "title": "Small updates, tested first",
@@ -31,57 +11,6 @@
       "status": "in-progress"
     },
     {
-      "id": "supporter-previews",
-      "title": "Supporter previews",
-      "summary": "The 2.4.3 Wii U preview is available on Ko-fi. One-time donors get this preview and its fixes; monthly supporters get each new preview.",
-      "platforms": [
-        "Wii U"
-      ],
-      "status": "shipped"
-    },
-    {
-      "feature_id": "personalize-home",
-      "platforms": [
-        "Wii U"
-      ]
-    },
-    {
-      "feature_id": "jellyfin-autoplay",
-      "platforms": [
-        "Wii U"
-      ]
-    },
-    {
-      "feature_id": "youtube-account",
-      "platforms": [
-        "Wii U"
-      ]
-    },
-    {
-      "feature_id": "youtube-community",
-      "platforms": [
-        "Wii U"
-      ]
-    },
-    {
-      "feature_id": "navidrome-support",
-      "platforms": [
-        "Wii U"
-      ]
-    },
-    {
-      "feature_id": "photo-viewing",
-      "platforms": [
-        "Wii U"
-      ]
-    },
-    {
-      "feature_id": "controller-keyboard",
-      "platforms": [
-        "Wii U"
-      ]
-    },
-    {
       "feature_id": "gamepad-search-next",
       "platforms": [
         "Wii U"
@@ -89,6 +18,12 @@
     },
     {
       "feature_id": "supporter-updates",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "remember-subtitles",
       "platforms": [
         "Wii U"
       ]
