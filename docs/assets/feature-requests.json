@@ -13,7 +13,7 @@
     ],
     "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Built and being tested on Wii U now. The start screen came out in 2.4.3; the rest is planned for an upcoming update.",
+    "reply": "Released in 2.5.6. Choose where CoffeeFlix opens and make Home feel more like yours.",
     "shipped_in": "2.5.6"
   },
   {
@@ -44,7 +44,7 @@
     ],
     "status": "shipped",
     "since": "2026-10-17",
-    "reply": "Built and being tried on Wii U for an upcoming update.",
+    "reply": "Released in 2.5.6. Use a Pro Controller to type with the keyboard on your TV.",
     "shipped_in": "2.5.6"
   },
   {
@@ -76,16 +76,16 @@
     "id": "youtube-account",
     "category": "YouTube",
     "title": "YouTube account extras",
-    "summary": "More from your signed-in YouTube account. Profile access and account compatibility need investigating.",
+    "summary": "Like and dislike while signed in, with separate Kids profiles for the channels you choose.",
     "includes": [
       "Like and dislike videos while signed in",
-      "YouTube Kids profile support"
+      "Kids profiles with parent-selected YouTube channels"
     ],
     "issues": [
       13
     ],
     "status": "shipped",
-    "reply": "Like and dislike (with the counts) and Kids profiles with their own YouTube are built and being tested for an upcoming update.",
+    "reply": "Released in 2.5.6, with like/dislike controls and separate Kids profiles.",
     "shipped_in": "2.5.6"
   },
   {
@@ -102,7 +102,7 @@
     ],
     "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Dislike counts from Return YouTube Dislike are built. For titles and thumbnails I made CoffeeFlix’s own DeArrow-style options (calmer titles, a frame from the video) instead of using the DeArrow service. Both are in testing for an upcoming update.",
+    "reply": "Return YouTube Dislike counts and CoffeeFlix’s own calmer-title and video-frame options shipped in 2.5.6.",
     "shipped_in": "2.5.6"
   },
   {
@@ -146,7 +146,7 @@
     ],
     "status": "shipped",
     "since": "2026-10-16",
-    "reply": "A community pull request (#27) added this. It’s merged into my development version and being tested on Wii U for an upcoming update.",
+    "reply": "Navidrome music-server support is available in 2.5.6. Thanks for the community contribution!",
     "shipped_in": "2.5.6"
   },
   {
@@ -205,7 +205,7 @@
     ],
     "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Built and tried on Wii U. Large photos load much faster now. It’s planned for an upcoming update.",
+    "reply": "Released in 2.5.6, with faster photo loading, rotation, slideshows and a photo-frame screensaver.",
     "shipped_in": "2.5.6"
   },
   {
@@ -222,7 +222,7 @@
     ],
     "status": "shipped",
     "since": "2026-10-17",
-    "reply": "Built and being tried on Wii U for an upcoming update.",
+    "reply": "Released in 2.5.6. Search for the next video on the GamePad while the TV keeps playing.",
     "shipped_in": "2.5.6"
   },
   {
@@ -240,7 +240,7 @@
     ],
     "status": "shipped",
     "since": "2026-10-17",
-    "reply": "Built. It needs a one-time setup on my side, then it will switch on for supporters.",
+    "reply": "The Settings option shipped in 2.5.6. Preview delivery still needs the supporter service set up.",
     "shipped_in": "2.5.6"
   }
 ]
