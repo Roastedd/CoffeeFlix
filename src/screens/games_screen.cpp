@@ -6,7 +6,9 @@
 #include <string>
 #include <vector>
 
+#include "core/i18n.hpp"
 #include "core/tasks.hpp"
+#include "core/util.hpp"
 #include "gfx/text.hpp"
 #include "ui/ui.hpp"
 
@@ -26,16 +28,16 @@ public:
         const Id base = id("games-library");
         page_.begin(id(base, "page"));
         float y = page_.y(49);
-        section_title(x, y, "Games", "Your installed Wii U and Wii Virtual Console games");
+        section_title(x, y, tr("Games"), tr("Your installed Wii U and Wii Virtual Console games"));
         y += 104;
         Id controls = id(base, "filters");
-        if (chip(id(controls, "all"), Rect(x, y, 115, 42), "All games", filter_ == 0, controls)) filter_ = 0;
-        if (chip(id(controls, "mmc"), Rect(x + 128, y, 141, 42), "Internal", filter_ == 1, controls, ic::STORAGE)) filter_ = 1;
+        if (chip(id(controls, "all"), Rect(x, y, 115, 42), tr("All games"), filter_ == 0, controls)) filter_ = 0;
+        if (chip(id(controls, "mmc"), Rect(x + 128, y, 141, 42), tr("Internal"), filter_ == 1, controls, ic::STORAGE)) filter_ = 1;
         if (chip(id(controls, "usb"), Rect(x + 283, y, 120, 42), "USB", filter_ == 2, controls, ic::USB)) filter_ = 2;
-        if (button(id(controls, "refresh"), Rect(W - 210, y, 144, 42), "Refresh", ic::REFRESH, BTN_GHOST, controls)) Refresh(true);
+        if (button(id(controls, "refresh"), Rect(W - 210, y, 144, 42), tr("Refresh"), ic::REFRESH, BTN_GHOST, controls)) Refresh(true);
         if (input().pressed_(BTN_Y) && !menu_active()) { input().eat(BTN_Y); Refresh(true); }
         if (loading_ && !games_.empty()) {
-            const std::string checking = std::to_string(progress_->checked.load()) + " titles checked";
+            const std::string checking = util::fmt(tr("%d titles checked"), progress_->checked.load());
             text::draw(font::caption, W - 210, y + 49, checking, theme().text2);
         }
         y += 79;
@@ -45,9 +47,9 @@ public:
             if (filter_ == 0 || (filter_ == 1 && !games_[i].usb) || (filter_ == 2 && games_[i].usb)) visible.push_back(i);
         }
         if (loading_ && visible.empty()) {
-            const std::string label = progress_->phase.load() == 2 ? "Scanning USB games" : "Scanning internal games";
-            loading_indicator(x + (W - x - 64) * 0.5f, y + 85, label.c_str());
-            const std::string checked = std::to_string(progress_->checked.load()) + " titles checked";
+            const char* label = progress_->phase.load() == 2 ? tr("Scanning USB games") : tr("Scanning internal games");
+            loading_indicator(x + (W - x - 64) * 0.5f, y + 85, label);
+            const std::string checked = util::fmt(tr("%d titles checked"), progress_->checked.load());
             text::draw(font::caption, x + (W - x - 64) * 0.5f, y + 147, checked, theme().text2, text::CENTER);
             GridSpec placeholders;
             placeholders.cols = 5;
@@ -58,8 +60,8 @@ public:
             y += 195 + grid(id(base, "loading-tiles"), x, y + 195, placeholders, &page_);
         } else if (visible.empty()) {
             empty_state(Rect(x, y, W - x - 64, 320), ic::GAMEPAD,
-                        failed_ ? "Could not read games" : "No installed games found",
-                        failed_ ? "Press Y to retry reading the Wii U library." : "Choose another storage device or refresh the library.");
+                        failed_ ? tr("Could not read games") : tr("No installed games found"),
+                        failed_ ? tr("Press Y to retry reading the Wii U library.") : tr("Choose another storage device or refresh the library."));
             y += 340;
         } else {
             GridSpec gridSpec;
@@ -73,7 +75,7 @@ public:
                 CardInfo card;
                 card.image = game.icon;
                 card.title = game.name;
-                card.subtitle = game.usb ? "USB storage" : "Internal memory";
+                card.subtitle = game.usb ? tr("USB storage") : tr("Internal memory");
                 card.tag = game.wii ? "Wii VC" : "Wii U";
                 card.icon = ic::GAMEPAD;
                 return card;
@@ -82,7 +84,7 @@ public:
             y += grid(id(base, "tiles"), x, y, gridSpec, &page_);
         }
         page_.end(y + page_.scroll() + 10);
-        hint_bar({{"A", "Launch"}, {"Y", "Refresh"}, {"B", "Back"}});
+        hint_bar({{"A", tr("Launch")}, {"Y", tr("Refresh")}, {"B", tr("Back")}});
     }
 private:
     void Refresh(bool full) {
@@ -103,16 +105,16 @@ private:
     }
     void Open(const Game& game) {
         if (!game.wii) {
-            show_menu(game.name, game.usb ? "Installed on USB" : "Installed on internal memory",
-                {{"Start game", ic::GAMEPAD, [game] { game_library::launch(game, 1); }}});
+            show_menu(game.name, game.usb ? tr("Installed on USB") : tr("Installed on internal memory"),
+                {{tr("Start game"), ic::GAMEPAD, [game] { game_library::launch(game, 1); }}});
             return;
         }
         std::vector<MenuItem> choices;
-        if (game.gamepad) choices.push_back({"Use GamePad as controller", ic::GAMEPAD, [game] { game_library::launch(game, 0); }});
-        choices.push_back({"TV only", ic::TV, [game] { game_library::launch(game, 1); }});
-        choices.push_back({"TV and GamePad screen", ic::GAMEPAD, [game] { game_library::launch(game, 2); }});
-        choices.push_back({"GamePad screen only", ic::GAMEPAD, [game] { game_library::launch(game, 3); }});
-        show_menu(game.name, "Wii VC - choose your play mode", std::move(choices));
+        if (game.gamepad) choices.push_back({tr("Use GamePad as controller"), ic::GAMEPAD, [game] { game_library::launch(game, 0); }});
+        choices.push_back({tr("TV only"), ic::TV, [game] { game_library::launch(game, 1); }});
+        choices.push_back({tr("TV and GamePad screen"), ic::GAMEPAD, [game] { game_library::launch(game, 2); }});
+        choices.push_back({tr("GamePad screen only"), ic::GAMEPAD, [game] { game_library::launch(game, 3); }});
+        show_menu(game.name, tr("Wii VC - choose your play mode"), std::move(choices));
     }
     bool loaded_ = false;
     bool loading_ = false;
@@ -129,7 +131,7 @@ public:
     app::Section section() const override { return app::SEC_GAMES; }
     void frame() override {
         empty_state(Rect(content_x(), 200, W - content_x() - 60, 320), ic::GAMEPAD,
-                    "Wii U games", "The games library is available on Wii U.");
+                    tr("Wii U games"), tr("The games library is available on Wii U."));
     }
 };
 #endif

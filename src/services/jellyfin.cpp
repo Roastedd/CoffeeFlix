@@ -1,6 +1,7 @@
 #include "services/jellyfin.hpp"
 
 #include <algorithm>
+#include <set>
 #include <atomic>
 #include <cstdlib>
 #include <iterator>
@@ -415,6 +416,12 @@ void add_account() {
 
 int version() { return g_version.load(); }
 
+void reload() {
+    std::lock_guard<std::mutex> lk(g_m);
+    g_loaded = false;
+    g_version++;
+}
+
 std::string normalize_url(const std::string& input) {
     std::string u = util::trim(input);
     while (!u.empty() && u.back() == '/') u.pop_back();
@@ -489,11 +496,25 @@ List views() {
     return parse_list(get_with_fallback("/UserViews?userId=" + a.user_id, "/Users/" + a.user_id + "/Views"));
 }
 
+namespace {
+std::string resume_key(const Item& it) { return it.id + "@" + std::to_string((long long)it.position) + "\n"; }
+}  // namespace
+
+void hide_from_resume(const Item& it) {
+    std::string list = store::get_str("jf_resume_hidden") + resume_key(it);
+    while (std::count(list.begin(), list.end(), '\n') > 100) list = list.substr(list.find('\n') + 1);  // the last 100 are enough
+    store::set_str("jf_resume_hidden", list);
+}
+
 List resume() {
     Account a = snapshot();
     std::string q = std::string("?mediaTypes=Video&limit=20&") + FIELDS;
-    return parse_list(get_with_fallback("/UserItems/Resume" + q + "&userId=" + a.user_id,
-                                        "/Users/" + a.user_id + "/Items/Resume" + q));
+    List l = parse_list(get_with_fallback("/UserItems/Resume" + q + "&userId=" + a.user_id,
+                                          "/Users/" + a.user_id + "/Items/Resume" + q));
+    const std::string hidden = "\n" + store::get_str("jf_resume_hidden");
+    l.items.erase(std::remove_if(l.items.begin(), l.items.end(), [&](const Item& it) { return hidden.find("\n" + resume_key(it)) != std::string::npos; }),
+                  l.items.end());
+    return l;
 }
 
 List next_up(const std::string& series_id) {
@@ -537,6 +558,46 @@ List children(const std::string& parent_id) { return items(parent_id, "", "SortN
 List similar(const std::string& id) {
     Account a = snapshot();
     return parse_list(api("GET", "/Items/" + id + "/Similar?userId=" + a.user_id + "&limit=16&" + FIELDS));
+}
+
+List because_you_watched() {
+    Account a = snapshot();
+    std::string q = "?isPlayed=true&sortBy=DatePlayed&sortOrder=Descending&recursive=true&limit=12&includeItemTypes=Movie,Episode&" +
+                    std::string(FIELDS);
+    List recent = parse_list(get_with_fallback("/Items" + q + "&userId=" + a.user_id, "/Users/" + a.user_id + "/Items" + q));
+    List out;
+    out.ok = recent.ok;
+    out.error = recent.error;
+    // The last three different titles (an episode stands for its show).
+    std::vector<std::pair<std::string, std::string>> bases;  // id, name
+    for (const Item& it : recent.items) {
+        std::string id = it.type == "Episode" ? it.series_id : it.id;
+        std::string name = it.type == "Episode" ? it.series_name : it.name;
+        if (id.empty()) continue;
+        bool seen = false;
+        for (auto& b : bases) seen = seen || b.first == id;
+        if (!seen) bases.emplace_back(id, name);
+        if (bases.size() >= 3) break;
+    }
+    std::set<std::string> have;
+    for (auto& b : bases) have.insert(b.first);
+    std::vector<List> lists;
+    for (auto& b : bases) {
+        List l = similar(b.first);
+        if (l.ok) lists.push_back(std::move(l));
+    }
+    if (!bases.empty()) out.note = bases[0].second;
+    for (size_t i = 0; out.items.size() < 24; i++) {
+        bool any = false;
+        for (auto& l : lists) {
+            if (i >= l.items.size()) continue;
+            any = true;
+            Item& it = l.items[i];
+            if (!it.played && have.insert(it.id).second) out.items.push_back(std::move(it));
+        }
+        if (!any) break;
+    }
+    return out;
 }
 
 List search(const std::string& term) {

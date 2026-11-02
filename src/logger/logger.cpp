@@ -32,6 +32,7 @@ const Style STYLES[] = {
 constexpr long FILE_LIMIT = 1 << 20;  // the file's size; a longer run starts it over, with the lines before
 constexpr size_t FILE_CARRY = 300;    // of them
 constexpr size_t RECENT_LINES = 4000;
+constexpr size_t MAX_PENDING = 3000;  // lines waiting for the writer: a card that stalls must not make them grow for hours
 
 struct Line {
     std::string console, file;
@@ -42,6 +43,7 @@ std::atomic<uint32_t> g_called{0}, g_queued{0}, g_written{0};  // 32-bit: the Wi
 std::mutex g_mutex;  // the lists below
 std::condition_variable g_cv;
 std::deque<Line> g_pending;       // for the writer thread
+uint32_t g_dropped = 0;            // lines not queued because it was full (debug ones first)
 std::deque<std::string> g_recent;  // the last lines, for log_lines_since
 uint64_t g_count = 0;              // lines logged so far
 std::thread* g_writer = nullptr;   // never deleted: log_shutdown joins it
@@ -126,6 +128,23 @@ void log_message(LogLevel level, const char* system, const char* format, ...) {
     g_count++;
     g_queued.fetch_add(1);
     if (g_writer && !g_stop) {
+        if (g_pending.size() >= MAX_PENDING && level == LOG_DEBUG) {
+            g_dropped++;   // the writer is far behind: debug lines are the first to go
+            return;
+        }
+        if (g_pending.size() >= MAX_PENDING * 2) {
+            g_pending.pop_front();
+            g_dropped++;
+        }
+        if (g_dropped > 0 && g_pending.size() < MAX_PENDING / 2) {   // caught up: say what was lost
+            Line note;
+            char nb[200];
+            std::snprintf(nb, sizeof(nb), "%9.3f [Log] [WARNING] %u log lines were dropped while the writer was behind\n", t, g_dropped);
+            note.file = nb;
+            note.console = nb;
+            g_dropped = 0;
+            g_pending.push_back(std::move(note));
+        }
         g_pending.push_back(std::move(l));
         lock.unlock();
         g_cv.notify_one();

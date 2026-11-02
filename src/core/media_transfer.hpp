@@ -21,7 +21,11 @@
 #include <string>
 #include <thread>
 namespace media_transfer {
+#ifdef __ANDROID__
+constexpr uint64_t MAX_FILE = 1ull << 40; // no FAT limits: movies of tens of GB (off_t is 64-bit, see android.mk)
+#else
 constexpr uint64_t MAX_FILE = 2147483647; // portable signed file offsets on Wii U
+#endif
 struct Status {
     bool active = false;
     uint64_t received = 0, total = 0;   // of the file, including what an earlier attempt kept

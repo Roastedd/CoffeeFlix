@@ -66,6 +66,9 @@ struct ShelfSpec {
     CardShape shape = CARD_WIDE;
     float item_w = 300;
     bool loading = false;
+    // Where focus lands when nothing has it: while loading, the first skeleton (true: the way it always was), and
+    // the first card (`first_default`) once loaded. A page of several shelves gives it to the topmost one.
+    bool placeholder_default = true, first_default = false;
     std::function<CardInfo(int)> item;
     std::function<void(int)> on_click;
     std::function<void(int)> on_focus;   // e.g. update the backdrop
@@ -116,8 +119,12 @@ struct MenuItem {
     std::string label;
     int icon = 0;
     std::function<void()> action;
+    std::string detail;  // a smaller line or two under the label
 };
-void show_menu(const std::string& title, const std::string& subtitle, std::vector<MenuItem> items);
+// `header`, if given, draws something under the title at (x, y) over width w, each frame, and returns the
+// height it took (0: nothing).
+void show_menu(const std::string& title, const std::string& subtitle, std::vector<MenuItem> items,
+               std::function<float(float x, float y, float w)> header = {});
 bool menu_active();
 void close_menu();
 // Draws the menu; called by the app every frame.
@@ -127,6 +134,7 @@ void draw_menu();
 std::unique_ptr<app::Screen> make_media_folder(const std::string& path, const std::string& title);
 std::unique_ptr<app::Screen> make_reader(const std::string& path);
 std::unique_ptr<app::Screen> make_licenses();
+std::unique_ptr<app::Screen> make_gamepad_lab();  // Settings, developers on the Wii U
 std::unique_ptr<app::Screen> make_update();
 std::unique_ptr<app::Screen> smb_browser_screen();
 std::unique_ptr<app::Screen> dlna_servers_screen();

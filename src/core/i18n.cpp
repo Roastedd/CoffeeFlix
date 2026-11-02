@@ -133,11 +133,38 @@ const Language& current() { return *g_current; }
 const Language& system() { return *g_system; }
 int generation() { return g_generation; }
 
+#ifdef __ANDROID__
+namespace {
+// The text is written for the Wii U ("your Wii U", "the SD card"): on Android the same words name the
+// TV box and its storage.
+const char* device_words(const char* text) {
+    if (!text || (!strstr(text, "Wii U") && !strstr(text, "SD card"))) return text;
+    static std::mutex m;
+    static std::unordered_map<std::string, std::string> cache;  // node-based: the strings stay put
+    std::lock_guard<std::mutex> lock(m);
+    auto it = cache.find(text);
+    if (it != cache.end()) return it->second.c_str();
+    std::string s = util::replace_all(text, "Wii U Menu", "Home screen");
+    s = util::replace_all(s, "Wii U", "Fire TV");
+    s = util::replace_all(s, "the SD card", "storage");
+    s = util::replace_all(s, "SD card", "storage");
+    return cache.emplace(text, std::move(s)).first->second.c_str();
+}
+}  // namespace
+#endif
+
 const char* tr(const char* english) {
     const Catalog* cat = g_catalog;
-    if (!cat || !english) return english;
-    auto it = cat->map.find(english);
-    return it == cat->map.end() ? english : it->second;
+    const char* text = english;
+    if (cat && english) {
+        auto it = cat->map.find(english);
+        if (it != cat->map.end()) text = it->second;
+    }
+#ifdef __ANDROID__
+    return device_words(text);
+#else
+    return text;
+#endif
 }
 
 namespace {

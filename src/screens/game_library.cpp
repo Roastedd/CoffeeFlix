@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <utility>
 
+#include "core/i18n.hpp"
 #include "core/json.hpp"
 #include "core/util.hpp"
 #include "gfx/text.hpp"
@@ -273,7 +274,7 @@ void launch(const Game& game, int option) {
             option == 1 ? CMPT_SCREEN_TYPE_TV :
             option == 2 ? CMPT_SCREEN_TYPE_BOTH : CMPT_SCREEN_TYPE_DRC;
         if (CMPTAcctSetDrcCtrlEnabled(useGamePad ? 1 : 0) < 0 || CMPTAcctSetScreenType(screen) < 0) {
-            ui::toast("Could not configure Wii VC controller mode", ic::ERROR_OUTLINE);
+            ui::toast(tr("Could not configure Wii VC controller mode"), ic::ERROR_OUTLINE);
             return;
         }
         if (CMPTCheckScreenState() < 0 && screen != CMPT_SCREEN_TYPE_DRC) CMPTAcctSetScreenType(CMPT_SCREEN_TYPE_DRC);

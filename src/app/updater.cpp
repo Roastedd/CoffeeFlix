@@ -15,6 +15,9 @@
 #include <cstring>
 #include <memory>
 #include <vector>
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
 
 #include "core/http.hpp"
 #include "core/build_variant.hpp"
@@ -55,6 +58,14 @@ const char* DEV_KEY =
     "AXkHAW5FifDHEA134ZtRyWSnD2E+eImm7FWXNeWC0N19164SB1qAyKNJ+g==\n"
     "-----END PUBLIC KEY-----\n";
 
+// The public half of the key supporter previews are signed with (tools/supporter-catalog.py). The private half is a secret
+// of the release workflow and stays off the console, so only the owner can make a preview this accepts.
+const char* SUPPORTER_KEY =
+    "-----BEGIN PUBLIC KEY-----\n"
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEWtaJ1J/eKwcXP4DAuVla8kP/WbVt\n"
+    "mXrty3vuucu/S5ZMEdQsuIlbxEEqOqJkJ7z3zQnn+YsA22MZh4cfeS7TBw==\n"
+    "-----END PUBLIC KEY-----\n";
+
 struct Job {
     std::atomic<bool> cancel{false};
     std::atomic<int32_t> done{0};  // bytes; 32 bits, which the Wii U's CPU can update atomically
@@ -73,6 +84,11 @@ State g_state = IDLE;
 Release g_release;
 std::vector<Release> g_dev_builds;
 std::string g_error, g_reason, g_bundle, g_dev_server;
+#ifdef __ANDROID__
+std::string g_running;  // the installed APK, which the offered build is compared with
+bool g_installing = false;  // the installer has the READY build
+double g_next_install_look = 0;
+#endif
 bool g_supported = false, g_has_previous = false, g_switch_back = false;
 bool g_declined = false;  // this session: the user said no to this update
 bool g_dev_checked = false;  // this session
@@ -86,10 +102,12 @@ tasks::Scope g_scope;
 std::string latest_url() { return util::env_or("COFFEEFLIX_UPDATE_URL", LATEST); }
 
 // Where the update comes from, for the log.
-const char* source(const Release& rel) { return rel.dev ? "your computer" : "GitHub"; }
+const char* source(const Release& rel) { return rel.dev ? "your computer" : rel.supporter ? "the supporter server" : "GitHub"; }
 
 // What the user's answers about an update (skipped, told about) refer to.
-std::string key(const Release& rel) { return rel.dev ? rel.sha256 : rel.version; }
+std::string key(const Release& rel) { return rel.dev || rel.supporter ? rel.sha256 : rel.version; }
+
+std::string g_supporter_message;
 
 // "2.1.2", "v2.1.2", "2.1.2-11-gf25ba75" -> {2, 1, 2}; empty without a leading number.
 std::vector<int> numbers(const std::string& v) {
@@ -257,7 +275,11 @@ CheckResult fetch_latest() {
     json_t* assets = json::at(root, {"assets"});
     for (size_t i = 0; i < json::size(assets); i++) {
         json_t* a = json_array_get(assets, i);
+#ifdef __ANDROID__
+        if (json::str(a, {"name"}) != "coffeeflix.apk") continue;
+#else
         if (json::str(a, {"name"}) != "coffeeflix.wuhb") continue;
+#endif
         out.rel.url = json::str(a, {"browser_download_url"});
         out.rel.size = json::num(a, {"size"});
         std::string digest = json::str(a, {"digest"});
@@ -266,7 +288,11 @@ CheckResult fetch_latest() {
     bool test = latest_url() != LATEST;
     if (!doc) out.error = tr("GitHub's answer didn't make sense");
     else if (numbers(out.rel.version).empty()) out.error = tr("The latest release has no version number");
+#ifdef __ANDROID__
+    else if (out.rel.url.empty()) out.error = "The latest release has no Fire TV app (coffeeflix.apk) yet";
+#else
     else if (out.rel.url.empty()) out.error = tr("The latest release has no coffeeflix.wuhb");
+#endif
     else if (!is_sha256(out.rel.sha256)) out.error = tr("GitHub gave no checksum for the download, so it can't be checked");
     else if (!test && !util::starts_with(out.rel.url, DOWNLOADS)) out.error = tr("The download isn't on CoffeeFlix's GitHub page");
     else if (out.rel.size < (1 << 20) || out.rel.size > (256 << 20)) out.error = tr("The download's size looks wrong");
@@ -277,6 +303,11 @@ CheckResult fetch_latest() {
 // the network, else the one found last time.
 std::string find_dev_server() {
     std::string fixed = util::env_or("COFFEEFLIX_DEV_SERVER", "");  // desktop tests
+#ifdef __ANDROID__
+    // The emulator can't hear the broadcast: adb shell setprop debug.coffeeflix.devserver 10.0.2.2:47292
+    char forced[PROP_VALUE_MAX] = "";
+    if (fixed.empty() && __system_property_get("debug.coffeeflix.devserver", forced) > 0) fixed = forced;
+#endif
     if (!fixed.empty()) return fixed;
     std::string found;
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -384,7 +415,11 @@ CheckResult parse_dev_catalog(const std::string& body, const std::string& server
             out.error = tr("Your computer sent an invalid build list.");
             return out;
         }
+#ifdef __ANDROID__
+        rel.url = "http://" + server + "/builds/" + rel.build_id + "/" + rel.sha256 + "/coffeeflix.apk";
+#else
         rel.url = "http://" + server + "/builds/" + rel.build_id + "/" + rel.sha256 + "/coffeeflix.wuhb";
+#endif
         verified.push_back(std::move(rel));
     }
     out.builds = std::move(verified);
@@ -404,11 +439,19 @@ CheckResult fetch_dev(const std::string& bundle, const std::string& selected) {
     out.rel.dev = true;
     out.server = find_dev_server();
     if (out.server.empty()) {
+#ifdef __ANDROID__
+        out.error = "Couldn't find your computer. Run tools/dev-update-android.sh on it, on the same network as this Fire TV.";
+#else
         out.error = tr("Couldn't find your computer. Run tools/dev-update.sh on it, on the same network as this Wii U.");
+#endif
         return out;
     }
     http::Request req;
+#ifdef __ANDROID__
+    req.url = "http://" + out.server + "/builds-android.json";  // the APKs; /builds.json offers Wii U bundles
+#else
     req.url = "http://" + out.server + "/builds.json";
+#endif
     req.timeout = 8;
     req.max_bytes = 512u << 10;
     auto r = http::perform(req);
@@ -421,16 +464,173 @@ CheckResult fetch_dev(const std::string& bundle, const std::string& selected) {
     return parse_dev_catalog(r.body, out.server, bundle, selected);
 }
 
+// --- supporter previews -----------------------------------------------------------------------
+
+std::string supporter_server() {
+    static const std::string url = [] {
+        std::string v = util::env_or("COFFEEFLIX_SUPPORTER_URL", "");
+        std::string file;
+        if (v.empty() && util::read_file(platform::content_dir() + "/supporter-server.txt", file)) v = util::trim(file);
+        while (!v.empty() && v.back() == '/') v.pop_back();
+        return v;
+    }();
+    return url;
+}
+
+// Desktop tests point the gate at a local server over plain http (the variable is never set on a console).
+bool tls_needed() { return util::env_or("COFFEEFLIX_SUPPORTER_URL", "").empty(); }
+
+// Ours alone: a random id for this console (the gate allows a few consoles for each supporter).
+std::string supporter_device() {
+    std::string id = store::get_str("supporter_device");
+    if (id.size() != 32) {
+        id = util::secure_random_hex(16);
+        if (id.size() != 32) id = util::random_hex(16);
+        store::set_str("supporter_device", id);
+    }
+    return id;
+}
+
+// The list of builds, checked against the supporter key (the gate is only a relay). One build; its version, which preview of
+// it this is, and a signature over the file.
+CheckResult parse_supporter_catalog(const std::string& body, const std::string& server) {
+    CheckResult out;
+    auto envelope = json::Doc::parse(body);
+    std::string payload = json::str(envelope.get(), {"catalog"});
+    auto signature = from_hex(util::lower(json::str(envelope.get(), {"signature"})));
+    sha256::Hasher hash;
+    hash.update(payload.data(), payload.size());
+    auto digest = from_hex(hash.hex());
+    if (payload.empty() || payload.size() > (256u << 10) || signature.empty() ||
+        !platform::verify_signature(SUPPORTER_KEY, digest.data(), signature)) {
+        out.error = tr("The supporter list isn't signed by CoffeeFlix.");
+        return out;
+    }
+    auto doc = json::Doc::parse(payload);
+    json_t* builds = json::at(doc.get(), {"builds"});
+    if (json::num(doc.get(), {"schema"}) != 1 || !json_is_array(builds) || json::size(builds) < 1) {
+        out.error = tr("The supporter list didn't make sense.");
+        return out;
+    }
+    json_t* o = json_array_get(builds, 0);
+    Release rel;
+    rel.supporter = true;
+    rel.version = json::str(o, {"version"});
+    rel.revision = (int)json::num(o, {"revision"});
+    rel.notes = plain_notes(json::str(o, {"notes"})).substr(0, 4000);
+    rel.size = json::num(o, {"size"});
+    rel.sha256 = util::lower(json::str(o, {"sha256"}));
+    auto sig = from_hex(util::lower(json::str(o, {"signature"})));
+    auto sum = from_hex(rel.sha256);
+    if (numbers(rel.version).empty() || rel.version.size() > 32 || !is_sha256(rel.sha256) || rel.revision < 0 || rel.revision > 100000 ||
+        rel.size < (1 << 20) || rel.size > (256 << 20) || sig.empty() || !platform::verify_signature(SUPPORTER_KEY, sum.data(), sig)) {
+        out.error = tr("The supporter list didn't make sense.");
+        return out;
+    }
+    rel.url = server + "/v1/dl/" + rel.sha256;
+    out.rel = std::move(rel);
+    return out;
+}
+
+// Worker: signs in to the gate with the Ko-fi email, then asks for the list.
+CheckResult fetch_supporter() {
+    CheckResult out;
+    const std::string server = supporter_server(), email = store::get_str("supporter_email");
+    if (server.empty() || email.empty()) {
+        out.error = tr("Supporter updates need the email you used on Ko-fi.");
+        return out;
+    }
+    auto problem = [&](const http::Response& r) -> std::string {
+        std::string code = json::str(json::Doc::parse(r.body).get(), {"error"});
+        if (code == "not_supporter") return tr("That email isn't on the supporter list. Use the one you gave Ko-fi.");
+        if (code == "too_many_devices") return tr("This email is already used on five consoles.");
+        if (code == "slow_down" || r.status == 429) return tr("Too many tries. Try again in an hour.");
+        if (r.status == 401) return tr("The supporter pass ran out. Check again.");
+        if (!r.error.empty()) return r.error;
+        return util::fmt(tr("The supporter server answered %ld"), r.status);
+    };
+    http::Request ask;
+    ask.method = "POST";
+    ask.url = server + "/v1/session";
+    ask.headers = {{"Content-Type", "application/json"}};
+    {
+        json_t* o = json_object();
+        json_object_set_new(o, "email", json_string(email.c_str()));
+        json_object_set_new(o, "device", json_string(supporter_device().c_str()));
+        char* text = json_dumps(o, JSON_COMPACT);
+        ask.body = text ? text : "";
+        free(text);
+        json_decref(o);
+    }
+    ask.require_tls = tls_needed();
+    ask.private_url = true;
+    ask.timeout = 20;
+    ask.max_bytes = 16u << 10;
+    http::Response r = http::perform(ask);
+    if (!r.ok()) {
+        out.error = problem(r);
+        return out;
+    }
+    const std::string token = json::str(json::Doc::parse(r.body).get(), {"token"});
+    if (token.empty()) {
+        out.error = tr("The supporter server didn't give a pass.");
+        return out;
+    }
+    http::Request list;
+    list.url = server + "/v1/catalog";
+    list.headers = {{"Authorization", "Bearer " + token}};
+    list.require_tls = tls_needed();
+    list.private_url = true;
+    list.timeout = 20;
+    list.max_bytes = 512u << 10;
+    r = http::perform(list);
+    if (!r.ok()) {
+        out.error = r.status == 404 ? std::string(tr("No supporter preview is out yet.")) : problem(r);
+        return out;
+    }
+    out = parse_supporter_catalog(r.body, server);
+    out.rel.token = token;
+    return out;
+}
+
+int installed_revision() { return (int)store::get_int("supporter_revision", 0); }
+
+// A preview is newer when its version is, or when it is the version running and a later preview of it than the one installed.
+bool supporter_newer(const Release& rel) {
+    if (newer(rel.version, APP_VERSION)) return true;
+    if (newer(APP_VERSION, rel.version)) return false;
+    return rel.revision > installed_revision() && store::get_str("supporter_version") == rel.version;
+}
+
+// The preview and the public release, whichever is newer for a supporter (the final release wins a tie: it is the same code).
+CheckResult fetch_best() {
+    CheckResult s = fetch_supporter();
+    CheckResult p = fetch_latest();
+    if (!s.error.empty()) {
+        g_supporter_message = s.error;
+        log_message(LOG_WARNING, "Update", "Supporter updates: %s", s.error.c_str());
+        return p.error.empty() ? p : s;
+    }
+    g_supporter_message.clear();
+    if (p.error.empty() && !newer(s.rel.version, p.rel.version)) return p;
+    return s;
+}
+
 // Worker: reads the saved file back from the SD card and compares it with what was published.
 std::string verify(const std::string& path, const Release& rel, const Job& job) {
     FileHash fh;
     bool read = hash_file(path, &job.cancel, fh);
     if (job.cancel) return "Cancelled";
     if (!read || fh.size != rel.size) return tr("Couldn't read the download back");
+#ifdef __ANDROID__
+    if (memcmp(fh.magic, "PK\x03\x04", 4)) return "The download isn't an Android app";
+#else
     if (memcmp(fh.magic, "WUHB", 4)) return tr("The download isn't a Wii U app");
+#endif
     if (fh.sha256 != rel.sha256)
         return rel.dev ? tr("The download didn't match your computer's checksum")
-                       : tr("The download didn't match GitHub's checksum");
+               : rel.supporter ? tr("The download didn't match the supporter list's checksum")
+                               : tr("The download didn't match GitHub's checksum");
     return "";
 }
 
@@ -443,7 +643,11 @@ std::string fetch(const Release& rel, const std::string& dest, Job& job) {
     bool write_failed = false, too_big = false;
     http::Request req;
     req.url = rel.url;
-    req.require_tls = !rel.dev;  // developer builds come over the local network, signed instead
+    req.require_tls = !rel.dev && !(rel.supporter && !tls_needed());  // developer builds come over the local network, signed instead
+    if (rel.supporter) {
+        req.headers = {{"Authorization", "Bearer " + rel.token}};
+        req.private_url = true;
+    }
     req.timeout = 30 * 60;
     req.big_buffers = true;
     req.cancel = &job.cancel;
@@ -467,7 +671,7 @@ std::string fetch(const Release& rel, const std::string& dest, Job& job) {
     if (job.cancel) err = "Cancelled";
     else if (write_failed) err = tr("Couldn't save the download. Is the SD card full?");
     else if (too_big) err = rel.dev ? tr("The download was bigger than your computer said") : tr("The download was bigger than GitHub said");
-    else if (r.status >= 300) err = util::fmt(rel.dev ? tr("Your computer answered %ld") : tr("GitHub answered %ld"), r.status);
+    else if (r.status >= 300) err = util::fmt(rel.dev ? tr("Your computer answered %ld") : rel.supporter ? tr("The supporter server answered %ld") : tr("GitHub answered %ld"), r.status);
     else if (!r.error.empty()) err = r.error;
     else if (written != rel.size) err = tr("The download stopped early");
     else err = verify(dest, rel, job);
@@ -483,6 +687,8 @@ void remember_ready(const Release* rel) {
     store::set_bool("update_ready_dev", rel && rel->dev);
     store::set_str("update_ready_build", rel ? rel->build_id : "");
     store::set_str("update_ready_build_name", rel ? rel->build_name : "");
+    store::set_bool("update_ready_supporter", rel && rel->supporter);
+    store::set_int("update_ready_revision", rel ? rel->revision : 0);
 }
 
 void on_checked(CheckResult r, bool automatic_check) {
@@ -509,6 +715,13 @@ void on_checked(CheckResult r, bool automatic_check) {
             g_state = UP_TO_DATE;
             return;
         }
+    } else if (r.rel.supporter) {
+        store::set_int("update_checked", g_last_checked);
+        if (!supporter_newer(r.rel)) {
+            log_message(LOG_OK, "Update", "Up to date with the supporter preview (%s revision %d)", r.rel.version.c_str(), r.rel.revision);
+            g_state = UP_TO_DATE;
+            return;
+        }
     } else {
         store::set_int("update_checked", g_last_checked);
         // A build from in between releases (a developer build) goes back to the release too.
@@ -521,7 +734,7 @@ void on_checked(CheckResult r, bool automatic_check) {
     }
     g_release = r.rel;
     g_state = AVAILABLE;
-    log_message(LOG_OK, "Update", "%s %s is out (this is %s)", r.rel.dev ? "The developer build" : "CoffeeFlix",
+    log_message(LOG_OK, "Update", "%s %s is out (this is %s)", r.rel.dev ? "The developer build" : r.rel.supporter ? "The supporter preview" : "CoffeeFlix",
                 r.rel.version.c_str(), APP_VERSION);
     if (automatic_check && !automatic() && store::get_str("update_notified") != key(r.rel)) {
         store::set_str("update_notified", key(r.rel));
@@ -536,8 +749,13 @@ void start_check(bool automatic_check) {
     g_error.clear();
     int check = ++g_check;
     bool dev = developer();
+#ifdef __ANDROID__
+    std::string bundle = g_running, selected = selected_build();
+#else
     std::string bundle = g_bundle, selected = selected_build();
-    g_scope.run<CheckResult>([dev, bundle, selected] { return dev ? fetch_dev(bundle, selected) : fetch_latest(); },
+#endif
+    const bool supporter = !dev && supporter_on();
+    g_scope.run<CheckResult>([dev, supporter, bundle, selected] { return dev ? fetch_dev(bundle, selected) : supporter ? fetch_best() : fetch_latest(); },
                              [automatic_check, check](CheckResult r) {
                                  if (check == g_check) on_checked(std::move(r), automatic_check);
                              });
@@ -609,6 +827,10 @@ void install() {
     store::set_str("update_prev_version", APP_VERSION);
     store::set_str("update_installed", rel.version);
     store::set_str("update_skip", "");
+    if (rel.supporter) {  // which preview of this version is in now
+        store::set_str("supporter_version", rel.version);
+        store::set_int("supporter_revision", rel.revision);
+    }
     remember_ready(nullptr);
     store::save_now();
     log_message(LOG_OK, "Update", "Installed CoffeeFlix %s; %s is kept as %s", rel.version.c_str(), APP_VERSION,
@@ -664,6 +886,20 @@ float progress() {
     return std::clamp((float)g_job->done / (float)g_release.size, 0.0f, 1.0f);
 }
 
+bool supporter_available() { return !supporter_server().empty(); }
+bool supporter_on() { return supporter_available() && !store::get_str("supporter_email").empty(); }
+std::string supporter_email() { return supporter_on() ? store::get_str("supporter_email") : std::string(); }
+const std::string& supporter_message() { return g_supporter_message; }
+bool set_supporter_email(const std::string& email) {
+    if (g_state == DOWNLOADING || g_state == READY || g_job) return false;
+    store::set_str("supporter_email", util::trim(email));
+    g_supporter_message.clear();
+    g_dev_checked = false;
+    g_declined = false;
+    if (g_supported) start_check(false);
+    return true;
+}
+
 bool automatic() { return store::get_bool("update_auto", false); }
 void set_automatic(bool on) {
     store::set_bool("update_auto", on);
@@ -689,6 +925,18 @@ void init() {
         g_reason = util::fmt(tr("This test build can't tell which release is newer. Get new versions from %s."), RELEASES_PAGE);
         return;
     }
+#ifdef __ANDROID__
+    // Android installs through the system's installer: releases come from GitHub as coffeeflix.apk next to the
+    // Wii U's bundle, and developer builds from tools/dev-update-android.sh (the same code as on the Wii U).
+    g_running = platform::app_bundle();
+    g_bundle = platform::data_dir() + "/update/coffeeflix.apk";
+    util::make_dirs(platform::data_dir() + "/update");
+    remove((g_bundle + ".download").c_str());  // nothing is kept between runs
+    remember_ready(nullptr);
+    g_supported = true;
+    log_message(LOG_OK, "Update", "CoffeeFlix %s from %s", APP_VERSION, g_running.c_str());
+    return;
+#endif
     g_bundle = platform::app_bundle();
     if (g_bundle.empty()) {
         g_reason = platform::is_wiiu()
@@ -714,12 +962,15 @@ void init() {
     ready.size = store::get_int("update_ready_size", 0);
     ready.notes = store::get_str("update_ready_notes");
     ready.dev = store::get_bool("update_ready_dev", false);
+    ready.supporter = store::get_bool("update_ready_supporter", false);
+    ready.revision = (int)store::get_int("update_ready_revision", 0);
     ready.build_id = store::get_str("update_ready_build");
     ready.build_name = store::get_str("update_ready_build_name");
     bool have = util::file_exists(dl);
+    const bool still_new = ready.supporter ? (newer(ready.version, APP_VERSION) || (!newer(APP_VERSION, ready.version) && ready.revision > installed_revision()))
+                                           : newer(ready.version, APP_VERSION);
     if (have && ready.dev == developer() && (!ready.dev || ready.build_id == selected_build()) &&
-        (ready.dev || newer(ready.version, APP_VERSION)) && is_sha256(ready.sha256) &&
-        file_size(dl) == ready.size) {
+        (ready.dev || still_new) && is_sha256(ready.sha256) && file_size(dl) == ready.size) {
         reverify(ready);
     } else if (have || !ready.version.empty()) {
         remove(dl.c_str());
@@ -730,6 +981,17 @@ void init() {
 void tick() {
     if (!g_supported) return;
     double now = util::now_seconds();
+#ifdef __ANDROID__
+    if (g_installing && now >= g_next_install_look) {
+        g_next_install_look = now + 1;
+        std::string result = platform::install_result();
+        if (!result.empty()) {
+            g_installing = false;
+            log_message(LOG_ERROR, "Update", "%s", result.c_str());
+            ui::toast(result, ic::ERROR_OUTLINE);
+        }
+    }
+#endif
     // Once a day, a while after start-up so it doesn't compete with the first screens. Developer
     // builds: at every start (the Updates screen looks again).
     bool settled = g_state == IDLE || g_state == UP_TO_DATE || g_state == FAILED;
@@ -781,10 +1043,15 @@ void download() {
         remember_ready(&rel);
         g_state = READY;
         log_message(LOG_OK, "Update", "%s is downloaded and matches %s's checksum", rel.version.c_str(), source(rel));
+#ifdef __ANDROID__
+        ui::toast(util::fmt(rel.dev ? "Developer build %s is downloaded. Choose Install." : "CoffeeFlix %s is downloaded. Choose Install.",
+                            rel.version.c_str()), ic::CHECK_CIRCLE);
+#else
         ui::toast(util::fmt(rel.dev ? tr("Developer build %s is ready. It installs when you close CoffeeFlix.")
                                     : tr("CoffeeFlix %s is ready. It installs when you close CoffeeFlix."),
                             rel.version.c_str()),
                   ic::CHECK_CIRCLE);
+#endif
     });
 }
 
@@ -805,7 +1072,21 @@ void cancel() {
 bool cancelling() { return g_job && g_job->cancel; }
 
 void install_now() {
-    if (g_state == READY) platform::exit_to_menu();
+    if (g_state != READY) return;
+#ifdef __ANDROID__
+    // The system's installer asks, installs and restarts nothing: CoffeeFlix is started again by hand.
+    std::string err = platform::install_package(g_bundle + ".download");
+    if (!err.empty()) {
+        log_message(LOG_WARNING, "Update", "%s", err.c_str());
+        ui::toast(err, ic::ERROR_OUTLINE);
+        return;
+    }
+    store::set_str("update_installed", g_release.version);
+    store::save_now();
+    g_installing = true;
+#else
+    platform::exit_to_menu();
+#endif
 }
 
 bool has_previous() { return g_supported && g_has_previous; }
@@ -875,6 +1156,9 @@ bool select_build(const std::string& id) {
 
 
 void finish_on_exit() {
+#ifdef __ANDROID__
+    return;  // nothing is swapped in on the way out
+#endif
     if (!g_supported) return;
     if (g_switch_back) swap_back();
     else if (g_state == READY) install();

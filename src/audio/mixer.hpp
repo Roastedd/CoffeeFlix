@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "audio/ui_sounds.hpp"
+
 namespace audio {
 
 constexpr int RATE = 48000;
@@ -45,9 +47,17 @@ void stream_set_volume(float v);  // 0..1
 void levels(float out[16]);
 
 // --- UI sounds ------------------------------------------------------------------
-enum Sfx { SFX_MOVE, SFX_SELECT, SFX_BACK, SFX_BUMP, SFX_TOGGLE, SFX_ERROR, SFX_OPEN, SFX_COUNT };
+// (the sounds themselves are in audio/ui_sounds.hpp: Sfx, SoundStyle)
 void play(Sfx s, float volume = 1.0f);
 void set_sfx_enabled(bool on);
+void set_sfx_style(SoundStyle style);   // Subtle (the soft set) or Classic (the old beeps)
+// How loud the interface sounds are: the slider's 0..1, which sounds ever more even as it goes (the square of it is what plays).
 void set_sfx_volume(float v);
+void set_sfx_ticks(bool on);            // the tick when the selector moves, apart from the rest
+void set_sfx_kids(bool on);             // a kids profile: three decibels quieter
+// How loud the picture's own sound is (video, music, radio): the slider's 0..1, on the same curve.
+void set_media_volume(float v);
+// A multiplier on the picture's sound for fading it out (the sleep timer): 1 is as it is.
+void set_media_fade(float f);
 
 }  // namespace audio

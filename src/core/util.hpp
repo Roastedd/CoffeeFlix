@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <ctime>
 #include <string>
 #include <string_view>
 #include <typeinfo>
@@ -32,6 +33,12 @@ std::string fmt(const char* format, ...) __attribute__((format(printf, 1, 2)));
 // A type's name as written in the code, for the log ("screens::VideoScreen").
 std::string type_name(const std::type_info& type);
 
+// The number of characters (not bytes) in UTF-8 text.
+inline size_t utf8_length(std::string_view s) {
+    size_t n = 0;
+    for (unsigned char c : s) n += (c & 0xC0) != 0x80;
+    return n;
+}
 uint64_t hash64(std::string_view s, uint64_t seed = 1469598103934665603ull);
 std::string random_hex(int bytes);  // for names and IDs: not for anything that keeps others out
 // Hex of bytes from the system's entropy source, for tokens that keep others out ("" without one).
@@ -39,6 +46,8 @@ std::string secure_random_hex(int bytes);
 double now_seconds();          // monotonic
 int64_t unix_time();           // wall clock seconds
 std::string clock_hhmm();      // local time for the status bar
+// The local date and time as a calendar breakdown. COFFEEFLIX_NOW="2026-02-28 07:30" makes it that moment (tests).
+void local_tm(std::tm* out);
 
 // Environment override (used by the desktop test harness to point services at
 // local mocks); returns `def` when unset, which is always the case on Wii U.

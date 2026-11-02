@@ -103,6 +103,7 @@ public:
         std::string cc = country_;
         local_.load([cc] { return radio::by_country(cc, 40); });
         top_.load([] { return radio::top(40); });
+        if (radio::has_taste()) mine_.load([] { return radio::for_you(); });
     }
     app::Section section() const override { return app::SEC_RADIO; }
 
@@ -146,6 +147,8 @@ public:
             }
             y += 330;
         } else {
+            if (mine_.loading || !mine_.list.items.empty())
+                y += station_shelf(id(g, "mine"), x0, y, tr("Picked for you"), mine_.list.items, !mine_.loaded) + 10;
             y += station_shelf(id(g, "local"), x0, y, util::fmt(tr("Popular in %s"), country_.c_str()).c_str(), local_.list.items, !local_.loaded) + 10;
             y += station_shelf(id(g, "top"), x0, y, tr("Top stations worldwide"), top_.list.items, !top_.loaded) + 10;
         }
@@ -168,7 +171,7 @@ private:
     }
 
     std::string country_;
-    StationLoader local_, top_;
+    StationLoader local_, top_, mine_;
     Page page_;
 };
 

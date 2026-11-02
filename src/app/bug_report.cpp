@@ -29,7 +29,8 @@ const char* const NEW_ISSUE = "https://github.com/Roastedd/CoffeeFlix/issues/new
 
 // Settings whose values are private wherever they show up in the log.
 const char* const PRIVATE_SETTINGS[] = {"yt_account_token", "yt_visitor", "twitch_device_id", "jf_token",
-                                        "jf_device_id",     "jf_user_id", "jf_user_name"};
+                                        "jf_device_id",     "jf_user_id", "jf_user_name", "lock_hash", "lock_salt",
+                                        "supporter_email",  "supporter_device"};
 
 void add_secret(std::vector<std::string>& out, const std::string& v) {
     if (v.empty()) return;

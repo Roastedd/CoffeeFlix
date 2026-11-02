@@ -110,21 +110,46 @@ void share_unlock(CURL*, curl_lock_data data, void*) { g_share_m[data].unlock();
 // reused across requests: a TLS handshake costs a lot on Espresso. (No
 // thread_local: the Wii U's RPX format doesn't support TLS relocations.)
 std::mutex g_pool_m;
-std::vector<CURL*> g_pool;
+struct Pooled {
+    CURL* handle;
+    std::string host;  // where its connection (if it kept one) goes
+};
+std::vector<Pooled> g_pool;
 
-CURL* acquire_handle() {
+// "https://images.example.com:443/a/b" -> "images.example.com:443" (the connection a request needs).
+std::string host_of(const std::string& url) {
+    const size_t at = url.find("://");
+    if (at == std::string::npos) return "";
+    size_t end = url.find_first_of("/?#", at + 3);
+    std::string host = url.substr(at + 3, end == std::string::npos ? std::string::npos : end - at - 3);
+    const size_t user = host.rfind('@');
+    if (user != std::string::npos) host.erase(0, user + 1);
+    return url.compare(0, at, "https") == 0 ? "s:" + host : host;
+}
+
+// A handle that talked to this host last (its open connection is the one the request needs), else a new one: a handle
+// taken at random drops its connection to another host and opens a new one, and every new one is a TLS handshake (1-2 s of
+// the console's CPU) and a socket that the console is slow to give back. Many pictures of one site at once did exactly that.
+CURL* acquire_handle(const std::string& host) {
     std::lock_guard<std::mutex> lk(g_pool_m);
-    if (!g_pool.empty()) {
-        CURL* h = g_pool.back();
-        g_pool.pop_back();
+    for (size_t i = g_pool.size(); i-- > 0;) {
+        if (g_pool[i].host == host) {
+            CURL* h = g_pool[i].handle;
+            g_pool.erase(g_pool.begin() + i);
+            return h;
+        }
+    }
+    if (g_pool.size() >= 8) {  // all kept for other hosts: the one idle longest gives its connection up
+        CURL* h = g_pool.front().handle;
+        g_pool.erase(g_pool.begin());
         return h;
     }
     return curl_easy_init();
 }
 
-void release_handle(CURL* h) {
+void release_handle(CURL* h, const std::string& host) {
     std::lock_guard<std::mutex> lk(g_pool_m);
-    if (g_pool.size() < 8) g_pool.push_back(h);  // images, tasks and the log fetch at once
+    if (g_pool.size() < 8) g_pool.push_back({h, host});  // images, tasks and the log fetch at once
     else curl_easy_cleanup(h);
 }
 
@@ -169,7 +194,7 @@ void init(const std::string& ca_bundle_path, void (*socket_setup)(int fd)) {
 void shutdown() {
     {
         std::lock_guard<std::mutex> lk(g_pool_m);
-        for (CURL* h : g_pool) curl_easy_cleanup(h);
+        for (const Pooled& p : g_pool) curl_easy_cleanup(p.handle);
         g_pool.clear();
     }
     // Still in use by a download that didn't stop in time: left to the process's end.
@@ -180,7 +205,9 @@ void shutdown() {
 Connection::~Connection() {
     if (curl_) curl_easy_cleanup((CURL*)curl_);
 }
+std::atomic<bool> g_paused{false};
 void cancel_running() { g_cancel_round++; }
+void set_paused(bool paused) { g_paused = paused; }
 void set_verify_tls(bool verify) { g_verify = verify; }
 bool verify_tls() { return g_verify; }
 const std::string& ca_bundle() { return g_ca_bundle; }
@@ -201,9 +228,13 @@ double retry_after(const Response& response, int64_t unix_now) {
 
 Response perform(const Request& req) {
     Response resp;
+    if (g_paused) {
+        resp.error = "Network paused";
+        return resp;
+    }
     const std::string log_url = req.private_url ? "[private URL]" : req.url.substr(0, 96);
     if (req.connection && !req.connection->curl_) req.connection->curl_ = curl_easy_init();
-    CURL* curl = req.connection ? (CURL*)req.connection->curl_ : acquire_handle();
+    CURL* curl = req.connection ? (CURL*)req.connection->curl_ : acquire_handle(host_of(req.url));
     if (!curl) {
         resp.error = "curl init failed";
         return resp;
@@ -231,7 +262,12 @@ Response perform(const Request& req) {
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, req.stall_seconds);
     }
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");  // gzip/deflate/brotli as built
+    // Media comes as it is (compressing video saves nothing, and a server that tries makes a range's length
+    // wrong); everything else may be gzip/deflate/brotli as built.
+    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, req.on_data ? "identity" : "");
+    // A lookup blocks without a time limit on the Wii U, and the default (60 s) repeats it in the middle of
+    // a long video: a host stays known for ten minutes.
+    curl_easy_setopt(curl, CURLOPT_DNS_CACHE_TIMEOUT, 600L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent());
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
     if (req.fresh_connection) curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);
@@ -299,6 +335,18 @@ Response perform(const Request& req) {
     curl_easy_getinfo(curl, CURLINFO_APPCONNECT_TIME, &resp.tls_seconds);
     curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME, &resp.first_byte_seconds);
     curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &resp.total_seconds);
+    // What opening a secure connection costs the console (the handshake is arithmetic on a slow processor, and
+    // a resumed session should skip most of it): the first sixty, for the log.
+    if (resp.connects > 0 && resp.tls_seconds > 0 && !req.private_url) {
+        static std::atomic<int> handshakes{0};
+        if (handshakes++ < 60) {
+            std::string host = req.url.substr(std::min<size_t>(req.url.find("://") == std::string::npos ? 0 : req.url.find("://") + 3, req.url.size()));
+            host = host.substr(0, host.find_first_of("/?:"));
+            log_message(LOG_DEBUG, "HTTP", "Secure connection to %s: lookup %.0f ms, connect %.0f ms, handshake %.0f ms, first byte %.0f ms", host.c_str(),
+                        resp.dns_seconds * 1000, (resp.connect_seconds - resp.dns_seconds) * 1000, (resp.tls_seconds - resp.connect_seconds) * 1000,
+                        (resp.first_byte_seconds - resp.tls_seconds) * 1000);
+        }
+    }
     char* eff = nullptr;
     if (curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &eff) == CURLE_OK && eff) resp.effective_url = eff;
     if (hdrs) curl_slist_free_all(hdrs);
@@ -307,7 +355,7 @@ Response perform(const Request& req) {
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, nullptr);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, nullptr);
 
-    if (!req.connection) release_handle(curl);
+    if (!req.connection) release_handle(curl, host_of(resp.effective_url.empty() ? req.url : resp.effective_url));
 
     if (rc != CURLE_OK) {
         bool cancelled = sink.stopped || progress.gave_up || (req.cancel && req.cancel->load());

@@ -14,6 +14,8 @@
 #include <nn/ac.h>
 #include <nn/act.h>
 #include <nn/nets2/somemopt.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <vpad/input.h>
 #include <padscore/kpad.h>
@@ -35,7 +37,9 @@
 #include <mutex>
 #include <thread>
 
+#include "core/http.hpp"
 #include "core/i18n.hpp"
+#include "core/store.hpp"
 #include "core/util.hpp"
 #include "crash_wiiu.hpp"
 #include "logger/logger.hpp"
@@ -81,12 +85,35 @@ std::atomic<bool> g_pool_ready{false};
 std::atomic<bool> g_pool_thread_done{false};
 int g_pool_bytes = 0;
 
+// The address the console was given. Asking for it is a call to the network core (IOS), which answers
+// slowly while that core is busy with downloads: the status bar asked every frame, and a frame took
+// 4 s while the speed test ran (the main thread had run 2 ms of it, waiting for the answer). So only a
+// thread of its own asks, every two seconds, and everything else reads what it found.
+std::atomic<uint32_t> g_ip_now{0};
+std::atomic<bool> g_net_stop{false}, g_net_done{true};
+
+void net_watch() {
+    while (!g_net_stop) {
+        uint32_t ip = 0;
+        if (!nn::ac::GetAssignedAddress(&ip)) ip = 0;
+        g_ip_now = ip;
+        for (int i = 0; i < 20 && !g_net_stop; i++) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    g_net_done = true;
+}
+
 void donate_socket_pool() {
     void* pool = memalign(0x40, SOCKET_POOL_SIZE);  // the network stack keeps it until we quit
     if (!pool) return;
+    // Memory already given to the pool means somebody else (a plugin that opens sockets at start-up) claimed it
+    // first: the stack keeps the first donation, so our sockets would draw from theirs.
+    const int before = somemopt(SOMEMOPT_REQUEST_GET_BYTES_USED, nullptr, 0, SOMEMOPT_FLAGS_NONE);
+    if (before > 0) log_message(LOG_WARNING, "Platform", "The socket memory pool was already set up before ours: %d KB", before / 1024);
     // SOMEMOPT_REQUEST_INIT only returns when the stack shuts down: it gets its own thread.
     std::thread([pool] {
-        somemopt(SOMEMOPT_REQUEST_INIT, pool, SOCKET_POOL_SIZE, SOMEMOPT_FLAGS_BIG_BUFFERS);
+        const int answer = somemopt(SOMEMOPT_REQUEST_INIT, pool, SOCKET_POOL_SIZE, SOMEMOPT_FLAGS_BIG_BUFFERS);
+        // Returning at once, with an error, means the donation was refused; returning later is the stack shutting down.
+        if (answer != 0) log_message(LOG_WARNING, "Platform", "The socket memory pool donation ended with %d", answer);
         g_pool_thread_done = true;
     }).detach();
     // Sockets opened before the donation lands get small buffers, so wait for it (up to a
@@ -240,6 +267,37 @@ uint32_t map_wiimote(uint32_t h) {
 
 namespace {
 
+// The GamePad's display, which the app can turn off (set_pad_outputs). It is back on whenever the
+// system might show something on it (HOME, closing) and at quitting: a GamePad left dark outside
+// the app would be a bug that outlasts it.
+PadOutputs g_pad_wanted;
+PadScreen g_pad_screen = PAD_SCREEN_ON;  // what the display was last put to
+bool g_pad_background = false;           // HOME: the system has the GamePad
+int g_pad_lcd_set = 0;
+int g_pad_read_error = 0;
+
+void pad_screen_to(PadScreen screen, const char* why) {
+    if (screen == g_pad_screen) return;
+    static const VPADLcdMode MODES[] = {VPAD_LCD_ON, VPAD_LCD_STANDBY, VPAD_LCD_OFF};
+    static const char* const NAMES[] = {"on", "standby", "off"};
+    const double t = util::now_seconds();
+    g_pad_lcd_set = VPADSetLcdMode(VPAD_CHAN_0, MODES[screen]);
+    VPADLcdMode now = VPAD_LCD_ON;
+    const int got = VPADGetLcdMode(VPAD_CHAN_0, &now);
+    log_message(g_pad_lcd_set == 0 ? LOG_OK : LOG_WARNING, "Pad", "GamePad screen %s (%s): VPADSetLcdMode answered %d, reads back %d (%d), %.0f ms",
+                NAMES[screen], why, g_pad_lcd_set, (int)now, got, (util::now_seconds() - t) * 1000);
+    g_pad_screen = screen;
+}
+
+// The display as the system expects it.
+void pad_screen_for_system(const char* why) {
+    if (g_pad_wanted.leave_dark_on_exit && g_pad_screen != PAD_SCREEN_ON) {
+        log_message(LOG_WARNING, "Pad", "GamePad display left as it is (%s): the lab's test", why);
+        return;
+    }
+    pad_screen_to(PAD_SCREEN_ON, why);
+}
+
 Lifecycle g_lifecycle;
 
 // ProcUI calls these from inside ProcUIProcessMessages (WHBProcIsRunning) on the main thread. SDL
@@ -252,6 +310,8 @@ uint32_t proc_release(void*) {
     crash::background(true);
     crash::phase("HOME: in our release callback");
     log_message(LOG_OK, "Platform", "HOME pressed: giving up the foreground");
+    g_pad_background = true;
+    pad_screen_for_system("HOME");
     if (g_lifecycle.leaving_foreground) g_lifecycle.leaving_foreground();
     log_message(LOG_OK, "Platform", "HOME: our release callback is done");
     crash::phase("HOME: after our release callback, in the others' or the system's");
@@ -283,26 +343,41 @@ uint32_t proc_release_probe_low(void*) {
 
 uint32_t proc_acquire(void*) {
     crash::background(false);
+    http::set_paused(false);  // never left stopped if the system's "network may be used" did not come
     log_message(LOG_OK, "Platform", "Back in the foreground");
+    g_pad_background = false;
+    pad_screen_to(g_pad_wanted.screen, "back from HOME");
     if (g_lifecycle.returned) g_lifecycle.returned();
     return 0;
 }
 
 uint32_t proc_exit(void*) {
     log_message(LOG_OK, "Platform", "The system asks the app to close");
+    pad_screen_for_system("closing");
+    g_pad_wanted = PadOutputs();
     if (g_lifecycle.exiting) g_lifecycle.exiting();
     return 0;
 }
 
-// The system stops and allows networking for apps in the background and on the way to sleep. Nothing to
-// do about it yet, but the log tells what was going on around a freeze.
+// The system stops and allows networking for apps in the background and on the way to sleep ("the application
+// must stop using networking", wut's procui.h). A developer option, off at first, does as asked: transfers in
+// progress end and new ones fail at once until the system allows it again or the app is back in front, to see
+// whether a downloader still running as the console goes to sleep or to the HOME menu is what wedges it.
+bool honour_net_stop() { return store::get_bool("dev_honour_net_stop", false); }
+
 uint32_t proc_net_stop(void*) {
-    log_message(LOG_OK, "Platform", "The system asks the app to stop using the network");
+    const bool honour = honour_net_stop();
+    log_message(LOG_OK, "Platform", "The system asks the app to stop using the network%s", honour ? ": stopping" : " (not acted on)");
+    if (honour) {
+        http::set_paused(true);
+        http::cancel_running();
+    }
     return 0;
 }
 
 uint32_t proc_net_start(void*) {
     log_message(LOG_OK, "Platform", "The network may be used again");
+    http::set_paused(false);
     return 0;
 }
 
@@ -332,6 +407,17 @@ bool init() {
     WHBProcInit();
     register_lifecycle_callbacks();
     VPADInit();
+    // Whatever an earlier run (or a crash) left the display at is put right: the system doesn't
+    // say whether it does. What it was goes in the log.
+    {
+        VPADLcdMode mode = VPAD_LCD_ON;
+        const int got = VPADGetLcdMode(VPAD_CHAN_0, &mode);
+        log_message(LOG_OK, "Pad", "GamePad display mode at start: %d (VPADGetLcdMode answered %d; on 255, standby 0, off 1)", (int)mode, got);
+        if (got == 0 && mode != VPAD_LCD_ON) {
+            const int set = VPADSetLcdMode(VPAD_CHAN_0, VPAD_LCD_ON);
+            log_message(set == 0 ? LOG_OK : LOG_WARNING, "Pad", "GamePad display put back on: VPADSetLcdMode answered %d", set);
+        }
+    }
     KPADInit();
     WPADEnableURCC(true);  // Pro Controller support
     if (nn::ac::GetAssignedAddress(&g_ip)) {
@@ -339,6 +425,9 @@ bool init() {
     } else {
         log_message(LOG_WARNING, "Platform", "No network address");
     }
+    g_ip_now = g_ip;
+    g_net_done = false;
+    std::thread(net_watch).detach();
     for (auto& b : g_rumble_pattern) b = 0xFF;
     IMIsDimEnabled(&g_dim_was_on);
     IMIsAPDEnabled(&g_apd_was_on);
@@ -361,8 +450,14 @@ void shutdown() {
         g_power->thread.join();
     }
     VPADStopMotor(VPAD_CHAN_0);
+    pad_screen_for_system("quitting");
+    g_pad_wanted = PadOutputs();
     KPADShutdown();
     WHBProcShutdown();
+    // The address watcher first: nothing may ask the network settings once they are finalized. It is not
+    // waited for long (a call to a wedged network core could take a while): by then it is told to stop.
+    g_net_stop = true;
+    for (int i = 0; i < 30 && !g_net_done; i++) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     nn::ac::Finalize();
 }
 
@@ -458,6 +553,9 @@ bool g_vpad_ok = false;
 KPADStatus g_kpad[4]{};
 bool g_kpad_ok[4] = {};
 
+// Set by poll(): whose hand was last on a button or a stick, the GamePad's or another controller's.
+bool g_last_input_pad = true;
+
 void poll(RawInput& raw) {
     raw = RawInput();
     const bool keyboard_open = g_text_state == TEXT_ACTIVE;
@@ -474,6 +572,15 @@ void poll(RawInput& raw) {
         }
     } else if (verr != VPAD_READ_NO_SAMPLES) {
         g_vpad_ok = false;
+    }
+    g_pad_read_error = (int)verr;
+    if (g_vpad_ok) {  // the GamePad's battery as it comes, to learn its scale from the log
+        static double battery_logged = -1000;
+        const double now = util::now_seconds();
+        if (now - battery_logged >= 60) {
+            battery_logged = now;
+            log_message(LOG_DEBUG, "Pad", "GamePad battery reading %d", (int)g_vpad.battery);
+        }
     }
     if (g_vpad_ok) {
         VPADStatus& vpad = g_vpad;
@@ -499,6 +606,8 @@ void poll(RawInput& raw) {
         was_touched = raw.touch;
     }
 
+    const uint32_t held_on_pad = raw.held;
+    const bool pad_used = raw.held != 0 || raw.touch || std::fabs(raw.lx) > 0.4f || std::fabs(raw.ly) > 0.4f;
     for (int ch = 0; ch < 4; ch++) {
         KPADStatus fresh_k{};
         KPADError kerr;
@@ -539,6 +648,13 @@ void poll(RawInput& raw) {
         }
     }
 
+    {
+        const bool other_used = (raw.held & ~held_on_pad) != 0 ||
+                                (!pad_used && (std::fabs(raw.lx) > 0.4f || std::fabs(raw.ly) > 0.4f || raw.pointer));
+        if (pad_used) g_last_input_pad = true;
+        else if (other_used) g_last_input_pad = false;
+    }
+
     // Pumping SDL also runs the swkbd state machine (text arrives as events).
     pump_sdl_events();
     if (keyboard_open) raw = RawInput();  // the keyboard owns the controllers
@@ -551,6 +667,13 @@ void poll(RawInput& raw) {
 
 const char* name() { return "Wii U"; }
 bool is_wiiu() { return true; }
+bool last_input_was_pad() { return g_last_input_pad; }
+bool is_android() { return false; }
+bool is_phone() { return false; }
+bool back_exits_app() { return false; }
+std::string install_package(const std::string&) { return "Installing packages is for the Android app"; }
+std::string install_result() { return ""; }
+std::string open_developer_options() { return "Developer options are for the Android app"; }
 // The .wuhb bundle mounts its files at /vol/content. The Tiramisu build is a bare .rpx,
 // launched from the Homebrew Launcher, with the same files in a folder next to it.
 std::string content_dir() {
@@ -611,14 +734,11 @@ bool cjk_font(CjkFont which, FontFile& out) {
     return true;
 }
 
-bool network_connected() {
-    uint32_t ip = 0;
-    return nn::ac::GetAssignedAddress(&ip) && ip != 0;
-}
+bool network_connected() { return g_ip_now != 0; }
 
 std::string ip_address() {
-    uint32_t ip = 0;
-    if (!nn::ac::GetAssignedAddress(&ip) || !ip) return "";
+    const uint32_t ip = g_ip_now;
+    if (!ip) return "";
     return util::fmt("%u.%u.%u.%u", ip >> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255);
 }
 
@@ -632,6 +752,18 @@ void tune_socket(int fd) {
     };
     set(SO_WINSCALE, 1);  // windows over 64 KB
     set(SO_TCPSACK, 1);
+    // Send buffers come from a small pool shared by the whole console, which the receive-buffer pool below does
+    // not cover; the default reservation starved other sockets (NUSspli's pull request 491). A download only
+    // sends its requests.
+    set(SO_SNDBUF, 16 * 1024);
+    // Developer experiment: acknowledge each segment at once instead of delaying (WiiUFtpServer reported faster
+    // transfers from it). Off at first: the extra acknowledgements use airtime.
+    static std::atomic<int> no_ack_delay{-1};
+    if (no_ack_delay < 0) no_ack_delay = store::get_bool("dev_noackdelay", false) ? 1 : 0;
+    if (no_ack_delay == 1) {
+        int on = 1;
+        setsockopt(fd, IPPROTO_TCP, TCP_NOACKDELAY, &on, sizeof(on));
+    }
     const bool from_pool = g_pool_ready && set(SO_RUSRBUF, 1);  // before SO_RCVBUF, which then draws from the pool
 
     // Half the size again while the system refuses: a pool with some room left still gives a
@@ -669,6 +801,42 @@ void tune_socket(int fd) {
 void rumble(float seconds) {
     VPADControlMotor(VPAD_CHAN_0, g_rumble_pattern, 120);
     g_rumble_left = seconds;
+}
+
+bool has_pad_outputs() { return true; }
+
+void set_pad_outputs(const PadOutputs& o) {
+    if (o.picture != g_pad_wanted.picture)
+        log_message(LOG_OK, "Pad", "GamePad picture: %s", o.picture == PAD_PICTURE_SHOWN ? "shown" : o.picture == PAD_PICTURE_NOT_SENT ? "not sent" : "stopped");
+    if (o.pad_sound != g_pad_wanted.pad_sound || o.tv_sound != g_pad_wanted.tv_sound)
+        log_message(LOG_OK, "Pad", "Sound: TV %s, GamePad %s", o.tv_sound ? "on" : "off", o.pad_sound ? "on" : "off");
+    g_pad_wanted = o;
+    SDL_WiiUSetGamePadPicture(o.picture);
+    SDL_WiiUSetAudioOutputs(o.tv_sound ? SDL_TRUE : SDL_FALSE, o.pad_sound ? SDL_TRUE : SDL_FALSE);
+    if (!g_pad_background) pad_screen_to(o.screen, "asked for");
+}
+
+void set_pad_texture(SDL_Texture* texture) { SDL_WiiUSetGamePadTexture(texture); }
+void draw_pad_preview(SDL_Renderer*) {}
+
+PadStatus pad_status() {
+    PadStatus s;
+    s.lcd_set = g_pad_lcd_set;
+    // The display's own answer costs a call to the system: not every frame.
+    static double read_at = -1;
+    static int lcd_mode = -1;
+    const double now = util::now_seconds();
+    if (read_at < 0 || now - read_at > 0.5) {
+        VPADLcdMode mode = VPAD_LCD_ON;
+        lcd_mode = VPADGetLcdMode(VPAD_CHAN_0, &mode) == 0 ? (int)mode : -1;
+        read_at = now;
+    }
+    s.lcd_mode = lcd_mode;
+    s.battery = g_vpad_ok ? (int)g_vpad.battery : -1;
+    s.held = g_vpad_ok ? (uint32_t)g_vpad.hold : 0;
+    s.touching = g_vpad_ok && g_vpad.tpNormal.touched;
+    s.read_error = g_pad_read_error;
+    return s;
 }
 
 void keep_awake(Awake level) {
@@ -773,6 +941,7 @@ std::string clock_debug() {
 }
 
 void set_thread_name(const char* name) { OSSetThreadName(OSGetCurrentThread(), name); }
+void pin_to_core2() { OSSetThreadAffinity(OSGetCurrentThread(), OS_THREAD_ATTRIB_AFFINITY_CPU2); }
 
 void lower_thread_priority() {
     // 0 is the highest, 31 the lowest.

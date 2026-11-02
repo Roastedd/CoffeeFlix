@@ -136,6 +136,7 @@ struct HttpStream {
     // (`url` again) when it gets refused: a link that expires, or is good for one request only.
     std::string direct;
     bool no_direct = false;
+    int refusal_logs = 0;  // refusals described in the log (a few per stream: they come in dozens)
     bool stop = false;
     std::vector<std::thread> workers;
 
@@ -317,7 +318,7 @@ bool gone_quiet(HttpStream& s, const Chunk& c, double sent_at, double now) {
     const double since = c.data_at > 0 ? c.data_at : sent_at > 0 ? sent_at : c.asked_at;
     const bool others = now - s.data_at < 0.5 && now - since > 0.5;
     const double buffered = now - s.feedback_at < 1.5 ? s.playback_buffer : 0;
-    const double limit = http_io_quiet_limit(sent_at <= 0, urgent, others, c.quiet > 0, buffered);
+    const double limit = http_io_quiet_limit(sent_at <= 0, urgent, others, c.quiet > 0, buffered, s.wait_avg);
     if (now - since < limit) return false;
     const long long at = (long long)(c.start + c.filled) / 1024;
     const char* why = others ? " while others got bytes" : "";
@@ -333,6 +334,25 @@ bool gone_quiet(HttpStream& s, const Chunk& c, double sent_at, double now) {
 void sleep_unless_cancelled(const Chunk& c, int ms) {
     for (int waited = 0; waited < ms && !c.cancel; waited += 50)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
+}
+
+// A refusing server's answer for the log: one printable line, and any link in it cut to its host (links carry keys).
+std::string scrub_answer(const std::string& body) {
+    std::string out;
+    for (unsigned char c : body) {
+        if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+        if (c >= 32 && c < 127) out += (char)c;
+    }
+    for (size_t p = 0; (p = out.find("http", p)) != std::string::npos;) {
+        const size_t scheme = out.find("://", p);
+        if (scheme == std::string::npos || scheme - p > 5) { p += 4; continue; }
+        size_t end = out.find_first_of(" \"'<>)", scheme + 3);
+        if (end == std::string::npos) end = out.size();
+        const size_t keep = std::min(out.find_first_of("/?#", scheme + 3), end);
+        out.erase(keep, end - keep);
+        p = keep;
+    }
+    return out.substr(0, 200);
 }
 
 // "host.example" of "https://host.example/path?signed": for the log, without the link's keys.
@@ -435,6 +455,7 @@ void fetch(HttpStream& s, const Span& span, http::Connection& conn) {
         int64_t drain = 0;    // of a refusal's body (a busy server's) still to read: a connection with it unread can't be reused
         int64_t received = 0;  // bytes this request brought
         bool checked = false, went_quiet = false;
+        std::string refusal;  // what a refusing server said
         http::Request req;
         {
             std::lock_guard<std::mutex> lk(s.m);
@@ -476,6 +497,7 @@ void fetch(HttpStream& s, const Span& span, http::Connection& conn) {
                     s.whole = true;
                 } else {
                     bad_status = r.status == 206 ? 502 : r.status;  // 206 for the wrong range
+                    if (bad_status >= 400) refusal.assign(data, std::min<size_t>(n, 240));
                     // A busy server's answer is small: read it out, and the connection stays good for the retry.
                     drain = BACK_OFF_ALL && (r.status == 429 || r.status == 503) ? 64 << 10 : 0;
                 }
@@ -531,6 +553,8 @@ void fetch(HttpStream& s, const Span& span, http::Connection& conn) {
         std::unique_lock<std::mutex> lk(s.m);
         if (--s.running == 0) s.busy_seconds += util::now_seconds() - s.busy_since;
         const bool overloaded = status == 429 || status == 503;
+        if (status >= 400 && !overloaded && s.refusal_logs++ < 4)
+            log_message(LOG_WARNING, "Player", "HTTP %ld from %s%s%s", status, host_of(req.url).c_str(), refusal.empty() ? "" : ": ", scrub_answer(refusal).c_str());
         const double retry_after = overloaded ? http::retry_after(r, util::unix_time()) : -1;
         double busy_wait = 0;  // seconds this download waits before it asks again (the others go on)
         if (overloaded) {
@@ -785,9 +809,14 @@ void close_stream(HttpStream* s) {
 }  // namespace
 
 AVIOContext* http_io_open(const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
-                          const std::atomic<bool>* abort, bool audio_track, std::string& error, bool* no_ranges) {
+                          const std::atomic<bool>* abort, bool audio_track, std::string& error, bool* no_ranges,
+                          const std::string& direct_hint) {
     auto* s = new HttpStream();
     s->url = url;
+    if (!direct_hint.empty() && direct_hint != url) {
+        s->direct = direct_hint;
+        log_message(LOG_OK, "Player", "Starting at %s, where the link redirects to", host_of(direct_hint).c_str());
+    }
     s->headers = headers;
     s->abort = abort;
     s->audio_track = audio_track;
@@ -895,9 +924,10 @@ int http_io_host_budget(const std::string& url) {
     return (int)std::min(1000000000.0, it->second.rate * 8 * 0.7);
 }
 
-double http_io_quiet_limit(bool connecting, bool urgent, bool others, bool retried, double buffered) {
+double http_io_quiet_limit(bool connecting, bool urgent, bool others, bool retried, double buffered, double wait) {
     if (connecting) return CONNECT_SECONDS;
     double limit = urgent ? QUIET_SECONDS : QUIET_SECONDS_AHEAD;
+    limit = std::max(limit, std::min(6.0, wait * 2.5));  // 0.7 s (googlevideo) changes nothing
     if (!others) limit *= 2;
     if (retried) limit *= 2;
     // Leave at least half the confirmed buffer for recovery; never wait indefinitely.

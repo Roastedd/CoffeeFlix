@@ -20,6 +20,35 @@ void tick();  // call once per frame; saves in the background a few seconds afte
 // sign-ins saved before there was one set per user go to the first user to start CoffeeFlix.
 void set_user(const std::string& id);
 
+// --- profiles -----------------------------------------------------------------
+// "Who's watching": the console user's own profile ("main", always there) and up to four more. A profile
+// keeps its own sign-ins, favorites, continue watching, recent searches and recommendations. The main
+// profile's are the ones kept before there were profiles, so nothing moves when the first one is added.
+struct Profile {
+    std::string id, name;
+    int color = 0;       // one of the avatar colors
+    bool kids = false;   // never the main profile
+};
+constexpr const char* MAIN_PROFILE = "main";
+constexpr size_t MAX_PROFILES = 5;
+constexpr size_t MAX_PROFILE_NAME = 16;  // characters
+
+std::vector<Profile> profiles();        // the main profile first, then the others in the order made
+bool has_other_profiles();
+std::string active_profile();           // its id
+std::string last_profile();             // the one used last: what the picker starts on
+bool switch_profile(const std::string& id);  // false for an id that isn't one
+Profile profile(const std::string& id);      // empty id when there is none
+bool kids_profile();                    // the active profile is a kids profile
+std::string add_profile(const std::string& name, int color, bool kids);  // its id, "" when there's no room
+void rename_profile(const std::string& id, const std::string& name);
+void set_profile_color(const std::string& id, int color);
+void set_profile_kids(const std::string& id, bool kids);  // ignored for the main profile
+// Deletes it and everything it kept; not the main profile. Switch away from the active one first.
+bool remove_profile(const std::string& id);
+// A name as it's kept: trimmed, at most MAX_PROFILE_NAME characters, "" when nothing is left.
+std::string clean_profile_name(const std::string& name);
+
 // --- settings ---------------------------------------------------------------
 bool get_bool(const char* key, bool def);
 int64_t get_int(const char* key, int64_t def);
@@ -27,6 +56,8 @@ std::string get_str(const char* key, const std::string& def = "");
 void set_bool(const char* key, bool v);
 void set_int(const char* key, int64_t v);
 void set_str(const char* key, const std::string& v);
+std::string get_str_of(const std::string& profile, const char* key, const std::string& def = "");  // another profile's own
+void set_str_of(const std::string& profile, const char* key, const std::string& v);
 std::vector<std::string> get_str_all(const char* key);  // every user's value (to keep them out of logs)
 
 // --- other accounts of a service ("youtube", "jellyfin"), to switch between -----------------

@@ -19,10 +19,12 @@ namespace player {
 // set. Returns a context to set as AVFormatContext::pb (with AVFMT_FLAG_CUSTOM_IO). Reads
 // fail with AVERROR_EXIT once *abort is set. `audio_track`: a separate audio stream, given
 // a smaller share of the bandwidth. `no_ranges` (optional) is set when it failed because the
-// server sends only whole files: FFmpeg's own HTTP client can still play those.
+// server sends only whole files: FFmpeg's own HTTP client can still play those. `direct_hint`: where `url`
+// is known to redirect to, so the first request skips the hop (a slow redirecting host cost 8-14 s of a start);
+// like a redirect met on the way, it is dropped for `url` if it fails before bringing anything.
 AVIOContext* http_io_open(const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
                           const std::atomic<bool>* abort, bool audio_track, std::string& error,
-                          bool* no_ranges = nullptr);
+                          bool* no_ranges = nullptr, const std::string& direct_hint = "");
 // Frees a context from http_io_open(); anything else (and null) is ignored.
 void http_io_free(AVIOContext* pb);
 // Demux-thread only: discard bytes suspected of corruption so a retry fetches fresh data.
@@ -43,8 +45,11 @@ void http_io_playback_buffer(AVIOContext* pb, double seconds);
 // Recent conservative capacity for this exact URL authority, in bits/s. Zero: unknown.
 // In-memory only, expires after 30 minutes; never inferred from a different host.
 int http_io_host_budget(const std::string& url);
-// Pure retry policy, also exercised by the transport test.
-double http_io_quiet_limit(bool connecting, bool urgent, bool others, bool retried, double buffered);
+// Pure retry policy, also exercised by the transport test. `wait`: the host's measured first-byte wait on an open
+// connection (0: unknown): a host that answers in 1.5-2.5 s (pixeldrain, September 2026) was given up on at 2 s, and
+// every retry cost a new TLS handshake (2-3 s on a Wii U), so the start of a movie was one restart after another.
+double http_io_quiet_limit(bool connecting, bool urgent, bool others, bool retried, double buffered,
+                          double wait = 0);
 // How many 256 KB chunks in a row one request covers (1 to 8), for what a request on an open
 // connection takes: `wait` seconds for the first byte, then `rate` bytes/s (0: not measured). `distance`:
 // chunks between the reader and the first of them. `healthy`: the server hasn't been saying it's busy.

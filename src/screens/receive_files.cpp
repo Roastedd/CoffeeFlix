@@ -55,7 +55,12 @@ public:
         if(!status.active && button(id(g,"received"),Rect(x,610,360,46),tr("Received files"),ic::FOLDER,BTN_PRIMARY,g,F_DEFAULT)){
             if(!status.active){auto folder=folder_;app::pop();app::push(make_media_folder(folder,tr("Received files")));return;}
         }
-        text::draw_fit(font::small,x+380,622,W-x-440,tr("Up to 2 GB per file. H.264 video works best."),t.text3);
+#ifdef __ANDROID__
+        const char* limits=tr(N_("Large files are fine. H.264 and HEVC video work best."));
+#else
+        const char* limits=tr("Up to 2 GB per file. H.264 video works best.");
+#endif
+        text::draw_fit(font::small,x+380,622,W-x-440,limits,t.text3);
         hint_bar({{"A",tr("Select")},{"B",tr("Stop receiving")}});
     }
 private:

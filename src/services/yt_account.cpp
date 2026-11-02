@@ -34,7 +34,7 @@ std::atomic<int> g_version{0};
 http::Response post_form(const char* path, const std::string& form) {
     http::Request req;
     req.method = "POST";
-    req.url = std::string(OAUTH) + path;
+    req.url = util::env_or("COFFEEFLIX_YT_OAUTH", OAUTH) + path;  // tests answer for Google
     req.body = form;
     req.headers = {{"Content-Type", "application/x-www-form-urlencoded"}};
     req.timeout = 15;
@@ -194,6 +194,11 @@ void switch_to(size_t i) {
     forget_access();
     store::use_account("youtube", i, signed_in());
     log_message(LOG_OK, "YouTube", "Switched to another YouTube account");
+    g_version++;
+}
+
+void reload() {
+    forget_access();
     g_version++;
 }
 

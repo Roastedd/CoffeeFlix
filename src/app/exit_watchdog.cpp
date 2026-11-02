@@ -31,6 +31,7 @@ State& state() {
 void watch() {
     platform::set_thread_name("exit watchdog");
     platform::raise_thread_priority();  // it has to run while something else spins or waits
+    platform::pin_to_core2();           // and while the others are suspended
     State& s = state();
     std::unique_lock<std::mutex> lock(s.m);
     for (;;) {

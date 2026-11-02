@@ -23,6 +23,9 @@
 #include "logger/logger.hpp"
 #include "player/player.hpp"
 #include "services/hls.hpp"
+#include "services/kids.hpp"
+#include "services/locale_bias.hpp"
+#include "services/title_tidy.hpp"
 #include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 
@@ -64,6 +67,10 @@ const Client VISIONOS{"VISIONOS", 101, "1.02",
 const Client ANDROID_VR{"ANDROID_VR", 28, "1.65.10",
                         "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
                         "Oculus", "Quest 3", "Android", "12L", 32};
+
+const Client ANDROID_KIDS{"ANDROID_KIDS", 18, "9.10.2",
+                          "com.google.android.apps.youtube.kids/9.10.2 (Linux; U; Android 11) gzip",
+                          "", "", "Android", "11", 30};
 
 std::mutex g_visitor_m;
 std::string g_visitor;
@@ -158,7 +165,7 @@ std::string browse_id(json_t* r) {
 bool parse_renderer(json_t* r, Video& v) {
     v.id = json::str(r, {"videoId"});
     if (v.id.size() != 11) return false;
-    v.title = first_text(r, {"title", "headline"});
+    v.title = title::shown(first_text(r, {"title", "headline"}));
     v.channel = first_text(r, {"ownerText", "longBylineText", "shortBylineText"});
     v.channel_id = browse_id(r);
     v.duration = first_text(r, {"lengthText"});
@@ -184,7 +191,7 @@ bool parse_lockup(json_t* l, Video& v) {
     v.id = json::str(l, {"contentId"});
     if (v.id.size() != 11) return false;
     json_t* meta = json::at(l, {"metadata", "lockupMetadataViewModel"});
-    v.title = json::str(meta, {"title", "content"});
+    v.title = title::shown(json::str(meta, {"title", "content"}));
     json_t* rows = json::at(meta, {"metadata", "contentMetadataViewModel", "metadataRows"});
     std::vector<std::string> parts;
     for (size_t i = 0; i < json::size(rows); i++) {
@@ -218,6 +225,7 @@ bool parse_short(json_t* l, Video& v) {
     if (v.id.size() != 11) return false;
     v.title = json::str(l, {"overlayMetadata", "primaryText", "content"});
     if (v.title.empty()) v.title = json::yt_text(json_object_get(l, "headline"));
+    v.title = title::shown(v.title);
     v.views = json::str(l, {"overlayMetadata", "secondaryText", "content"});
     if (v.views.empty()) v.views = json::yt_text(json_object_get(l, "viewCountText"));
     v.duration = "Short";  // kept in English, as saved lists have it: see duration_label()
@@ -641,8 +649,10 @@ Details details_of(json_t* root) {
     const int64_t views = json::num(info, {"viewCount"}, json::num(micro, {"viewCount"}, -1));
     if (views >= 0) d.views = views == 1 ? tr("1 view") : util::fmt(tr("%s views"), util::format_count(views).c_str());
     const int64_t likes = json::num(micro, {"likeCount"}, -1);
+    d.like_count = likes > 0 ? likes : -1;
     if (likes > 0) d.likes = likes == 1 ? tr("1 like") : util::fmt(tr("%s likes"), util::format_count(likes).c_str());
     d.posted = i18n::long_date(json::str(micro, {"publishDate"}, json::str(micro, {"uploadDate"})));
+    d.category = json::str(micro, {"category"});
     return d;
 }
 
@@ -652,8 +662,10 @@ bool try_client(const Client& c, const std::string& id, int quality, player::Sou
     const int max_height = player::quality_height(quality);
     json_t* body = json_object();
     json_object_set_new(body, "videoId", json_string(id.c_str()));
-    json_object_set_new(body, "contentCheckOk", json_true());
-    json_object_set_new(body, "racyCheckOk", json_true());
+    // A kids profile doesn't skip the warnings before mature videos (the others do, for age-restricted ones).
+    const bool kids_profile = store::kids_profile();
+    json_object_set_new(body, "contentCheckOk", kids_profile ? json_false() : json_true());
+    json_object_set_new(body, "racyCheckOk", kids_profile ? json_false() : json_true());
     json::Doc doc = call("player", c, body, error, token);
     if (!doc) return false;
     json_t* root = doc.get();
@@ -667,7 +679,12 @@ bool try_client(const Client& c, const std::string& id, int quality, player::Sou
     }
 
     json_t* details = json_object_get(root, "videoDetails");
-    if (src.title.empty()) src.title = json::str(details, {"title"});
+    // A kids profile plays only the channels a grown-up allowed, whichever way the video was reached.
+    if (kids_profile && !kids::allowed(json::str(details, {"channelId"}))) {
+        error = tr("This video isn't from a channel a grown-up chose");
+        return false;
+    }
+    if (src.title.empty()) src.title = title::shown(json::str(details, {"title"}));
     if (src.subtitle.empty()) src.subtitle = json::str(details, {"author"});
     if (src.channel_id.empty()) src.channel_id = json::str(details, {"channelId"});
     bool live = json::boolean(details, {"isLive"}) ||
@@ -838,6 +855,7 @@ const std::string& search_fields() {
 }
 
 Results search(const std::string& query, const std::string& params, const std::string& continuation) {
+    if (store::kids_profile()) return fail(tr("Not in a kids profile"));
     auto run = [&](bool mask, long& status) {
         json_t* body = json_object();
         if (!continuation.empty()) {
@@ -873,6 +891,7 @@ Results search(const std::string& query, const std::string& params, const std::s
 }
 
 Results trending() {
+    if (store::kids_profile()) return fail(tr("Not in a kids profile"));
     // Six searches: the YouTube page, Home and For you all want this at the start, so it is
     // fetched once (the others wait) and kept for 10 minutes per region.
     static std::mutex m;
@@ -901,6 +920,7 @@ Results trending() {
     for (size_t k = 0; k < 8; k++)
         for (auto& r : got)
             if (k < r.items.size() && seen.insert(r.items[k].id).second) out.items.push_back(r.items[k]);
+    locale_bias::filter(out.items, 16);  // the world's most viewed is mostly made for someone else
     out.ok = !out.items.empty() || out.error.empty();
     if (!out.items.empty()) {
         cached = out;
@@ -916,6 +936,7 @@ Results channel_videos(const std::string& channel_id, const std::string& continu
 }
 
 Results channel_tab(const std::string& channel_id, Tab tab, const std::string& continuation, Channel* header) {
+    if (store::kids_profile() && !kids::allowed(channel_id)) return fail(tr("Not in a kids profile"));
     const char* params = tab == Tab::SHORTS ? TAB_SHORTS : tab == Tab::LIVE ? TAB_LIVE : TAB_VIDEOS;
     std::string err;
     json::Doc doc = browse(channel_id, params, continuation, err);
@@ -935,6 +956,10 @@ Results channel_tab(const std::string& channel_id, Tab tab, const std::string& c
 
 PlaylistResults channel_playlists(const std::string& channel_id, const std::string& continuation) {
     PlaylistResults out;
+    if (store::kids_profile()) {
+        out.error = tr("Not in a kids profile");
+        return out;
+    }
     std::string err;
     json::Doc doc = browse(channel_id, TAB_PLAYLISTS, continuation, err);
     if (!doc) {
@@ -956,6 +981,7 @@ PlaylistResults channel_playlists(const std::string& channel_id, const std::stri
 }
 
 Results playlist_videos(const std::string& playlist_id, const std::string& continuation, Playlist* info) {
+    if (store::kids_profile()) return fail(tr("Not in a kids profile"));
     std::string err;
     json::Doc doc = browse("VL" + playlist_id, nullptr, continuation, err);
     if (!doc) return fail(err);
@@ -980,6 +1006,10 @@ Results playlist_videos(const std::string& playlist_id, const std::string& conti
 
 ChannelResults search_channels(const std::string& query) {
     ChannelResults out;
+    if (store::kids_profile()) {
+        out.error = tr("Not in a kids profile");
+        return out;
+    }
     json_t* body = json_object();
     json_object_set_new(body, "query", json_string(query.c_str()));
     json_object_set_new(body, "params", json_string(PARAMS_CHANNELS));
@@ -1047,6 +1077,10 @@ ChannelResults account_channels() {
 }
 
 bool account_subscribe(const std::string& channel_id, bool on, std::string& error) {
+    if (store::kids_profile()) {  // a kids profile makes no changes to an account
+        error = tr("Not in a kids profile");
+        return false;
+    }
     // The "params" the apps send with the button.
     json::Doc doc = account_call(on ? "subscription/subscribe" : "subscription/unsubscribe", [&] {
         json_t* body = json_object();
@@ -1063,6 +1097,57 @@ bool account_subscribe(const std::string& channel_id, bool on, std::string& erro
         error = tr("YouTube didn't change it");
         return false;
     }
+    return true;
+}
+
+namespace {
+
+// "id:l;id:d;..." per Wii U user, the newest last.
+constexpr size_t MAX_RATINGS = 300;
+
+}  // namespace
+
+Rating my_rating(const std::string& video_id) {
+    Rating found = Rating::NONE;
+    for (const std::string& item : util::split(store::get_str("yt_ratings"), ';')) {
+        if (item.size() > 2 && item.compare(0, item.size() - 2, video_id) == 0 && item[item.size() - 2] == ':')
+            found = item.back() == 'l' ? Rating::LIKE : item.back() == 'd' ? Rating::DISLIKE : Rating::NONE;
+    }
+    return found;
+}
+
+bool account_rate(const std::string& video_id, Rating rating, std::string& error) {
+    if (store::kids_profile()) {  // a kids profile makes no changes to an account
+        error = tr("Not in a kids profile");
+        return false;
+    }
+    const char* endpoint = rating == Rating::LIKE ? "like/like" : rating == Rating::DISLIKE ? "like/dislike" : "like/removelike";
+    json::Doc doc = account_call(endpoint, [&] {
+        json_t* body = json_object();
+        json_t* target = json_object();
+        json_object_set_new(target, "videoId", json_string(video_id.c_str()));
+        json_object_set_new(body, "target", target);
+        return body;
+    }, error);
+    if (!doc) {
+        log_message(LOG_WARNING, "YouTube", "%s %s: %s", endpoint, video_id.c_str(), error.c_str());
+        return false;
+    }
+    if (json_t* e = json_object_get(doc.get(), "error")) {
+        error = json::str(e, {"message"}, tr("YouTube didn't accept that"));
+        log_message(LOG_WARNING, "YouTube", "%s %s: %s", endpoint, video_id.c_str(), error.c_str());
+        return false;
+    }
+    log_message(LOG_OK, "YouTube", "%s %s", endpoint, video_id.c_str());
+    // Remember it, for the button to show how it stands.
+    std::vector<std::string> kept;
+    for (const std::string& item : util::split(store::get_str("yt_ratings"), ';'))
+        if (!item.empty() && !(item.size() > 2 && item.compare(0, item.size() - 2, video_id) == 0)) kept.push_back(item);
+    if (rating != Rating::NONE) kept.push_back(video_id + (rating == Rating::LIKE ? ":l" : ":d"));
+    if (kept.size() > MAX_RATINGS) kept.erase(kept.begin(), kept.end() - MAX_RATINGS);
+    std::string joined;
+    for (const std::string& item : kept) joined += (joined.empty() ? "" : ";") + item;
+    store::set_str("yt_ratings", joined);
     return true;
 }
 
@@ -1135,6 +1220,10 @@ std::string seconds(double s) { return util::fmt("%.3f", std::max(0.0, s)); }
 }  // namespace
 
 bool account_report_watched(const std::string& id, double position, bool done, std::string& error) {
+    if (store::kids_profile()) {  // a kids profile makes no changes to an account
+        error = tr("Not in a kids profile");
+        return false;
+    }
     // One report at a time: a slow first one (it loads the player response) mustn't be overtaken.
     std::lock_guard<std::mutex> busy(g_report_m);
     Tracking t;
@@ -1181,6 +1270,10 @@ bool account_report_watched(const std::string& id, double position, bool done, s
 }
 
 bool account_watch_later(const std::string& id, bool on, std::string& error) {
+    if (store::kids_profile()) {  // a kids profile makes no changes to an account
+        error = tr("Not in a kids profile");
+        return false;
+    }
     json::Doc doc = account_call("browse/edit_playlist", [&] {
         json_t* action = json_object();
         json_object_set_new(action, "action", json_string(on ? "ACTION_ADD_VIDEO" : "ACTION_REMOVE_VIDEO_BY_VIDEO_ID"));
@@ -1276,6 +1369,7 @@ std::vector<Segment> sponsor_segments(const std::string& video_id) {
 }
 
 Results related(const std::string& video_id) {
+    if (store::kids_profile()) return fail(tr("Not in a kids profile"));
     std::string err;
     json_t* body = json_object();
     json_object_set_new(body, "videoId", json_string(video_id.c_str()));
@@ -1356,6 +1450,11 @@ std::string continuation_token(json_t* item) {
 
 Comments comments(const std::string& video_id, bool newest, const std::string& continuation) {
     Comments out;
+    if (store::kids_profile()) {
+        out.error = tr("Not in a kids profile");
+        out.off = true;
+        return out;
+    }
     json_t* body = json_object();
     std::string token = continuation.empty() ? comments_token(video_id, newest) : continuation;
     json_object_set_new(body, "continuation", json_string(token.c_str()));
@@ -1422,8 +1521,13 @@ Comments comments(const std::string& video_id, bool newest, const std::string& c
 
 std::string duration_label(const Video& v) { return v.duration == "Short" ? tr("Short") : v.duration; }
 
-std::string thumbnail(const std::string& id) { return "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg"; }
-std::string thumbnail_hq(const std::string& id) { return "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg"; }
+// "Video frames as thumbnails": a picture YouTube takes from the video itself (the middle one of three), rather than
+// the one the uploader chose to get clicks. A live stream has none.
+bool frames() { return store::get_bool("yt_frames", false); }
+std::string thumbnail(const std::string& id) { return "https://i.ytimg.com/vi/" + id + (frames() ? "/mq2.jpg" : "/mqdefault.jpg"); }
+std::string thumbnail_hq(const std::string& id) { return "https://i.ytimg.com/vi/" + id + (frames() ? "/hq2.jpg" : "/hqdefault.jpg"); }
+std::string thumbnail(const Video& v) { return v.live ? "https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg" : thumbnail(v.id); }
+std::string thumbnail_hq(const Video& v) { return v.live ? "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg" : thumbnail_hq(v.id); }
 
 bool resolve(const std::string& id, int quality, player::Source& src, std::string& error) {
     std::future<std::vector<Segment>> segments;
@@ -1445,18 +1549,36 @@ bool resolve(const std::string& id, int quality, player::Source& src, std::strin
             log_message(LOG_OK, "YouTube", "%s: %d SponsorBlock segments", id.c_str(), (int)src.skip_segments.size());
     };
     std::string first_error;
-    for (const Client* c : {&VISIONOS, &ANDROID_VR}) {
-        std::string err;
-        if (try_client(*c, id, quality, src, err)) {
-            if (!src.live) take_segments();
-            return true;
+    // A kids profile asks only YouTube Kids' own client: it refuses what Kids hasn't approved, where the others
+    // would play any video there is.
+    const bool kids_profile = store::kids_profile();
+    const std::vector<const Client*> clients = kids_profile ? std::vector<const Client*>{&ANDROID_KIDS}
+                                                           : std::vector<const Client*>{&VISIONOS, &ANDROID_VR, &ANDROID_KIDS};
+    for (const Client* c : clients) {
+        // The first answer to a guest with no visitor id is "sign in to confirm you're not a bot", and it carries the id; asked
+        // again with it the same client plays. A live video went on to ANDROID_VR instead, whose live segments stop after
+        // about 25 seconds (the player ran out of video and stopped).
+        const int tries = c == &VISIONOS ? 2 : 1;
+        bool done = false;
+        for (int attempt = 0; attempt < tries && !done; attempt++) {
+            std::string err;
+            if (try_client(*c, id, quality, src, err)) {
+                if (!src.live) take_segments();
+                return true;
+            }
+            log_message(LOG_WARNING, "YouTube", "%s client failed for %s: %s%s", c->name, id.c_str(), err.c_str(),
+                        attempt + 1 < tries ? " (asking again)" : "");
+            if (first_error.empty()) first_error = err;
+            // Worth asking again: a refusal that has a visitor id to give, and anything at all for a live video, where the
+            // other clients are worse than a second try (a timeout or a dropped handshake on a busy link).
+            const bool refusal = err.find("not a bot") != std::string::npos || err.find("Sign in") != std::string::npos;
+            if (!refusal && !src.live) done = true;
         }
-        log_message(LOG_WARNING, "YouTube", "%s client failed for %s: %s", c->name, id.c_str(), err.c_str());
-        if (first_error.empty()) first_error = err;
     }
     // Signed in, again as the account: it may see what guests don't (age-restricted videos,
     // "confirm you're not a bot"). Only ANDROID_VR takes the token; VISIONOS answers 400.
     std::string token_error;
+    // (A kids profile with a YouTube account a grown-up signed it into does the same: the channel check in try_client stays.)
     std::string token = yt_account::signed_in() ? yt_account::access_token(false, token_error) : "";
     if (!token.empty()) {
         std::string err;
@@ -1468,6 +1590,8 @@ bool resolve(const std::string& id, int quality, player::Source& src, std::strin
         log_message(LOG_WARNING, "YouTube", "ANDROID_VR client failed for %s signed in: %s", id.c_str(), err.c_str());
     }
     error = first_error.empty() ? tr("YouTube playback failed") : first_error;
+    if (kids_profile && !yt_account::signed_in())
+        error = tr("Some videos need a YouTube account. Ask a grown-up to sign in for this profile.");
     return false;
 }
 
@@ -1491,10 +1615,11 @@ Details parse_details(const std::string& player_json) {
 }
 
 Details details(const std::string& video_id, std::string& error) {
+    if (store::kids_profile()) return Details{};  // a kids profile shows no counts and asks nothing more of YouTube
     json_t* body = json_object();
     json_object_set_new(body, "videoId", json_string(video_id.c_str()));
     json::Doc doc = call("player", WEB, body, error, "", nullptr,
-                         "videoDetails.viewCount,microformat.playerMicroformatRenderer(viewCount,likeCount,publishDate,uploadDate)");
+                         "videoDetails.viewCount,microformat.playerMicroformatRenderer(viewCount,likeCount,publishDate,uploadDate,category)");
     return doc ? details_of(doc.get()) : Details{};
 }
 
@@ -1502,7 +1627,7 @@ player::Source make_source(const Video& v) {
     player::Source s;
     s.title = v.title;
     s.subtitle = v.channel;
-    s.artwork = thumbnail_hq(v.id);
+    s.artwork = thumbnail_hq(v);
     s.service = "youtube";
     s.id = v.id;
     s.live = v.live;

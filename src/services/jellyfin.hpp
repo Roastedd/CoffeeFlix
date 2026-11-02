@@ -24,6 +24,7 @@ void switch_to(size_t i);  // the one in use goes among the others
 // Puts the account in use among the others to sign in to another one (the server's address stays).
 void add_account();
 int version();  // changes on sign-in, sign-out and switching, for screens to reload
+void reload();  // another profile's account is in the store now
 std::string normalize_url(const std::string& input);
 
 struct ServerInfo {
@@ -70,10 +71,14 @@ struct List {
     int total = 0;
     bool ok = false;
     std::string error;
+    std::string note;  // because_you_watched: the title the list is similar to
 };
 
 List views();
-List resume();
+List resume();  // without what was taken off Continue watching here
+// Taken off Continue watching in this app (the server's list is the server's): kept out until it is watched again, as the
+// place it was left at is part of what is remembered.
+void hide_from_resume(const Item& it);
 List next_up(const std::string& series_id = "");
 List latest(const std::string& parent_id);
 List items(const std::string& parent_id, const std::string& types, const std::string& sort, int start, int limit,
@@ -82,6 +87,9 @@ List seasons(const std::string& series_id);
 List episodes(const std::string& series_id, const std::string& season_id);
 List children(const std::string& parent_id);  // album tracks, folders
 List similar(const std::string& id);
+// Titles of the library like the movies and shows watched last (the server's "similar" for each, unwatched, the newest
+// watch first). `note` is the title the first of them is like; empty (ok) when nothing has been watched.
+List because_you_watched();
 List search(const std::string& term);
 bool item(const std::string& id, Item& out, std::string& error);
 void set_favorite(const std::string& id, bool fav);

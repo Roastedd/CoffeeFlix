@@ -1,12 +1,12 @@
 {
-  "version": "2.4.3",
-  "url": "https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.4.3",
+  "version": "2.5.6",
+  "url": "https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.5.6",
   "highlights": [
-    "Your GamePad finally earns its keep: browse on both screens, then use it as the remote while the video plays on the TV.",
-    "Choose where sound plays, and let the GamePad screen sleep while you watch",
-    "Pick which page CoffeeFlix opens on (Settings > Start screen)",
-    "Better suggestions: YouTube, Radio, Podcasts and Jellyfin lean toward what you actually watch",
-    "Smoother streaming when the connection hiccups"
+    "Profiles and Kids profiles: each person has their own picture, history and settings. A Kids profile only shows the channels you pick, with a grown-ups' code (PIN or button combo) to get out, plus screen time limits for school days and weekends.",
+    "Make Home your own: pick your start page, greetings, a birthday surprise, and quiet new sounds with their own volume. A sleep timer fades the sound out.",
+    "Photos: much faster, even for 24-megapixel phone photos; turn them upright, a slideshow that follows the people in the picture (with music), and a photo-frame screensaver.",
+    "YouTube: like and dislike with counts, calmer titles, live streams and radio that recover on their own, and 1080p60 that stays 1080p. Subtitles you choose are remembered for next time.",
+    "Navidrome music servers, and Jellyfin libraries that did not fit on the screen now wrap onto more rows."
   ],
-  "note": "From this board: Pick your start screen and GamePad controls when you need them. Thanks for voting, and keep the ideas coming."
+  "note": "From this board: YouTube account extras, Navidrome and Subsonic music servers, Make Home your own, Better photo viewing, Type without the GamePad, Search for the next video from the GamePad, Supporter previews from Settings, Community add-ons for YouTube and Remember my subtitles. Thanks for voting, and keep the ideas coming."
 }

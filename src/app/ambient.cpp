@@ -1,4 +1,5 @@
 #include "app/ambient.hpp"
+#include "app/photo_frame.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -35,6 +36,7 @@ bool g_intro_done = false;
 bool g_intro_sound = false;
 
 bool g_saver_on = false;
+bool g_forced = false;  // started by hand (Settings > Start the photo frame now)
 float g_saver = 0;      // 0..1 visibility
 float g_saver_t = 0;    // seconds shown, drives the drift
 
@@ -130,9 +132,10 @@ std::string date_line() {
 }
 
 // Slow Lissajous drift so nothing sits still long enough to burn in.
-void drift(float w, float h, float& x, float& y) {
+// `range` 0..1 of the room there is (a card that is plainly a card can move less than bare text does).
+void drift(float w, float h, float& x, float& y, float range = 1.0f) {
     float s = g_saver_t;
-    float mx = std::max(0.0f, (W - 120 - w) * 0.5f), my = std::max(0.0f, (H - 100 - h) * 0.5f);
+    float mx = std::max(0.0f, (W - 120 - w) * 0.5f) * range, my = std::max(0.0f, (H - 100 - h) * 0.5f) * range;
     x = (W - w) * 0.5f + std::sin(s * 0.043f + 0.6f) * mx;
     y = (H - h) * 0.5f + std::sin(s * 0.031f) * my;
 }
@@ -142,6 +145,24 @@ void draw_saver() {
     float a = anim::smoothstep(g_saver);
     gfx::push_alpha(a);
     gfx::fill_rect(Rect(0, 0, W, H), gfx::rgb(0x050407));
+    // The photo frame, when that is the screensaver chosen and there are pictures to show.
+    if (photo_frame::wanted() || g_forced) {
+        if (photo_frame::draw(g_saver_t, ui::dt())) {
+            gfx::pop_alpha();
+            return;
+        }
+        if (g_forced && g_saver_t > 3.0f) {  // asked for it, and there was nothing: back to what was on, with a word
+            g_forced = false;
+            g_saver_on = false;
+            ui::toast(tr("No photos found. Put some in the Photos folder."), ic::IMAGE);
+            gfx::pop_alpha();
+            return;
+        }
+        if (g_saver_t < 3.0f && photo_frame::wanted()) {  // looking: the dark, for a moment
+            gfx::pop_alpha();
+            return;
+        }
+    }
 
     float s = g_saver_t;
     bool music = player::active() && !player::has_video();
@@ -167,7 +188,18 @@ void draw_saver() {
     if (music) {
         // Now-playing card: artwork, title, artist and a live spectrum.
         float cw = 760, ch = 250, x, y;
-        drift(cw, ch, x, y);
+        // The card has an edge, so its slow drift (it keeps the picture from burning in) reads as a card that is moving, not as
+        // pieces of the screen that are loose.
+        const float pad = 32;
+        const bool bar = !player::live() && player::duration() > 0;
+        const float panel_h = ch + pad * 2 + (bar ? 28 : 0);
+        drift(cw + pad * 2, panel_h, x, y, 0.4f);
+        x += pad;
+        y += pad;
+        const Rect panel(x - pad, y - pad, cw + pad * 2, panel_h);
+        gfx::shadow(panel.offset(0, 14), 50, Color(0, 0, 0, 170));
+        gfx::fill_rrect(panel, 34, Color(18, 15, 24, 214));
+        gfx::stroke_rrect(panel, 34, 1.5f, Color(255, 255, 255, 46));
         Rect ar(x, y, ch, ch);
         const images::Image* img = art.empty() ? nullptr : images::get(art, 500, 500);
         gfx::shadow(ar.offset(0, 12), 40, Color(0, 0, 0, 180));
@@ -235,12 +267,18 @@ void begin(bool video_foreground) {
     static float read_ago = 1e9f;
     read_ago += dt;
     if (read_ago >= 1.0f) {
-        after = (int)store::get_int("screensaver", 300);
+        after = getenv("COFFEEFLIX_SAVER") ? 3 : (int)store::get_int("screensaver", 300);   // (the tests don't wait minutes)
         read_ago = 0;
     }
-    bool want = after > 0 && in.idle_time > after && !video_foreground && !screens::prompt_active();
-    if (g_saver_on && (in.any() || in.idle_time < 0.5)) want = false;  // any input wakes
-    if (want && !g_saver_on) g_saver_t = 0;
+    bool want = (after > 0 && in.idle_time > after && !video_foreground && !screens::prompt_active()) || (g_forced && !video_foreground);
+    if (g_saver_on && g_saver_t > 0.5f && in.any()) want = false;  // any input wakes (not the press that started it by hand)
+    if (g_saver_on && !g_forced && in.idle_time < 0.5) want = false;
+    if (!want) g_forced = false;
+    if (want && !g_saver_on) {
+        g_saver_t = 0;
+        photo_frame::begin();
+    }
+    if (!want && g_saver_on) photo_frame::end();
     g_saver_on = want;
     g_saver = anim::clamp01(g_saver + (want ? dt / 1.6f : -dt / 0.3f));
     if (g_saver_on) g_saver_t += dt;
@@ -254,5 +292,9 @@ void draw() {
 }
 
 bool intro_running() { return !g_intro_done; }
+
+void show_now() {
+    if (g_intro_done) g_forced = true;
+}
 
 }  // namespace ambient

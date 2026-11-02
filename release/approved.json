@@ -1,5 +1,39 @@
 {
   "schema": 1,
   "automatic": true,
-  "candidate": null
+  "candidate": {
+    "tag": "v2.5.6",
+    "manifest_sha256": "2a4b8f677acfeacdd08bdacf0bccf529c0fb788a94dbdcb5acde21a5cf73a663",
+    "tested_by": "Roastedd (maintainer), on the same source: dev builds; this candidate's own files were not installed by the maintainer",
+    "tested_at": "2026-10-28T17:17:55-07:00",
+    "devices": "Wii U on Aroma: dev builds of the same source (the last is 2.5.6-dev.unlocked.20261018.2) and the supporter 2.5.6 build used by supporters since 2026-10-17. The public candidate's files themselves were not reinstalled. Tiramisu: no device.",
+    "notes": "Released on the maintainer's instruction ('go ahead and send it all', 2026-10-28) without a fresh install test of these exact files; every console check is waived in writing below. What backs it: the supporter build of the same source has been with supporters for eleven days, and the dev builds were run on the console (photo viewer, screensaver, 1080p60 at 44-45 fps, Settings, update from the developer server). The console freezes seen in the dev builds were traced to the maintainer's GPU overclock (710 MHz), not the app. The public source is the supporter source (boundary check clean, pull request #54 checks passed). Tiramisu is untested and the release notes say so. Issue #55 (freeze when cancelling a search, 2026-10-23) came without a version or device and is being asked about; it is not shown to be a regression of this release.",
+    "blockers": [],
+    "checks": {
+      "install_aroma": {
+        "waived": "The maintainer did not reinstall this candidate's files; the same source ran on the console as dev builds and as the supporter build"
+      },
+      "install_tiramisu": {
+        "waived": "No Tiramisu device to test on; the release notes say it is untested"
+      },
+      "playback": {
+        "waived": "Not repeated on these files; dev builds of the same source played video on the console (1080p60 at 44-45 fps, YouTube, photos)"
+      },
+      "navigation": {
+        "waived": "Not repeated on these files; dev builds of the same source were navigated on the console"
+      },
+      "settings_persistence": {
+        "waived": "Not repeated on these files; settings and profiles persisted across restarts in the dev builds"
+      },
+      "update_install": {
+        "waived": "Not repeated on these files; the console updated between dev builds through the developer server and the GitHub release check ran without error"
+      },
+      "public_source_review": {
+        "waived": "The automated boundary check was clean and the pull request's checks passed; the maintainer chose to release without a separate manual review of the diff"
+      },
+      "preview_feedback": {
+        "waived": "Supporters have had 2.5.6 since 2026-10-17; no report of a problem with it has reached the maintainer; the maintainer chose to release"
+      }
+    }
+  }
 }

@@ -106,6 +106,13 @@ Results account_subscriptions(const std::string& continuation = "");
 ChannelResults account_channels();  // every page of them
 // Subscribes the account to a channel, or unsubscribes it.
 bool account_subscribe(const std::string& channel_id, bool on, std::string& error);
+
+// Like, dislike, or take the rating back, as the signed-in account (a worker thread).
+enum class Rating { NONE, LIKE, DISLIKE };
+bool account_rate(const std::string& video_id, Rating rating, std::string& error);
+// What this console last set for a video: YouTube's answer to "what did I rate it" isn't asked for, so a
+// rating made on another device isn't known here.
+Rating my_rating(const std::string& video_id);
 struct AccountInfo {
     std::string name, photo;
 };
@@ -119,6 +126,9 @@ bool account_watch_later(const std::string& video_id, bool on, std::string& erro
 
 std::string thumbnail(const std::string& id);     // 320x180
 std::string thumbnail_hq(const std::string& id);  // 480x360 (backdrops)
+// For a video: a live stream keeps its own picture whatever "Video frames as thumbnails" says.
+std::string thumbnail(const Video& v);
+std::string thumbnail_hq(const Video& v);
 
 // SponsorBlock segments (sponsor, self-promotion, interaction reminders) for a video.
 struct Segment {
@@ -136,6 +146,8 @@ player::Source make_source(const Video& v);
 // what it doesn't say): "1.2M views", "19M likes", "September 14, 2026" (the day it was posted).
 struct Details {
     std::string views, likes, posted;
+    int64_t like_count = -1;  // the number behind `likes`, -1 when not known
+    std::string category;  // YouTube's own: "Music", "Gaming", "News & Politics"...
 };
 // From a "player" response.
 Details parse_details(const std::string& player_json);

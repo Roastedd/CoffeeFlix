@@ -36,6 +36,7 @@ std::deque<Marker> g_markers;
 bool g_paused = true;
 uint32_t g_generation = 0;
 float g_volume = 1.0f;
+std::atomic<float> g_fade{1.0f};
 double g_underrun = 0;
 
 // clock interpolation between callbacks
@@ -43,12 +44,22 @@ uint64_t g_cb_read_start = 0;
 Uint64 g_cb_time = 0;
 bool g_clock_valid = false;
 
-// sfx
-std::vector<float> g_sfx[SFX_COUNT];
-struct Voice { int sfx = -1; size_t pos = 0; float vol = 1; };
+// sfx: each sound in each style (the tick has three pitches), and what is playing
+std::vector<float> g_sfx[2][SFX_COUNT][3];
+struct Voice { int sfx = -1; int variant = 0; size_t pos = 0; float vol = 1; uint32_t started = 0; };
 Voice g_voices[MAX_VOICES];
-std::atomic<bool> g_sfx_on{true};
-std::atomic<float> g_sfx_vol{0.55f};
+uint32_t g_voice_counter = 0;
+std::atomic<bool> g_sfx_on{true}, g_sfx_ticks{true}, g_sfx_kids{false};
+std::atomic<int> g_sfx_style{STYLE_SUBTLE};
+std::atomic<float> g_sfx_vol{0.7f};
+constexpr int MAX_SFX_VOICES = 3;          // more at once is mud
+constexpr float SUBTLE_MAKEUP = 1.5f;      // the soft set is baked quiet; this is its room above the video's sound
+ui_sounds::TickLimiter g_tick_limiter;
+uint32_t g_rng = 12345;
+float rand01() {
+    g_rng = g_rng * 1664525u + 1013904223u;
+    return ((g_rng >> 8) & 0xFFFF) / 65535.0f;
+}
 
 // spectrum
 float g_levels[16];
@@ -135,8 +146,9 @@ void callback(void*, Uint8* out_bytes, int len) {
             int n = (int)std::min<uint64_t>(avail, frames);
             for (int i = 0; i < n; i++) {
                 size_t idx = (size_t)((g_read + i) % RING_FRAMES) * 2;
-                out[i * 2] = (int16_t)(g_ring[idx] * g_volume);
-                out[i * 2 + 1] = (int16_t)(g_ring[idx + 1] * g_volume);
+                const float vol = g_volume * g_fade;
+                out[i * 2] = (int16_t)(g_ring[idx] * vol);
+                out[i * 2 + 1] = (int16_t)(g_ring[idx + 1] * vol);
             }
             if (n > 0) {
                 g_read += n;
@@ -150,60 +162,34 @@ void callback(void*, Uint8* out_bytes, int len) {
         }
 
         if (g_sfx_on) {
-            float sv = g_sfx_vol;
-            for (auto& v : g_voices) {
-                if (v.sfx < 0) continue;
-                const std::vector<float>& s = g_sfx[v.sfx];
-                for (int i = 0; i < frames && v.pos < s.size(); i++, v.pos++) {
-                    int smp = (int)(s[v.pos] * v.vol * sv * 32767.0f);
-                    out[i * 2] = (int16_t)std::clamp(out[i * 2] + smp, -32768, 32767);
-                    out[i * 2 + 1] = (int16_t)std::clamp(out[i * 2 + 1] + smp, -32768, 32767);
+            const int style = g_sfx_style;
+            const float sv = g_sfx_vol * g_sfx_vol * (g_sfx_kids ? 0.708f : 1.0f) * (style == STYLE_SUBTLE ? SUBTLE_MAKEUP : 1.0f);
+            for (int i = 0; i < frames; i++) {
+                float acc = 0;
+                for (auto& v : g_voices) {
+                    if (v.sfx < 0) continue;
+                    const std::vector<float>& s = g_sfx[style][v.sfx][v.variant];
+                    if (v.pos < s.size()) acc += s[v.pos++] * v.vol;
+                    if (v.pos >= s.size()) v.sfx = -1;
                 }
-                if (v.pos >= s.size()) v.sfx = -1;
+                if (acc == 0) continue;
+                // A soft clip: several sounds at once bend instead of cracking.
+                const int smp = (int)(std::tanh(acc * sv) * 32767.0f);
+                out[i * 2] = (int16_t)std::clamp(out[i * 2] + smp, -32768, 32767);
+                out[i * 2 + 1] = (int16_t)std::clamp(out[i * 2 + 1] + smp, -32768, 32767);
             }
         }
     }
     if (auto tap = g_tap.load()) tap(out, frames);
 }
 
-// --- procedural UI sounds ------------------------------------------------------
-
-std::vector<float> tone(float f0, float f1, float dur, float attack, float decay_pow, float gain,
-                        float harmonics = 0.0f) {
-    int n = (int)(dur * RATE);
-    std::vector<float> s(n);
-    float phase = 0;
-    for (int i = 0; i < n; i++) {
-        float t = (float)i / n;
-        float f = f0 + (f1 - f0) * t;
-        phase += 2 * PI * f / RATE;
-        float env = std::min(1.0f, (i / (float)RATE) / attack) * std::pow(1.0f - t, decay_pow);
-        float v = std::sin(phase) + harmonics * std::sin(2 * phase) * 0.5f + harmonics * std::sin(3 * phase) * 0.25f;
-        s[i] = v * env * gain;
-    }
-    return s;
-}
-
-void mix_into(std::vector<float>& dst, const std::vector<float>& src, float at_seconds) {
-    size_t off = (size_t)(at_seconds * RATE);
-    if (dst.size() < off + src.size()) dst.resize(off + src.size(), 0.0f);
-    for (size_t i = 0; i < src.size(); i++) dst[off + i] += src[i];
-}
+// --- the interface sounds are made once, in both styles (audio/ui_sounds.cpp) ---------------
 
 void build_sfx() {
-    g_sfx[SFX_MOVE] = tone(1850, 1500, 0.035f, 0.002f, 3.0f, 0.22f, 0.3f);
-    g_sfx[SFX_SELECT] = tone(620, 640, 0.07f, 0.003f, 2.0f, 0.3f, 0.4f);
-    mix_into(g_sfx[SFX_SELECT], tone(930, 960, 0.11f, 0.003f, 2.2f, 0.28f, 0.3f), 0.045f);
-    g_sfx[SFX_BACK] = tone(760, 560, 0.075f, 0.003f, 2.0f, 0.28f, 0.3f);
-    mix_into(g_sfx[SFX_BACK], tone(520, 420, 0.09f, 0.003f, 2.4f, 0.22f, 0.2f), 0.04f);
-    g_sfx[SFX_BUMP] = tone(170, 110, 0.09f, 0.002f, 2.5f, 0.45f, 0.6f);
-    g_sfx[SFX_TOGGLE] = tone(1200, 1300, 0.04f, 0.001f, 2.0f, 0.25f, 0.2f);
-    g_sfx[SFX_ERROR] = tone(330, 300, 0.1f, 0.003f, 1.5f, 0.3f, 0.5f);
-    mix_into(g_sfx[SFX_ERROR], tone(260, 240, 0.14f, 0.003f, 1.5f, 0.3f, 0.5f), 0.12f);
-    // Small "whoosh up" arpeggio for opening a player/overlay.
-    g_sfx[SFX_OPEN] = tone(523, 530, 0.12f, 0.004f, 2.0f, 0.18f, 0.2f);
-    mix_into(g_sfx[SFX_OPEN], tone(659, 665, 0.12f, 0.004f, 2.0f, 0.16f, 0.2f), 0.05f);
-    mix_into(g_sfx[SFX_OPEN], tone(784, 790, 0.18f, 0.004f, 2.2f, 0.14f, 0.2f), 0.1f);
+    for (int style = 0; style < 2; style++)
+        for (int s = 0; s < SFX_COUNT; s++)
+            for (int v = 0; v < ui_sounds::variants((Sfx)s, (SoundStyle)style); v++)
+                g_sfx[style][s][v] = ui_sounds::render((Sfx)s, (SoundStyle)style, v);
 }
 
 }  // namespace
@@ -342,18 +328,52 @@ void levels(float out[16]) {
 
 void play(Sfx s, float volume) {
     if (!g_sfx_on || s < 0 || s >= SFX_COUNT) return;
+    const int style = g_sfx_style;
+    if (s == SFX_MOVE && !g_sfx_ticks) return;
     std::lock_guard<std::mutex> lk(g_m);
-    Voice* slot = &g_voices[0];
-    for (auto& v : g_voices) {
-        if (v.sfx < 0) { slot = &v; break; }
-        if (v.pos > slot->pos) slot = &v;  // steal the oldest
+    int variant = 0;
+    float vol = volume;
+    if (style == STYLE_SUBTLE) {
+        const double now = (double)SDL_GetTicks() / 1000.0;
+        if (s == SFX_MOVE) {  // thinned out when the button is held, and never quite the same twice
+            float soften = 0;
+            if (!g_tick_limiter.allow(now, &soften)) return;
+            variant = (int)(rand01() * 2.999f);
+            vol *= std::pow(10.0f, (soften + (rand01() * 3.0f - 1.5f)) / 20.0f);
+        } else if (s == SFX_BUMP) {
+            static double last_bump = -1;
+            if (last_bump >= 0 && now - last_bump < 0.25) return;  // one thud at an edge, however long it is held against
+            last_bump = now;
+        }
     }
+    if (g_sfx[style][s][variant].empty()) return;
+    // At most three at once: the oldest gives way.
+    int active = 0;
+    Voice* free_slot = nullptr;
+    Voice* oldest = nullptr;
+    for (auto& v : g_voices) {
+        if (v.sfx < 0) {
+            if (!free_slot) free_slot = &v;
+            continue;
+        }
+        active++;
+        if (!oldest || v.started < oldest->started) oldest = &v;
+    }
+    Voice* slot = free_slot;
+    if (active >= MAX_SFX_VOICES || !slot) slot = oldest ? oldest : &g_voices[0];
     slot->sfx = s;
+    slot->variant = variant;
     slot->pos = 0;
-    slot->vol = volume;
+    slot->vol = vol;
+    slot->started = ++g_voice_counter;
 }
 
 void set_sfx_enabled(bool on) { g_sfx_on = on; }
+void set_sfx_style(SoundStyle style) { g_sfx_style = style == STYLE_CLASSIC ? STYLE_CLASSIC : STYLE_SUBTLE; }
 void set_sfx_volume(float v) { g_sfx_vol = std::clamp(v, 0.0f, 1.0f); }
+void set_sfx_ticks(bool on) { g_sfx_ticks = on; }
+void set_sfx_kids(bool on) { g_sfx_kids = on; }
+void set_media_fade(float f) { g_fade = std::clamp(f, 0.0f, 1.0f); }
+void set_media_volume(float v) { stream_set_volume(std::clamp(v, 0.0f, 1.0f) * std::clamp(v, 0.0f, 1.0f)); }
 
 }  // namespace audio
