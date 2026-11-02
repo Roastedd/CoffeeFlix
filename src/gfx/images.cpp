@@ -243,7 +243,7 @@ bool too_big(const std::string& data) {
     return stated_size(data, w, h) && least_reduction(data, w, h) == 0;
 }
 
-SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
+SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags, bool tga) {
     int64_t stated_w = 0, stated_h = 0;
     int min_denom = 1;
     if (stated_size(data, stated_w, stated_h) && over_limit(stated_w, stated_h)) {
@@ -285,7 +285,7 @@ SDL_Surface* decode(const std::string& data, int max_w, int max_h, int flags) {
     }
     if (!s) {
         SDL_RWops* rw = SDL_RWFromConstMem(data.data(), (int)data.size());
-        s = to_rgba(IMG_Load_RW(rw, 1));
+        s = to_rgba(tga ? IMG_LoadTyped_RW(rw, 1, "TGA") : IMG_Load_RW(rw, 1));
     }
     if (!s) return nullptr;
     if (flags & BLUR) {
@@ -372,7 +372,7 @@ void load_job(std::shared_ptr<Entry> e) {
             }
             ok = util::read_file(local_path, data);
         }
-        SDL_Surface* s = ok ? decode(data, e->max_w, e->max_h, e->flags) : nullptr;
+        SDL_Surface* s = ok ? decode(data, e->max_w, e->max_h, e->flags, util::ends_with(e->url, ".tga")) : nullptr;
         if (s && (e->flags & FOCUS)) {
             const focus::Focus f = focus::analyze(s);
             std::lock_guard<std::mutex> lk(g_m);

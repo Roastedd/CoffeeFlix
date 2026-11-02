@@ -47,6 +47,9 @@ const SectionInfo SECTIONS[] = {
     {"radio", app::SEC_RADIO, N_("Radio"), true, true},
     {"podcasts", app::SEC_PODCASTS, N_("Podcasts"), true, true},
     {"media", app::SEC_MEDIA, N_("My Media"), true, true},
+#ifdef __WIIU__
+    {"games", app::SEC_GAMES, N_("Games"), true, true},
+#endif
     {"settings", app::SEC_SETTINGS, N_("Settings"), false, false},
 };
 const size_t SECTION_COUNT = sizeof(SECTIONS) / sizeof(SECTIONS[0]);

@@ -11,6 +11,9 @@
 #include "app/greeting.hpp"
 #include "app/personal.hpp"
 #include "screens/screens.hpp"
+#ifdef __WIIU__
+#include "screens/game_library.hpp"
+#endif
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
 #include "services/navidrome.hpp"
@@ -193,11 +196,18 @@ public:
         const bool compact = H < 640;  // a phone: less hero, so a row of cards shows under it
         const float hero_h = compact ? 244 : 350;
         const HomeItem* f = focused_item();
-        if (f && f->hero != hero_url_) {
+        std::string hero = f ? f->hero : "";
+#ifdef __WIIU__
+        if (f && f->service == "Games" && !hero.empty()) {
+            const images::Image* art = images::get(hero, 1280, 720);
+            if (art && art->failed) hero = f->image;
+        }
+#endif
+        if (f && hero != hero_url_) {
             prev_hero_ = hero_url_;
-            hero_url_ = f->hero;
+            hero_url_ = hero;
             hero_t_ = ui::time();
-            set_backdrop(f->hero);
+            set_backdrop(hero);
         }
         float ht = anim::smoothstep((float)(ui::time() - hero_t_) / 0.5f);
         draw_hero_image(prev_hero_, 1 - ht, hero_h + 50);
@@ -396,6 +406,21 @@ private:
         if (!dirty_) return;
         dirty_ = false;
         rows_.clear();
+#ifdef __WIIU__
+        Row games{N_("Recently played"), CARD_SQUARE, 186, {}, false};
+        for (const auto& played : app::section_visible(app::SEC_GAMES) ? game_library::recent() : std::vector<game_library::Recent>()) {
+            HomeItem item;
+            item.icon = ic::GAMEPAD;
+            item.service = "Games";
+            item.title = played.game.name;
+            item.subtitle = played.game.wii ? "Wii VC" : "Wii U";
+            item.image = played.game.icon;
+            item.hero = game_library::boot_tv_image(played.game);
+            item.open = [played] { game_library::launch(played.game, played.option); };
+            games.items.push_back(std::move(item));
+        }
+        if (!games.items.empty()) rows_.push_back(std::move(games));
+#endif
         Row cont{N_("Continue watching"), CARD_WIDE, 300, {}, false};
         const bool jf_on = app::section_visible(app::SEC_JELLYFIN), nd_on = app::section_visible(app::SEC_NAVIDROME),
                    tw_on = app::section_visible(app::SEC_TWITCH), radio_on = app::section_visible(app::SEC_RADIO),

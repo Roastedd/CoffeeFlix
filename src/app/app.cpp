@@ -85,6 +85,9 @@ const RailEntry RAIL[] = {
     {SEC_RADIO, ic::RADIO, N_("Radio")},
     {SEC_PODCASTS, ic::PODCASTS, N_("Podcasts")},
     {SEC_MEDIA, ic::FOLDER, N_("My Media")},
+#ifdef __WIIU__
+    {SEC_GAMES, ic::GAMEPAD, N_("Games")},
+#endif
     {SEC_SETTINGS, ic::SETTINGS, N_("Settings")},
 };
 
