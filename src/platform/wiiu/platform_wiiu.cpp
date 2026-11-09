@@ -406,7 +406,11 @@ bool init() {
     ff_tcp_socket_setup = tune_socket;  // FFmpeg's own connections (Twitch, radio) too
     WHBProcInit();
     register_lifecycle_callbacks();
+    // Newer wut marks this deprecated ("no need to call"); it is kept for the older system software and wut the app is built with.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     VPADInit();
+#pragma GCC diagnostic pop
     // Whatever an earlier run (or a crash) left the display at is put right: the system doesn't
     // say whether it does. What it was goes in the log.
     {
