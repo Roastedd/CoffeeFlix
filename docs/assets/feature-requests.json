@@ -24,10 +24,13 @@
     "includes": [
       "Turn animated background effects off",
       "Choose fit, stretch or letterbox in the player",
-      "4:3 output considered for CRTs and older TVs"
+      "4:3 pictures that fill a 4:3 screen, without black bars on every side (for CRTs)"
+    ],
+    "issues": [
+      62
     ],
     "status": "proposed",
-    "reply": "A Reduce motion switch that turns animations off is built for an upcoming update. Fit, stretch and letterbox are still to do."
+    "reply": "A Reduce motion switch that turns animations off is built for an upcoming update. Fit, stretch and letterbox are still to do, and so is 4:3 on a CRT (the report in #62). I haven’t started on those."
   },
   {
     "id": "controller-keyboard",
@@ -109,16 +112,17 @@
     "id": "twitch-account",
     "category": "Twitch",
     "title": "Twitch account and channel points",
-    "summary": "Sign in to Twitch for account features. Feasibility and service support need checking.",
+    "summary": "Sign in to Twitch and see the channels you follow.",
     "includes": [
       "Your followed channels",
-      "Collect channel points while you watch"
+      "Collect channel points while you watch (Twitch has not allowed this so far)"
     ],
     "issues": [
       13
     ],
-    "status": "needs-research",
-    "reply": "Signing in depends on what Twitch allows on a console, so I'm checking that first."
+    "status": "in-progress",
+    "since": "2026-11-04",
+    "reply": "Signing in with a code from your phone works, and your followed channels show up, including after a restart. Channel points are the hard part: Twitch refused the app’s request to even look at a points balance, so I can’t promise earning or claiming them."
   },
   {
     "id": "twitch-watching",
@@ -127,13 +131,15 @@
     "summary": "More ways to enjoy a stream, beyond the live video.",
     "includes": [
       "Past broadcasts (VODs) next to live streams",
-      "Chat with 7TV and BTTV emotes",
+      "Chat with 7TV, BTTV and FrankerFaceZ emotes",
       "Polls and predictions where possible"
     ],
     "issues": [
       13
     ],
-    "status": "needs-research"
+    "status": "in-progress",
+    "since": "2026-11-05",
+    "reply": "Past broadcasts play and pick up where you left off on my Wii U. Chat with emotes, bigger text and an on-screen keyboard is built, and I’m still testing it on the console. Polls and predictions aren’t started."
   },
   {
     "id": "navidrome-support",
@@ -153,18 +159,20 @@
     "id": "dvd-playback",
     "category": "Discs & files",
     "title": "DVD playback",
-    "summary": "Watch DVDs on the Wii U through a USB DVD drive, at the best quality the console can show. Whether the Wii U lets apps read a USB drive still has to be found out.",
+    "summary": "Watch DVDs you own on the Wii U: disc images, VIDEO_TS folders and a USB DVD drive.",
     "includes": [
-      "Play all kinds of DVDs from a USB DVD drive",
-      "Show the picture at the best quality possible, upscaled to the TV’s resolution",
-      "DVD menus",
-      "Music CDs and disc images (ISO) considered too"
+      "Disc images (.iso, including split images) and VIDEO_TS folders",
+      "A title picker, chapters, subtitles and the audio language you choose",
+      "A disc in a USB DVD drive shows up on Home",
+      "Discs with copy protection are not played, and the app says so",
+      "Full DVD menus and music CDs are still only ideas"
     ],
     "issues": [
       23
     ],
-    "status": "needs-research",
-    "reply": "I’m checking whether the Wii U lets apps read a USB DVD drive, and aiming to play every kind of DVD at the best quality it can show."
+    "status": "in-progress",
+    "since": "2026-10-28",
+    "reply": "Disc images and VIDEO_TS folders are in the supporter preview, and a test film played smoothly on a Wii U. Reading a disc from a USB DVD drive is built but still being worked out on the console. Next is more testing with burned discs."
   },
   {
     "id": "remember-subtitles",
@@ -242,5 +250,79 @@
     "since": "2026-10-17",
     "reply": "Built. It needs a one-time setup on my side, then it will switch on for supporters.",
     "shipped_in": "2.5.6"
+  },
+  {
+    "id": "usb-drives",
+    "category": "Discs & files",
+    "title": "Play from USB sticks and hard drives",
+    "summary": "Plug a USB stick or an external hard drive into the Wii U and play its videos, music and photos in CoffeeFlix.",
+    "includes": [
+      "FAT32, exFAT and NTFS drives, the usual ones from a PC or a Mac",
+      "Read only: nothing is ever written to your drive",
+      "Subtitles, resume points and thumbnails work like they do on the SD card",
+      "Drives you plug in or pull out show up on their own"
+    ],
+    "status": "in-progress",
+    "since": "2026-11-07",
+    "reply": "Built and checked on a computer with real FAT32, exFAT and NTFS disks. It hasn’t run on a real Wii U yet, and the first thing to find out is whether the console lets apps read a USB drive at all."
+  },
+  {
+    "id": "more-file-types",
+    "category": "Discs & files",
+    "title": "Play more kinds of files",
+    "summary": "Older and less common video and music files that didn’t play before: Windows Media, old phone videos, Flash video, RealMedia and more.",
+    "includes": [
+      "Video: Windows Media (.wmv, .asf), phone videos (.3gp), Flash video (.flv), RealMedia (.rm), Ogg Theora (.ogv) and camcorder files (.mts)",
+      "Music: Windows Media Audio (.wma), AIFF, Monkey’s Audio (.ape), AMR, and AC-3, E-AC-3 and DTS files"
+    ],
+    "status": "in-progress",
+    "since": "2026-11-08",
+    "reply": "Added to the Wii U build and played from start to finish in a Wii U emulator. The console’s processor plays these, so they’re best at standard definition. HEVC (H.265), VP9 and AV1 are still too heavy for the Wii U."
+  },
+  {
+    "id": "games-library",
+    "category": "Games",
+    "title": "Your Wii U games in CoffeeFlix",
+    "summary": "See the Wii U and Wii Virtual Console games installed on your console, with their pictures, and start one from CoffeeFlix.",
+    "includes": [
+      "A Games section with your installed games and their icons",
+      "A Recently played row on Home",
+      "Play modes for Wii Virtual Console games"
+    ],
+    "status": "in-progress",
+    "since": "2026-11-01",
+    "reply": "A community pull request (#53) added this. It’s in my development version and the supporter preview. Starting a game from CoffeeFlix first crashed the Wii U Menu; that is fixed and it works for Wii U games on my console. Wii Virtual Console games and games on a USB drive still need testing."
+  },
+  {
+    "id": "radio-favorites",
+    "category": "Radio",
+    "title": "More from Radio",
+    "summary": "Add a station by its stream address, jump back to what you played lately, and listen to BBC local radio.",
+    "includes": [
+      "A heart on Now Playing keeps a station, and favorites come first",
+      "Add your own station with a name and a stream address",
+      "A Recently played shelf",
+      "BBC local radio and BBC stations that play in the UK",
+      "Stations such as LBC, Capital and Classic FM connect instead of timing out",
+      "Lists open at once, and station logos are kept for next time"
+    ],
+    "status": "in-progress",
+    "since": "2026-11-04",
+    "reply": "In the supporter preview now."
+  },
+  {
+    "id": "romm-client",
+    "category": "Games",
+    "title": "RomM game library",
+    "summary": "Browse your RomM retro-game library from the Wii U and download games to the SD card.",
+    "includes": [
+      "Connect with your server address and an API token",
+      "Browse your platforms and games with cover art and details",
+      "Download a game to a folder on the SD card"
+    ],
+    "issues": [
+      56
+    ],
+    "status": "proposed"
   }
 ]

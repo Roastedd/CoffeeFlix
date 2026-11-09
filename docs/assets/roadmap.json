@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-29",
+  "updated": "2026-11-08",
   "items": [
     {
       "id": "release-channels",
@@ -9,6 +9,51 @@
         "Wii U"
       ],
       "status": "in-progress"
+    },
+    {
+      "feature_id": "dvd-playback",
+      "platforms": [
+        "Wii U"
+      ],
+      "stage": "in-testing"
+    },
+    {
+      "feature_id": "games-library",
+      "platforms": [
+        "Wii U"
+      ],
+      "stage": "in-testing"
+    },
+    {
+      "feature_id": "radio-favorites",
+      "platforms": [
+        "Wii U"
+      ],
+      "stage": "in-testing"
+    },
+    {
+      "feature_id": "usb-drives",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "more-file-types",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "twitch-account",
+      "platforms": [
+        "Wii U"
+      ]
+    },
+    {
+      "feature_id": "twitch-watching",
+      "platforms": [
+        "Wii U"
+      ]
     },
     {
       "feature_id": "gamepad-search-next",
