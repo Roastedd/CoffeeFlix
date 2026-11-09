@@ -50,7 +50,7 @@
           <a class="btn" href="https://github.com/Roastedd/CoffeeFlix/issues/new?template=feature_request.yml">Suggest an idea <span aria-hidden="true">↗</span></a>
         </div>
         <ul class="stats rise" style="--i:4" aria-label="At a glance">
-          <li><b data-idea-count>16</b> ideas</li>
+          <li><b data-idea-count>21</b> ideas</li>
           <li><b data-total-votes>—</b> votes so far</li>
           <li><b>1 vote</b> per GitHub account</li>
         </ul>
@@ -100,12 +100,12 @@
       </section>
 
       <section class="requests" id="requests" aria-labelledby="requests-title">
-        <div class="section-heading"><div><span class="eyebrow">From the community</span><h2 id="requests-title">All ideas</h2></div><span class="idea-count"><span data-idea-count>16</span> ideas</span></div>
+        <div class="section-heading"><div><span class="eyebrow">From the community</span><h2 id="requests-title">All ideas</h2></div><span class="idea-count"><span data-idea-count>21</span> ideas</span></div>
         <div class="toolbar" id="toolbar" hidden>
           <label class="search"><span class="sr-only">Find an idea</span><svg aria-hidden="true"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Search ideas…" autocomplete="off"></label>
           <div class="pills" id="pills" role="group" aria-label="Filter by category">
           <!-- BEGIN CATEGORY PILLS -->
-            <button class="pill" type="button" data-category="all" aria-pressed="true">All <span>16</span></button>
+            <button class="pill" type="button" data-category="all" aria-pressed="true">All <span>21</span></button>
             <button class="pill" type="button" data-category="Home &amp; settings" aria-pressed="false">Home &amp; settings <span>2</span></button>
             <button class="pill" type="button" data-category="Display &amp; video" aria-pressed="false">Display &amp; video <span>2</span></button>
             <button class="pill" type="button" data-category="Controls" aria-pressed="false">Controls <span>2</span></button>
@@ -113,7 +113,9 @@
             <button class="pill" type="button" data-category="Servers &amp; books" aria-pressed="false">Servers &amp; books <span>2</span></button>
             <button class="pill" type="button" data-category="YouTube" aria-pressed="false">YouTube <span>2</span></button>
             <button class="pill" type="button" data-category="Twitch" aria-pressed="false">Twitch <span>2</span></button>
-            <button class="pill" type="button" data-category="Discs &amp; files" aria-pressed="false">Discs &amp; files <span>3</span></button>
+            <button class="pill" type="button" data-category="Discs &amp; files" aria-pressed="false">Discs &amp; files <span>5</span></button>
+            <button class="pill" type="button" data-category="Games" aria-pressed="false">Games <span>2</span></button>
+            <button class="pill" type="button" data-category="Radio" aria-pressed="false">Radio <span>1</span></button>
           <!-- END CATEGORY PILLS -->
           </div>
           <div class="selects">
@@ -141,8 +143,9 @@
             <div class="card-head"><span class="category">Display &amp; video</span><span class="badge" data-state="proposed">Proposed</span></div>
             <h3 id="title-display-options">Display options</h3>
             <p class="summary">A quieter interface, and video that fits the TV you have.</p>
-            <ul class="includes"><li>Turn animated background effects off</li><li>Choose fit, stretch or letterbox in the player</li><li>4:3 output considered for CRTs and older TVs</li></ul>
-            <p class="reply"><b>Dev reply</b> A Reduce motion switch that turns animations off is built for an upcoming update. Fit, stretch and letterbox are still to do.</p>
+            <ul class="includes"><li>Turn animated background effects off</li><li>Choose fit, stretch or letterbox in the player</li><li>4:3 pictures that fill a 4:3 screen, without black bars on every side (for CRTs)</li></ul>
+            <p class="reply"><b>Dev reply</b> A Reduce motion switch that turns animations off is built for an upcoming update. Fit, stretch and letterbox are still to do, and so is 4:3 on a CRT (the report in #62). I haven’t started on those.</p>
+            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/62">GitHub #62</a></p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
               <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Display options on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
@@ -211,12 +214,12 @@
             </div>
             <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="card" id="twitch-account" data-category="Twitch" data-status="needs-research" aria-labelledby="title-twitch-account">
-            <div class="card-head"><span class="category">Twitch</span><span class="badge" data-state="needs-research">Needs research</span></div>
+          <article class="card" id="twitch-account" data-category="Twitch" data-status="in-progress" aria-labelledby="title-twitch-account">
+            <div class="card-head"><span class="category">Twitch</span><span class="badge" data-state="in-progress">In progress</span></div>
             <h3 id="title-twitch-account">Twitch account and channel points</h3>
-            <p class="summary">Sign in to Twitch for account features. Feasibility and service support need checking.</p>
-            <ul class="includes"><li>Your followed channels</li><li>Collect channel points while you watch</li></ul>
-            <p class="reply"><b>Dev reply</b> Signing in depends on what Twitch allows on a console, so I&#x27;m checking that first.</p>
+            <p class="summary">Sign in to Twitch and see the channels you follow.</p>
+            <ul class="includes"><li>Your followed channels</li><li>Collect channel points while you watch (Twitch has not allowed this so far)</li></ul>
+            <p class="reply"><b>Dev reply</b> Signing in with a code from your phone works, and your followed channels show up, including after a restart. Channel points are the hard part: Twitch refused the app’s request to even look at a points balance, so I can’t promise earning or claiming them.</p>
             <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub #13</a></p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
@@ -224,11 +227,12 @@
             </div>
             <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="card" id="twitch-watching" data-category="Twitch" data-status="needs-research" aria-labelledby="title-twitch-watching">
-            <div class="card-head"><span class="category">Twitch</span><span class="badge" data-state="needs-research">Needs research</span></div>
+          <article class="card" id="twitch-watching" data-category="Twitch" data-status="in-progress" aria-labelledby="title-twitch-watching">
+            <div class="card-head"><span class="category">Twitch</span><span class="badge" data-state="in-progress">In progress</span></div>
             <h3 id="title-twitch-watching">Watch more on Twitch</h3>
             <p class="summary">More ways to enjoy a stream, beyond the live video.</p>
-            <ul class="includes"><li>Past broadcasts (VODs) next to live streams</li><li>Chat with 7TV and BTTV emotes</li><li>Polls and predictions where possible</li></ul>
+            <ul class="includes"><li>Past broadcasts (VODs) next to live streams</li><li>Chat with 7TV, BTTV and FrankerFaceZ emotes</li><li>Polls and predictions where possible</li></ul>
+            <p class="reply"><b>Dev reply</b> Past broadcasts play and pick up where you left off on my Wii U. Chat with emotes, bigger text and an on-screen keyboard is built, and I’m still testing it on the console. Polls and predictions aren’t started.</p>
             <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/13">GitHub #13</a></p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
@@ -248,12 +252,12 @@
             </div>
             <div class="meter" aria-hidden="true"><i></i></div>
           </article>
-          <article class="card" id="dvd-playback" data-category="Discs &amp; files" data-status="needs-research" aria-labelledby="title-dvd-playback">
-            <div class="card-head"><span class="category">Discs &amp; files</span><span class="badge" data-state="needs-research">Needs research</span></div>
+          <article class="card" id="dvd-playback" data-category="Discs &amp; files" data-status="in-progress" aria-labelledby="title-dvd-playback">
+            <div class="card-head"><span class="category">Discs &amp; files</span><span class="badge" data-state="in-progress">In progress</span></div>
             <h3 id="title-dvd-playback">DVD playback</h3>
-            <p class="summary">Watch DVDs on the Wii U through a USB DVD drive, at the best quality the console can show. Whether the Wii U lets apps read a USB drive still has to be found out.</p>
-            <ul class="includes"><li>Play all kinds of DVDs from a USB DVD drive</li><li>Show the picture at the best quality possible, upscaled to the TV’s resolution</li><li>DVD menus</li><li>Music CDs and disc images (ISO) considered too</li></ul>
-            <p class="reply"><b>Dev reply</b> I’m checking whether the Wii U lets apps read a USB DVD drive, and aiming to play every kind of DVD at the best quality it can show.</p>
+            <p class="summary">Watch DVDs you own on the Wii U: disc images, VIDEO_TS folders and a USB DVD drive.</p>
+            <ul class="includes"><li>Disc images (.iso, including split images) and VIDEO_TS folders</li><li>A title picker, chapters, subtitles and the audio language you choose</li><li>A disc in a USB DVD drive shows up on Home</li><li>Discs with copy protection are not played, and the app says so</li><li>Full DVD menus and music CDs are still only ideas</li></ul>
+            <p class="reply"><b>Dev reply</b> Disc images and VIDEO_TS folders are in the supporter preview, and a test film played smoothly on a Wii U. Reading a disc from a USB DVD drive is built but still being worked out on the console. Next is more testing with burned discs.</p>
             <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/23">GitHub #23</a></p>
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
@@ -319,6 +323,66 @@
             <div class="card-foot">
               <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
               <a class="release-btn" href="https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.5.6" target="_blank" rel="noopener" aria-label="Read what is new in version 2.5.6 on GitHub"><svg aria-hidden="true"><use href="#i-check"/></svg>What’s new<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
+          </article>
+          <article class="card" id="usb-drives" data-category="Discs &amp; files" data-status="in-progress" aria-labelledby="title-usb-drives">
+            <div class="card-head"><span class="category">Discs &amp; files</span><span class="badge" data-state="in-progress">In progress</span></div>
+            <h3 id="title-usb-drives">Play from USB sticks and hard drives</h3>
+            <p class="summary">Plug a USB stick or an external hard drive into the Wii U and play its videos, music and photos in CoffeeFlix.</p>
+            <ul class="includes"><li>FAT32, exFAT and NTFS drives, the usual ones from a PC or a Mac</li><li>Read only: nothing is ever written to your drive</li><li>Subtitles, resume points and thumbnails work like they do on the SD card</li><li>Drives you plug in or pull out show up on their own</li></ul>
+            <p class="reply"><b>Dev reply</b> Built and checked on a computer with real FAT32, exFAT and NTFS disks. It hasn’t run on a real Wii U yet, and the first thing to find out is whether the console lets apps read a USB drive at all.</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Play from USB sticks and hard drives on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
+          </article>
+          <article class="card" id="more-file-types" data-category="Discs &amp; files" data-status="in-progress" aria-labelledby="title-more-file-types">
+            <div class="card-head"><span class="category">Discs &amp; files</span><span class="badge" data-state="in-progress">In progress</span></div>
+            <h3 id="title-more-file-types">Play more kinds of files</h3>
+            <p class="summary">Older and less common video and music files that didn’t play before: Windows Media, old phone videos, Flash video, RealMedia and more.</p>
+            <ul class="includes"><li>Video: Windows Media (.wmv, .asf), phone videos (.3gp), Flash video (.flv), RealMedia (.rm), Ogg Theora (.ogv) and camcorder files (.mts)</li><li>Music: Windows Media Audio (.wma), AIFF, Monkey’s Audio (.ape), AMR, and AC-3, E-AC-3 and DTS files</li></ul>
+            <p class="reply"><b>Dev reply</b> Added to the Wii U build and played from start to finish in a Wii U emulator. The console’s processor plays these, so they’re best at standard definition. HEVC (H.265), VP9 and AV1 are still too heavy for the Wii U.</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Play more kinds of files on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
+          </article>
+          <article class="card" id="games-library" data-category="Games" data-status="in-progress" aria-labelledby="title-games-library">
+            <div class="card-head"><span class="category">Games</span><span class="badge" data-state="in-progress">In progress</span></div>
+            <h3 id="title-games-library">Your Wii U games in CoffeeFlix</h3>
+            <p class="summary">See the Wii U and Wii Virtual Console games installed on your console, with their pictures, and start one from CoffeeFlix.</p>
+            <ul class="includes"><li>A Games section with your installed games and their icons</li><li>A Recently played row on Home</li><li>Play modes for Wii Virtual Console games</li></ul>
+            <p class="reply"><b>Dev reply</b> A community pull request (#53) added this. It’s in my development version and the supporter preview. Starting a game from CoffeeFlix first crashed the Wii U Menu; that is fixed and it works for Wii U games on my console. Wii Virtual Console games and games on a USB drive still need testing.</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for Your Wii U games in CoffeeFlix on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
+          </article>
+          <article class="card" id="radio-favorites" data-category="Radio" data-status="in-progress" aria-labelledby="title-radio-favorites">
+            <div class="card-head"><span class="category">Radio</span><span class="badge" data-state="in-progress">In progress</span></div>
+            <h3 id="title-radio-favorites">More from Radio</h3>
+            <p class="summary">Add a station by its stream address, jump back to what you played lately, and listen to BBC local radio.</p>
+            <ul class="includes"><li>A heart on Now Playing keeps a station, and favorites come first</li><li>Add your own station with a name and a stream address</li><li>A Recently played shelf</li><li>BBC local radio and BBC stations that play in the UK</li><li>Stations such as LBC, Capital and Classic FM connect instead of timing out</li><li>Lists open at once, and station logos are kept for next time</li></ul>
+            <p class="reply"><b>Dev reply</b> In the supporter preview now.</p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for More from Radio on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
+            </div>
+            <div class="meter" aria-hidden="true"><i></i></div>
+          </article>
+          <article class="card" id="romm-client" data-category="Games" data-status="proposed" aria-labelledby="title-romm-client">
+            <div class="card-head"><span class="category">Games</span><span class="badge" data-state="proposed">Proposed</span></div>
+            <h3 id="title-romm-client">RomM game library</h3>
+            <p class="summary">Browse your RomM retro-game library from the Wii U and download games to the SD card.</p>
+            <ul class="includes"><li>Connect with your server address and an API token</li><li>Browse your platforms and games with cover art and details</li><li>Download a game to a folder on the SD card</li></ul>
+            <p class="source"><a href="https://github.com/Roastedd/CoffeeFlix/issues/56">GitHub #56</a></p>
+            <div class="card-foot">
+              <p class="tally"><strong data-votes aria-label="Vote count unavailable">—</strong> <span data-vote-label>votes</span></p>
+              <a class="vote-btn" href="https://github.com/Roastedd/CoffeeFlix/issues/16" target="_blank" rel="noopener" aria-label="Vote for RomM game library on GitHub"><svg aria-hidden="true"><use href="#i-thumb"/></svg>Vote on GitHub<span aria-hidden="true"> ↗</span></a>
             </div>
             <div class="meter" aria-hidden="true"><i></i></div>
           </article>

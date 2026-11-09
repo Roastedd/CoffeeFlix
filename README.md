@@ -17,7 +17,11 @@ CoffeeFlix is free. If you enjoy it, you can [buy me a coffee on Ko-fi](https://
 - **Twitch**: live channels, search and a follow list, at the quality you choose.
 - **Radio**: the 40,000+ stations of radio-browser.info, by country or genre, with the song that's playing.
 - **Podcasts**: search Apple's directory, subscribe, and pick up episodes where you left off.
-- **Your own files**: videos (with `.srt` subtitles), music, photos, and comics and books (CBZ, EPUB) from the SD card, from a Windows, Mac or NAS share (SMB), or from a DLNA server such as Plex, which it finds on its own. You can also send files to the SD card from your phone or computer over Wi-Fi (*My Media > Receive files*).
+- **Navidrome** and other Subsonic-compatible servers: your own music library, with cover art.
+- **Your own files**: videos (with `.srt` subtitles), music, photos, and comics and books (CBZ, EPUB) from the SD card, from a Windows, Mac or NAS share (SMB), or from a DLNA server such as Plex, which it finds on its own. Photos open fast, even 24-megapixel ones, and play as a slideshow with music that follows the people in the picture. You can also send files to the SD card from your phone or computer over Wi-Fi (*My Media > Receive files*).
+- **Profiles and Kids profiles**: everyone gets their own picture, history and settings. A Kids profile only shows the channels you pick, a grown-ups' code (PIN or button combination) gets you out, and screen time limits can differ on school days and weekends.
+- **Make it yours**: choose the page CoffeeFlix opens on, hide the sections you don't use, a greeting and a birthday surprise, quiet sounds with their own volume, and a sleep timer that fades the sound out.
+- **GamePad as a remote**: browse on both screens, then control playback from the GamePad while the video plays on the TV.
 - A Home screen and search that cover all of the above, and music that keeps playing while you browse.
 - In English, Tagalog, Spanish, French, German, Italian, Portuguese, Dutch, Japanese, Chinese and Korean. It follows the Wii U's language, or you can pick one under *Settings > Language*.
 
