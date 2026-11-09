@@ -1,0 +1,84 @@
+FFmpeg network: log the addresses without the system's resolver
+
+ff_connect_parallel() asks getnameinfo() for the text of each address it is about to connect to, and again for the log,
+NI_NUMERICHOST or not. On the Wii U that call looks the address up by name: for a server whose reverse DNS is slow or
+silent (Global Radio's 81.20.49.120: LBC, Capital, Classic FM, Heart) the connection never starts, and for the others every
+connection attempt pays for it. The address is only ever printed, so it is written out numerically here.
+
+diff --git a/libavformat/network.c b/libavformat/network.c
+index 0f5a575..ab5a1d0 100644
+--- a/libavformat/network.c
++++ b/libavformat/network.c
+@@ -25,6 +25,7 @@
+ #include "libavcodec/internal.h"
+ #include "libavutil/avutil.h"
+ #include "libavutil/avassert.h"
++#include "libavutil/intreadwrite.h"
+ #include "libavutil/mem.h"
+ #include "libavutil/time.h"
+ 
+@@ -331,15 +332,28 @@ static void interleave_addrinfo(struct addrinfo *base)
+     }
+ }
+ 
++// The address as text, for the log, without the system's resolver: getnameinfo() looks the address up by name on the
++// Wii U, before every connection attempt (seconds for a server whose reverse DNS does not answer, such as Global Radio's).
++static void numeric_name(const struct addrinfo *ai, char *host, size_t host_size, char *port, size_t port_size)
++{
++    host[0] = port[0] = 0;
++    if (ai->ai_family == AF_INET) {
++        const struct sockaddr_in *sin = (const struct sockaddr_in *)ai->ai_addr;
++        const uint8_t *b = (const uint8_t *)&sin->sin_addr;
++        snprintf(host, host_size, "%d.%d.%d.%d", b[0], b[1], b[2], b[3]);
++        snprintf(port, port_size, "%d", AV_RB16((const uint8_t *)&sin->sin_port));
++    } else {
++        snprintf(host, host_size, "(address family %d)", ai->ai_family);
++    }
++}
++
+ static void print_address_list(void *ctx, const struct addrinfo *addr,
+                                const char *title)
+ {
+     char hostbuf[100], portbuf[20];
+     av_log(ctx, AV_LOG_DEBUG, "%s:\n", title);
+     while (addr) {
+-        getnameinfo(addr->ai_addr, addr->ai_addrlen,
+-                    hostbuf, sizeof(hostbuf), portbuf, sizeof(portbuf),
+-                    NI_NUMERICHOST | NI_NUMERICSERV);
++        numeric_name(addr, hostbuf, sizeof(hostbuf), portbuf, sizeof(portbuf));
+         av_log(ctx, AV_LOG_DEBUG, "Address %s port %s\n", hostbuf, portbuf);
+         addr = addr->ai_next;
+     }
+@@ -425,9 +439,7 @@ int ff_connect_parallel(struct addrinfo *addrs, int timeout_ms_per_address,
+     while (nb_attempts > 0 || addrs) {
+         // Start a new connection attempt, if possible.
+         if (nb_attempts < parallel && addrs) {
+-            getnameinfo(addrs->ai_addr, addrs->ai_addrlen,
+-                        hostbuf, sizeof(hostbuf), portbuf, sizeof(portbuf),
+-                        NI_NUMERICHOST | NI_NUMERICSERV);
++            numeric_name(addrs, hostbuf, sizeof(hostbuf), portbuf, sizeof(portbuf));
+             av_log(h, AV_LOG_VERBOSE, "Starting connection attempt to %s port %s\n",
+                                       hostbuf, portbuf);
+             last_err = start_connect_attempt(&attempts[nb_attempts], &addrs,
+@@ -482,9 +494,7 @@ int ff_connect_parallel(struct addrinfo *addrs, int timeout_ms_per_address,
+                         if (j != i)
+                             closesocket(attempts[j].fd);
+                     *fd = attempts[i].fd;
+-                    getnameinfo(attempts[i].addr->ai_addr, attempts[i].addr->ai_addrlen,
+-                                hostbuf, sizeof(hostbuf), portbuf, sizeof(portbuf),
+-                                NI_NUMERICHOST | NI_NUMERICSERV);
++                    numeric_name(attempts[i].addr, hostbuf, sizeof(hostbuf), portbuf, sizeof(portbuf));
+                     av_log(h, AV_LOG_VERBOSE, "Successfully connected to %s port %s\n",
+                                               hostbuf, portbuf);
+                     return 0;
+@@ -497,9 +507,7 @@ int ff_connect_parallel(struct addrinfo *addrs, int timeout_ms_per_address,
+             // Error (or timeout) for this socket; close the socket and remove
+             // it from the attempts/pfd arrays, to let a new attempt start
+             // directly.
+-            getnameinfo(attempts[i].addr->ai_addr, attempts[i].addr->ai_addrlen,
+-                        hostbuf, sizeof(hostbuf), portbuf, sizeof(portbuf),
+-                        NI_NUMERICHOST | NI_NUMERICSERV);
++            numeric_name(attempts[i].addr, hostbuf, sizeof(hostbuf), portbuf, sizeof(portbuf));
+             av_strerror(last_err, errbuf, sizeof(errbuf));
+             av_log(h, AV_LOG_VERBOSE, "Connection attempt to %s port %s "
+                                       "failed: %s\n", hostbuf, portbuf, errbuf);
