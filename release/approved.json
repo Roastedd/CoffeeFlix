@@ -1,39 +1,5 @@
 {
   "schema": 1,
   "automatic": true,
-  "candidate": {
-    "tag": "v2.5.7",
-    "manifest_sha256": "0c3dbef0ae4160bf247c2746e69e6ab469e5e0d39c94249b6e561c762ad5b255",
-    "tested_by": "Roastedd (maintainer) asked for this bug-fix release on 2026-11-09; these exact files were not installed or run on a console",
-    "tested_at": "2026-11-09T11:36:00-08:00",
-    "devices": "None for these files. The same FFmpeg change (CoffeeUnlocked f6b3bf2, patch 0008) has been in supporter 2.5.8 and in dev builds on the maintainer's Wii U (Aroma) since 2026-11-04. Tiramisu: no device.",
-    "notes": "Bug-fix release made from public 2.5.6 plus two changes only: FFmpeg patch 0008 (no reverse name lookup before each connection; probable cause of #59, Jellyfin conversions and Navidrome timing out on home networks) and a build fix for the current devkitPro image (VPADInit deprecation, no change in behaviour). No new features. The public build of both commits passed in CI (the new devkitPro image, FFmpeg rebuilt from source with patch 0008 applied; pull request #66). The console log of 2026-11-06 showed connections stalling before any network traffic with the library lacking the patch, which is the cause being fixed; a console result confirming the fix against a home-network Jellyfin or Navidrome server has not been recorded, so #59 is not shown to be fixed yet. Every console check is waived in writing below, on the maintainer's instruction to release bug fixes.",
-    "blockers": [],
-    "checks": {
-      "install_aroma": {
-        "waived": "These exact files were not installed; the same source apart from FFmpeg patch 0008 and a compile-only pragma is the public 2.5.6 build"
-      },
-      "install_tiramisu": {
-        "waived": "No Tiramisu device to test on; the release notes say it is untested"
-      },
-      "playback": {
-        "waived": "Not repeated on these files; the only runtime change is how FFmpeg opens a connection, which the supporter 2.5.8 build has used on the console since 2026-11-04"
-      },
-      "navigation": {
-        "waived": "Not repeated on these files; no screen, control or navigation code changed"
-      },
-      "settings_persistence": {
-        "waived": "Not repeated on these files; no settings or storage code changed"
-      },
-      "update_install": {
-        "waived": "Not repeated on these files; the updater and its checks are unchanged from 2.5.6"
-      },
-      "public_source_review": {
-        "waived": "The diff against 2.5.6 is two commits (a 4-line pragma and one 84-line FFmpeg patch) reviewed by the maintainer's assistant; no manual review by the maintainer"
-      },
-      "preview_feedback": {
-        "waived": "There was no preview period for this fix; #59's reporters have not yet tried a build with the patch"
-      }
-    }
-  }
+  "candidate": null
 }
