@@ -2,7 +2,8 @@
   "version": "2.5.7",
   "url": "https://github.com/Roastedd/CoffeeFlix/releases/tag/v2.5.7",
   "highlights": [
-    "A small update with bug fixes only."
+    "A small update with bug fixes only.",
+    "Fixes connection timeouts on some home networks when playing Jellyfin videos or Navidrome music."
   ],
   "note": "Thanks for voting, and keep the ideas coming."
 }
