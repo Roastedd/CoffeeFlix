@@ -1,29 +1,74 @@
-<p align="center">
-  <img src="branding/store_screen.png" alt="CoffeeFlix" width="100%">
-</p>
+<div align="center">
+
+<img src="docs/assets/icon.png" alt="CoffeeFlix icon" width="140">
 
 # CoffeeFlix
 
-A media app for the Wii U. It plays YouTube, Twitch, your Jellyfin server, internet radio, podcasts, and whatever you have on the SD card or on a computer on your network, all from one place on the TV or the GamePad.
+**A media app for the Wii U: YouTube, Twitch, Jellyfin, radio, podcasts and your own files, all on the TV or the GamePad.**
 
-**Download:** [roastedd.github.io/CoffeeFlix](https://roastedd.github.io/CoffeeFlix/) or the [latest release](https://github.com/roastedd/coffeeflix/releases/latest).
+[![Latest release](https://img.shields.io/github/v/release/Roastedd/CoffeeFlix?label=latest&color=2ea44f)](https://github.com/Roastedd/CoffeeFlix/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Roastedd/CoffeeFlix/total?color=blue)](https://github.com/Roastedd/CoffeeFlix/releases)
+![Platform: Wii U](https://img.shields.io/badge/platform-Wii%20U%20(Aroma%20%2F%20Tiramisu)-009ac7)
+![Languages: 11](https://img.shields.io/badge/languages-11-blue)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-orange)](LICENSE.md)
+[![Ko-fi](https://img.shields.io/badge/support-Ko--fi-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/ubecatstudio)
+
+[**Download**](https://roastedd.github.io/CoffeeFlix/) ·
+[Features](#what-it-does) ·
+[Install](#installing) ·
+[Controls](#controls) ·
+[Formats](#formats-and-tips) ·
+[Build](#building) ·
+[Report a problem](https://github.com/Roastedd/CoffeeFlix/issues) ·
+[Support](#support)
+
+<img src="docs/assets/shots/home.jpg" alt="CoffeeFlix Home screen" width="90%">
+
+<table>
+  <tr>
+    <td><img src="docs/assets/shots/youtube.jpg" alt="YouTube"></td>
+    <td><img src="docs/assets/shots/player.jpg" alt="Video player"></td>
+    <td><img src="docs/assets/shots/channel.jpg" alt="A YouTube channel"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/shots/radio.jpg" alt="Internet radio"></td>
+    <td><img src="docs/assets/shots/podcasts.jpg" alt="Podcasts"></td>
+    <td><img src="docs/assets/shots/reader.jpg" alt="Comic and book reader"></td>
+  </tr>
+</table>
+
+<sub><i>Screenshots from the app.</i></sub>
+
+</div>
 
 CoffeeFlix is free. If you enjoy it, you can [buy me a coffee on Ko-fi](https://ko-fi.com/ubecatstudio). ☕
 
+> [!IMPORTANT]
+> **Official sources.** The only official downloads are the [releases on this repository](https://github.com/Roastedd/CoffeeFlix/releases) and [roastedd.github.io/CoffeeFlix](https://roastedd.github.io/CoffeeFlix/). Builds offered anywhere else under this name are not from me.
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Installing](#installing) · [Controls](#controls) · [Settings](#settings) · [Formats and tips](#formats-and-tips)
+- [Building](#building) · [Translations](#translations)
+- [Support](#support) · [License](#license) · [Credits](#credits)
+
 ## What it does
 
-- **YouTube** without signing in. Subscriptions live on your SD card, and so does the *For you* feed, which learns from what you watch without sending anything anywhere. You get channel pages (videos, Shorts, live, playlists), search, *Watch later*, history, captions and [SponsorBlock](https://sponsor.ajay.app) skipping. Pick 360p to 1080p from the player; 720p is the default. Videos with dubbed audio play in their original language, and the player lists the dubs if you'd rather hear one.
-- **Jellyfin**: sign in with Quick Connect or a password. Continue watching, next up, seasons and episodes, server subtitles, and your progress syncs back to the server. When an episode ends, the next one starts after a countdown you can cancel (and YouTube can do the same with its suggested video).
-- **Twitch**: live channels, search and a follow list, at the quality you choose.
-- **Radio**: the 40,000+ stations of radio-browser.info, by country or genre, with the song that's playing.
-- **Podcasts**: search Apple's directory, subscribe, and pick up episodes where you left off.
-- **Navidrome** and other Subsonic-compatible servers: your own music library, with cover art.
-- **Your own files**: videos (with `.srt` subtitles), music, photos, and comics and books (CBZ, EPUB) from the SD card, from a Windows, Mac or NAS share (SMB), or from a DLNA server such as Plex, which it finds on its own. Photos open fast, even 24-megapixel ones, and play as a slideshow with music that follows the people in the picture. You can also send files to the SD card from your phone or computer over Wi-Fi (*My Media > Receive files*).
-- **Profiles and Kids profiles**: everyone gets their own picture, history and settings. A Kids profile only shows the channels you pick, a grown-ups' code (PIN or button combination) gets you out, and screen time limits can differ on school days and weekends.
-- **Make it yours**: choose the page CoffeeFlix opens on, hide the sections you don't use, a greeting and a birthday surprise, quiet sounds with their own volume, and a sleep timer that fades the sound out.
-- **GamePad as a remote**: browse on both screens, then control playback from the GamePad while the video plays on the TV.
-- A Home screen and search that cover all of the above, and music that keeps playing while you browse.
-- In English, Tagalog, Spanish, French, German, Italian, Portuguese, Dutch, Japanese, Chinese and Korean. It follows the Wii U's language, or you can pick one under *Settings > Language*.
+| | |
+| --- | --- |
+| ▶️ **YouTube** | No sign-in needed. Subscriptions live on your SD card, and so does the *For you* feed, which learns from what you watch without sending anything anywhere. You get channel pages (videos, Shorts, live, playlists), search, *Watch later*, history, captions and [SponsorBlock](https://sponsor.ajay.app) skipping. Pick 360p to 1080p from the player; 720p is the default. Videos with dubbed audio play in their original language, and the player lists the dubs if you'd rather hear one. |
+| 🎞️ **Jellyfin** | Sign in with Quick Connect or a password. Continue watching, next up, seasons and episodes, server subtitles, and your progress syncs back to the server. When an episode ends, the next one starts after a countdown you can cancel (and YouTube can do the same with its suggested video). |
+| 🎮 **Twitch** | Live channels, search and a follow list, at the quality you choose. |
+| 📻 **Radio** | The 40,000+ stations of radio-browser.info, by country or genre, with the song that's playing. |
+| 🎙️ **Podcasts** | Search Apple's directory, subscribe, and pick up episodes where you left off. |
+| 🎵 **Navidrome** and other Subsonic servers | Your own music library, with cover art. |
+| 🗂️ **Your own files** | Videos (with `.srt` subtitles), music, photos, and comics and books (CBZ, EPUB) from the SD card, from a Windows, Mac or NAS share (SMB), or from a DLNA server such as Plex, which it finds on its own. Photos open fast, even 24-megapixel ones, and play as a slideshow with music that follows the people in the picture. You can also send files to the SD card from your phone or computer over Wi-Fi (*My Media > Receive files*). |
+| 👥 **Profiles and Kids profiles** | Everyone gets their own picture, history and settings. A Kids profile only shows the channels you pick, a grown-ups' code (PIN or button combination) gets you out, and screen time limits can differ on school days and weekends. |
+| ✨ **Make it yours** | Choose the page CoffeeFlix opens on, hide the sections you don't use, a greeting and a birthday surprise, quiet sounds with their own volume, and a sleep timer that fades the sound out. |
+| 📱 **GamePad as a remote** | Browse on both screens, then control playback from the GamePad while the video plays on the TV. |
+| 🏠 **Home and search** | A Home screen and search that cover all of the above, and music that keeps playing while you browse. |
+| 🌍 **11 languages** | In English, Tagalog, Spanish, French, German, Italian, Portuguese, Dutch, Japanese, Chinese and Korean. It follows the Wii U's language, or you can pick one under *Settings > Language*. |
 
 ## Installing
 
