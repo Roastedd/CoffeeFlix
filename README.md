@@ -6,6 +6,7 @@
 
 **A media app for the Wii U: YouTube, Twitch, Jellyfin, radio, podcasts and your own files, all on the TV or the GamePad.**
 
+[![Website](https://img.shields.io/badge/website-roastedd.github.io%2FCoffeeFlix-6f4e37?logo=safari&logoColor=white)](https://roastedd.github.io/CoffeeFlix/)
 [![Latest release](https://img.shields.io/github/v/release/Roastedd/CoffeeFlix?label=latest&color=2ea44f)](https://github.com/Roastedd/CoffeeFlix/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/Roastedd/CoffeeFlix/total?color=blue)](https://github.com/Roastedd/CoffeeFlix/releases)
 ![Platform: Wii U](https://img.shields.io/badge/platform-Wii%20U%20(Aroma%20%2F%20Tiramisu)-009ac7)
@@ -13,7 +14,8 @@
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-orange)](LICENSE.md)
 [![Ko-fi](https://img.shields.io/badge/support-Ko--fi-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/ubecatstudio)
 
-[**Download**](https://roastedd.github.io/CoffeeFlix/) ·
+[**Website**](https://roastedd.github.io/CoffeeFlix/) ·
+[**Download**](https://github.com/Roastedd/CoffeeFlix/releases/latest) ·
 [Features](#what-it-does) ·
 [Install](#installing) ·
 [Controls](#controls) ·
@@ -40,6 +42,8 @@
 <sub><i>Screenshots from the app.</i></sub>
 
 </div>
+
+**Visit the project page: [roastedd.github.io/CoffeeFlix](https://roastedd.github.io/CoffeeFlix/)** for downloads, the feature board and the roadmap.
 
 CoffeeFlix is free. If you enjoy it, you can [buy me a coffee on Ko-fi](https://ko-fi.com/ubecatstudio). ☕
 
