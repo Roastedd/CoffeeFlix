@@ -48,7 +48,8 @@ void put(const std::string& key, SDL_Surface* surface, int flags = 0);
 // (0 = unlimited). Any thread; nullptr on failure, and for a picture that states more than 16
 // million pixels: a small file can (flat colour compresses to nothing), and decoding one takes
 // the memory the player needs.
-SDL_Surface* decode(const std::string& data, int max_w = 0, int max_h = 0, int flags = 0);
+// `tga`: the data is a Targa file (which has no signature to recognise it by: the Wii U game icons).
+SDL_Surface* decode(const std::string& data, int max_w = 0, int max_h = 0, int flags = 0, bool tga = false);
 // The size a jpg/png/webp/gif header states, without decoding. False for other formats and for
 // a header cut short.
 bool stated_size(const std::string& data, int64_t& w, int64_t& h);
