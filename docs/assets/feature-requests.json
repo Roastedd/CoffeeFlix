@@ -13,8 +13,8 @@
     ],
     "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Released in 2.5.6. Choose where CoffeeFlix opens and make Home feel more like yours.",
-    "shipped_in": "2.5.6"
+    "shipped_in": "2.5.6",
+    "reply": "Released in 2.5.6. Choose where CoffeeFlix opens and make Home feel more like yours."
   },
   {
     "id": "display-options",
@@ -26,9 +26,7 @@
       "Choose fit, stretch or letterbox in the player",
       "4:3 pictures that fill a 4:3 screen, without black bars on every side (for CRTs)"
     ],
-    "issues": [
-      62
-    ],
+    "issues": [62],
     "status": "proposed",
     "reply": "A Reduce motion switch that turns animations off is built for an upcoming update. Fit, stretch and letterbox are still to do, and so is 4:3 on a CRT (the report in #62). I haven’t started on those."
   },
@@ -42,13 +40,11 @@
       "Used automatically when the GamePad screen is off or you last used another controller",
       "The GamePad keeps the system keyboard"
     ],
-    "issues": [
-      45
-    ],
+    "issues": [45],
     "status": "shipped",
     "since": "2026-10-17",
-    "reply": "Released in 2.5.6. Use a Pro Controller to type with the keyboard on your TV.",
-    "shipped_in": "2.5.6"
+    "shipped_in": "2.5.6",
+    "reply": "Released in 2.5.6. Use a Pro Controller to type with the keyboard on your TV."
   },
   {
     "id": "jellyfin-autoplay",
@@ -68,10 +64,7 @@
       "Browse and play files over FTP, including a phone acting as your media server",
       "Calibre-Web and Kavita libraries, read in CoffeeFlix next to the local EPUB and CBZ reader"
     ],
-    "issues": [
-      11,
-      12
-    ],
+    "issues": [11, 12],
     "status": "needs-research",
     "reply": "I'm checking what the Wii U can handle before promising anything here."
   },
@@ -84,12 +77,10 @@
       "Like and dislike videos while signed in",
       "Kids profiles with parent-selected YouTube channels"
     ],
-    "issues": [
-      13
-    ],
+    "issues": [13],
     "status": "shipped",
-    "reply": "Released in 2.5.6, with like/dislike controls and separate Kids profiles.",
-    "shipped_in": "2.5.6"
+    "shipped_in": "2.5.6",
+    "reply": "Released in 2.5.6, with like/dislike controls and separate Kids profiles."
   },
   {
     "id": "youtube-community",
@@ -100,13 +91,11 @@
       "Return YouTube Dislike counts",
       "Calmer titles and thumbnails in the spirit of DeArrow, with an option to see the originals"
     ],
-    "issues": [
-      13
-    ],
+    "issues": [13],
     "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Return YouTube Dislike counts and CoffeeFlix’s own calmer-title and video-frame options shipped in 2.5.6.",
-    "shipped_in": "2.5.6"
+    "shipped_in": "2.5.6",
+    "reply": "Return YouTube Dislike counts and CoffeeFlix’s own calmer-title and video-frame options shipped in 2.5.6."
   },
   {
     "id": "twitch-account",
@@ -117,9 +106,7 @@
       "Your followed channels",
       "Collect channel points while you watch (Twitch has not allowed this so far)"
     ],
-    "issues": [
-      13
-    ],
+    "issues": [13],
     "status": "in-progress",
     "since": "2026-11-04",
     "reply": "Signing in with a code from your phone works, and your followed channels show up, including after a restart. Channel points are the hard part: Twitch refused the app’s request to even look at a points balance, so I can’t promise earning or claiming them."
@@ -134,9 +121,7 @@
       "Chat with 7TV, BTTV and FrankerFaceZ emotes",
       "Polls and predictions where possible"
     ],
-    "issues": [
-      13
-    ],
+    "issues": [13],
     "status": "in-progress",
     "since": "2026-11-05",
     "reply": "Past broadcasts play and pick up where you left off on my Wii U. Chat with emotes, bigger text and an on-screen keyboard is built, and I’m still testing it on the console. Polls and predictions aren’t started."
@@ -147,13 +132,11 @@
     "title": "Navidrome and Subsonic music servers",
     "summary": "Play your own music library from a Navidrome or other Subsonic-compatible server.",
     "includes": [],
-    "issues": [
-      17
-    ],
+    "issues": [17],
     "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Navidrome music-server support is available in 2.5.6. Thanks for the community contribution!",
-    "shipped_in": "2.5.6"
+    "shipped_in": "2.5.6",
+    "reply": "Navidrome music-server support is available in 2.5.6. Thanks for the community contribution!"
   },
   {
     "id": "dvd-playback",
@@ -167,9 +150,7 @@
       "Discs with copy protection are not played, and the app says so",
       "Full DVD menus and music CDs are still only ideas"
     ],
-    "issues": [
-      23
-    ],
+    "issues": [23],
     "status": "in-progress",
     "since": "2026-10-28",
     "reply": "Disc images and VIDEO_TS folders are in the supporter preview, and a test film played smoothly on a Wii U. Reading a disc from a USB DVD drive is built but still being worked out on the console. Next is more testing with burned discs."
@@ -183,9 +164,7 @@
       "Keep the subtitle language you chose for each show",
       "Keep subtitles off when you turned them off"
     ],
-    "issues": [
-      29
-    ],
+    "issues": [29],
     "status": "shipped",
     "shipped_in": "2.5.6"
   },
@@ -195,9 +174,7 @@
     "title": "M3U playlists",
     "summary": "Open M3U playlists from the SD card or a USB drive and play your videos and music straight from them, like WiiMC.",
     "includes": [],
-    "issues": [
-      38
-    ],
+    "issues": [38],
     "status": "proposed"
   },
   {
@@ -213,8 +190,8 @@
     ],
     "status": "shipped",
     "since": "2026-10-16",
-    "reply": "Released in 2.5.6, with faster photo loading, rotation, slideshows and a photo-frame screensaver.",
-    "shipped_in": "2.5.6"
+    "shipped_in": "2.5.6",
+    "reply": "Released in 2.5.6, with faster photo loading, rotation, slideshows and a photo-frame screensaver."
   },
   {
     "id": "gamepad-search-next",
@@ -225,13 +202,11 @@
       "A search button in the remote’s Up next tab",
       "Results replace the suggestions, one button goes back"
     ],
-    "issues": [
-      46
-    ],
+    "issues": [46],
     "status": "shipped",
     "since": "2026-10-17",
-    "reply": "Released in 2.5.6. Search for the next video on the GamePad while the TV keeps playing.",
-    "shipped_in": "2.5.6"
+    "shipped_in": "2.5.6",
+    "reply": "Released in 2.5.6. Search for the next video on the GamePad while the TV keeps playing."
   },
   {
     "id": "supporter-updates",
@@ -243,13 +218,11 @@
       "Previews arrive like a normal update, checked against a signature before anything is installed",
       "Works on up to five consoles per supporter"
     ],
-    "issues": [
-      51
-    ],
+    "issues": [51],
     "status": "shipped",
     "since": "2026-10-17",
-    "reply": "The Settings option shipped in 2.5.6. Preview delivery still needs the supporter service set up.",
-    "shipped_in": "2.5.6"
+    "shipped_in": "2.5.6",
+    "reply": "The Settings option shipped in 2.5.6. Preview delivery still needs the supporter service set up."
   },
   {
     "id": "usb-drives",
@@ -320,9 +293,15 @@
       "Browse your platforms and games with cover art and details",
       "Download a game to a folder on the SD card"
     ],
-    "issues": [
-      56
-    ],
+    "issues": [56],
+    "status": "proposed"
+  },
+  {
+    "id": "options-in-settings-to-permanently-keep",
+    "category": "Other",
+    "title": "Options in settings to permanently keep display on Mirror…",
+    "summary": "My Gamepad battery dies very quick, this feature would be much appreciated. Thanks!",
+    "issues": [72],
     "status": "proposed"
   }
 ]
