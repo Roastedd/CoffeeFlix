@@ -71,7 +71,7 @@ void input_update(Input& in, const RawInput& raw, float dt) {
     in.held = held;
     in.repeat = in.pressed;
 
-    const Button repeatable[] = {BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_L, BTN_R, BTN_ZL, BTN_ZR};
+    const Button repeatable[] = {BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_L, BTN_R, BTN_ZL, BTN_ZR, BTN_PLUS, BTN_MINUS};
     for (Button b : repeatable) {
         if (!(held & bit(b))) {
             g_hold_time[b] = 0;

@@ -933,7 +933,7 @@ bool slider(Id id, const Rect& r, float* value, float step, Id group, int flags,
     return slider_core(id, r, value, step, it.focused, draw_focus);
 }
 
-bool slider_row(Id id, const Rect& r, const char* label, float* value, float step, Id group, int flags) {
+bool slider_row(Id id, const Rect& r, const char* label, float* value, float step, Id group, int flags, float full) {
     const Item it = focusable(id, r, group, flags);
     row_base(r, it, id);
     const Theme& t = g_theme;
@@ -942,7 +942,7 @@ bool slider_row(Id id, const Rect& r, const char* label, float* value, float ste
     const Rect br = r.offset(bump_x(id), bump_y(id));
     const float track_x = br.x + br.w * 0.46f, track_w = br.w * 0.54f - 110;
     text::draw_fit(font::label, br.x + 24, br.cy() - text::line_height(font::label) * 0.5f, track_x - br.x - 40, label, fg);
-    const std::string pct = std::to_string((int)std::round(*value * 100)) + "%";
+    const std::string pct = std::to_string((int)std::round(*value * full * 100)) + "%";
     text::draw(font::body, br.r() - 28, br.cy() - text::line_height(font::body) * 0.5f, pct, fg2, text::RIGHT);
     return slider_core(id, Rect(track_x, br.cy() - 14, track_w, 28), value, step, it.focused, false);
 }

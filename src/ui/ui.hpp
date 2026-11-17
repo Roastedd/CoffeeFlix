@@ -138,8 +138,10 @@ bool value_row(Id id, const Rect& r, const char* label, const char* value, int i
 // A slider for a value from 0 to 1 over `r`: left and right move it by `step` when it has the focus, and a finger or the
 // mouse drags it. True on the frames it changes. `draw_focus` off: the caller draws what shows the focus.
 bool slider(Id id, const Rect& r, float* value, float step = 0.05f, Id group = 0, int flags = 0, bool draw_focus = true);
-// A row with a label on the left and a slider and its percentage on the right.
-bool slider_row(Id id, const Rect& r, const char* label, float* value, float step = 0.05f, Id group = 0, int flags = 0);
+// A row with a label on the left and a slider and its percentage on the right: the percentage of `full`
+// at the slider's end (a volume up to 200% has 2).
+bool slider_row(Id id, const Rect& r, const char* label, float* value, float step = 0.05f, Id group = 0, int flags = 0,
+                float full = 1.0f);
 // Horizontal progress/seek bar with optional buffered range.
 void progress_bar(const Rect& r, float progress, float buffered = 0, bool knob = false, float knob_scale = 1);
 

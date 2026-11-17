@@ -128,6 +128,16 @@ void analyze(const int16_t* stereo, int frames) {
 
 std::atomic<void (*)(const int16_t*, int)> g_tap{nullptr};
 
+// A sample made louder than full scale can hold: unchanged up to the knee, then bent smoothly towards
+// full scale instead of clipping hard (which crackles).
+int16_t soft_limit(float x) {
+    constexpr float KNEE = 24000, ROOM = 32767 - KNEE;
+    const float a = std::fabs(x);
+    if (a <= KNEE) return (int16_t)x;
+    const float y = KNEE + ROOM * std::tanh((a - KNEE) / ROOM);
+    return (int16_t)(x < 0 ? -y : y);
+}
+
 void callback(void*, Uint8* out_bytes, int len) {
     int16_t* out = (int16_t*)out_bytes;
     int frames = len / (int)(sizeof(int16_t) * CHANNELS);
@@ -144,11 +154,16 @@ void callback(void*, Uint8* out_bytes, int len) {
         if (!g_paused) {
             uint64_t avail = g_write - g_read;
             int n = (int)std::min<uint64_t>(avail, frames);
+            const float vol = g_volume * g_fade;
             for (int i = 0; i < n; i++) {
                 size_t idx = (size_t)((g_read + i) % RING_FRAMES) * 2;
-                const float vol = g_volume * g_fade;
-                out[i * 2] = (int16_t)(g_ring[idx] * vol);
-                out[i * 2 + 1] = (int16_t)(g_ring[idx + 1] * vol);
+                if (vol <= 1.0f) {
+                    out[i * 2] = (int16_t)(g_ring[idx] * vol);
+                    out[i * 2 + 1] = (int16_t)(g_ring[idx + 1] * vol);
+                } else {  // made louder than it came: the peaks are rounded off, not cut
+                    out[i * 2] = soft_limit(g_ring[idx] * vol);
+                    out[i * 2 + 1] = soft_limit(g_ring[idx + 1] * vol);
+                }
             }
             if (n > 0) {
                 g_read += n;
@@ -318,7 +333,7 @@ double stream_take_underrun() {
 
 void stream_set_volume(float v) {
     std::lock_guard<std::mutex> lk(g_m);
-    g_volume = std::clamp(v, 0.0f, 1.0f);
+    g_volume = std::clamp(v, 0.0f, MAX_GAIN);
 }
 
 void levels(float out[16]) {
@@ -374,6 +389,10 @@ void set_sfx_volume(float v) { g_sfx_vol = std::clamp(v, 0.0f, 1.0f); }
 void set_sfx_ticks(bool on) { g_sfx_ticks = on; }
 void set_sfx_kids(bool on) { g_sfx_kids = on; }
 void set_media_fade(float f) { g_fade = std::clamp(f, 0.0f, 1.0f); }
-void set_media_volume(float v) { stream_set_volume(std::clamp(v, 0.0f, 1.0f) * std::clamp(v, 0.0f, 1.0f)); }
+void set_media_volume(float v) {
+    v = std::clamp(v, 0.0f, MAX_MEDIA_VOLUME);
+    // Up to 100% on the curve the interface sounds use; above it, evenly in decibels up to +6 dB at 200%.
+    stream_set_volume(v <= 1.0f ? v * v : std::pow(10.0f, 0.3f * (v - 1.0f)));
+}
 
 }  // namespace audio
