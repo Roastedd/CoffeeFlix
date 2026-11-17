@@ -23,6 +23,8 @@ public:
     // independent of the selected view, so automatic view selection has no circular dependency.
     virtual bool tv_scene() const { return false; }
     virtual bool draws_background() const { return false; }
+    // Takes every button for itself (a button code being entered): B is never held back for the volume keys.
+    virtual bool raw_buttons() const { return false; }
     virtual Section section() const { return SEC_NONE; }
     // Content area left edge when the rail is shown.
     static float content_x();

@@ -41,6 +41,7 @@
 #include "app/exit_watchdog.hpp"
 #include "app/mini_player.hpp"
 #include "app/pad_views.hpp"
+#include "app/volume_keys.hpp"
 #include "screens/osk.hpp"
 #include "app/birthday.hpp"
 #include "app/celebrate.hpp"
@@ -342,6 +343,8 @@ void frame(float dt) {
     if (!s || !s->draws_background()) draw_background();
     bool prompting = screens::prompt_active();
     bool menu = screens::menu_active();
+    // While something plays, the volume from the controller (B held back until it's let go).
+    volume_keys::begin_frame(ui::input(), player::active() && !prompting && !(s && s->raw_buttons()));
     if (menu && !prompting && ui::input().pressed_(BTN_B)) {
         ui::input().eat(BTN_B);  // B closes the menu, not the screen under it
         screens::close_menu();
@@ -367,6 +370,7 @@ void frame(float dt) {
         gfx::pop_transform();
         gfx::pop_alpha();
     }
+    volume_keys::draw_level();  // over the screen: on the TV when the screen draws the TV's picture
     std::unique_ptr<pad_views::PadPass> pad_rest;  // what's left of the frame is the GamePad's, over its controls
     if (own_tv) pad_rest = std::make_unique<pad_views::PadPass>(true);
 

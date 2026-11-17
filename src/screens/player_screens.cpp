@@ -7,6 +7,7 @@
 #include "app/pad_views.hpp"
 #include "app/sound_settings.hpp"
 #include "app/updater.hpp"
+#include "app/volume_keys.hpp"
 #include "audio/mixer.hpp"
 #include "core/i18n.hpp"
 #include "core/sleep_timer.hpp"
@@ -221,7 +222,9 @@ public:
         split_ = pad_views::pad_scene();
         if (split_) comments_open_ = false;  // the comments need the video's place on the screen
         if (split_) vol_open_ = false;  // the GamePad remote has its own slider
-        volume_keys(in);
+        // The mouse wheel, on a computer (not while a list that it scrolls is open)
+        if (in.wheel != 0 && !vol_open_ && !comments_open_ && !menu_.open && !panel_open_)
+            volume_keys::nudge(in.wheel > 0 ? 1 : -1);
 
         // With the comments open, the video "zooms out" to the top left, like YouTube's watch page.
         float ce = tween(id("vp_comments"), comments_open_ ? 1.0f : 0.0f, 9.0f);
@@ -348,7 +351,6 @@ public:
             waiting_since_ = -1;
         }
         if (updater::developer() && !split_) draw_stats(st, ce);
-        draw_volume_osd();
     }
 
 private:
@@ -780,7 +782,7 @@ private:
             const Id sid = id("pad_volume");
             if (slider(sid, track, &pos, 0.025f, id("pad_remote"), 0, false)) {
                 sound_settings::set_media_slider(pos);
-                volume_changed();
+                volume_keys::changed();
             }
             const float vol = sound_settings::media_volume();
             const bool on = focused() == sid && pad_nav_;
@@ -1417,71 +1419,12 @@ private:
     bool pulse_play_ = true;
 
     // --- The sound level ------------------------------------------------------------------------------
-    // Everything from the controller, so the TV's own volume can stay where it is: the right stick up and
-    // down, B held with Plus or Minus (a Wii Remote has no right stick), the button in the controls, and the
-    // slider on the GamePad remote. A change shows for a moment at the top right of the TV.
+    // The right stick and B with Plus or Minus work everywhere something plays (app/volume_keys); the player
+    // adds the button in its controls with an upright bar, the mouse wheel, and the GamePad remote's slider.
     bool vol_open_ = false;      // the bar over the volume button
     double vol_opened_ = -10;
     double vol_touched_ = -10;   // the bar's last use: it closes by itself a while after
-    double vol_changed_ = -10;   // for the level shown on the TV
     float vol_btn_x_ = W - 90, vol_btn_y_ = H - 64;
-    bool b_armed_ = false;       // B is down and may still turn out to be Back
-    bool b_used_ = false;        // ... or was used with Plus or Minus, and isn't
-    bool rstick_held_ = false;
-    double rstick_next_ = 0;
-
-    void volume_changed() { vol_changed_ = ui::time(); }
-
-    void nudge_volume(int steps) {
-        const float before = sound_settings::media_volume();
-        if (sound_settings::nudge_media_volume(steps) == before) audio::play(audio::SFX_BUMP, 0.5f);  // at an end
-        volume_changed();
-    }
-
-    // Whether B would be Back now, not something a panel, the comments or the GamePad's tabs take.
-    bool b_is_back() const {
-        return !menu_.open && !panel_open_ && !vol_open_ && !comments_open_ && !(split_ && pad_tab_ != TAB_NOW) &&
-               !menu_active() && !prompt_active();
-    }
-
-    void volume_keys(Input& in) {
-        // B held down is a modifier: with Plus and Minus it turns the sound up and down. Let go without either, it's
-        // Back as always (on letting go, then, not on pressing).
-        if (in.pressed_(BTN_B) && b_is_back()) {
-            in.eat(BTN_B);
-            b_armed_ = true;
-            b_used_ = false;
-        }
-        if (b_armed_) {
-            if (in.down(BTN_B)) {
-                if (in.rep(BTN_PLUS)) { in.eat(BTN_PLUS); nudge_volume(1); b_used_ = true; }
-                if (in.rep(BTN_MINUS)) { in.eat(BTN_MINUS); nudge_volume(-1); b_used_ = true; }
-            } else {
-                b_armed_ = false;
-                if (!b_used_ && b_is_back()) {
-                    audio::play(audio::SFX_BACK);
-                    app::pop();  // (the screen lives on to the end of the frame)
-                }
-            }
-        }
-        if (menu_active() || prompt_active() || vol_open_) {  // the bar takes the D-pad and the wheel itself
-            rstick_held_ = false;
-            return;
-        }
-        // The right stick up and down (GamePad, Pro and Classic Controller): a step, then steps while held
-        if (std::fabs(in.ry) > 0.6f && std::fabs(in.ry) > std::fabs(in.rx)) {
-            const double now = ui::time();
-            if (!rstick_held_ || now >= rstick_next_) {
-                nudge_volume(in.ry > 0 ? 1 : -1);
-                rstick_next_ = now + (rstick_held_ ? 0.09 : 0.4);
-                rstick_held_ = true;
-            }
-        } else {
-            rstick_held_ = false;
-        }
-        // The mouse wheel, on a computer
-        if (in.wheel != 0 && !comments_open_ && !menu_.open && !panel_open_) nudge_volume(in.wheel > 0 ? 1 : -1);
-    }
 
     void open_volume() {
         vol_open_ = true;
@@ -1504,6 +1447,7 @@ private:
         const Theme& t = theme();
         const double now = ui::time();
         shown_at_ = now;  // the controls stay up under it
+        volume_keys::hide_level();  // the bar shows it
         const float cw = 84, ch = 330;
         const Rect card(std::min(vol_btn_x_ - cw * 0.5f, W - 24 - cw), vol_btn_y_ - 44 - ch, cw, ch);
         const Rect bar(card.cx() - 7, card.y + 64, 14, card.h - 120);
@@ -1512,13 +1456,13 @@ private:
         const Id pid = id("vol_popup");
         focusable(id(pid, "bar"), card, pid, F_DEFAULT | F_SILENT);  // holds the focus away from the controls
 
-        if (in.rep(BTN_UP) || in.rep(BTN_RIGHT)) nudge_volume(1), vol_touched_ = now;
-        if (in.rep(BTN_DOWN) || in.rep(BTN_LEFT)) nudge_volume(-1), vol_touched_ = now;
-        if (in.wheel != 0) nudge_volume(in.wheel > 0 ? 1 : -1), vol_touched_ = now;
+        if (in.rep(BTN_UP) || in.rep(BTN_RIGHT)) volume_keys::nudge(1), vol_touched_ = now;
+        if (in.rep(BTN_DOWN) || in.rep(BTN_LEFT)) volume_keys::nudge(-1), vol_touched_ = now;
+        if (in.wheel != 0) volume_keys::nudge(in.wheel > 0 ? 1 : -1), vol_touched_ = now;
         for (Button b : {BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT}) in.eat(b);
         if (in.touching && hit.contains(in.touch_start_x, in.touch_start_y)) {
             sound_settings::set_media_slider(std::clamp((bar.b() - in.ty) / bar.h, 0.0f, 1.0f));
-            volume_changed();
+            volume_keys::changed();
             vol_touched_ = now;
         }
         const bool fresh = now <= vol_opened_;  // the press or tap that opened it is still this frame's
@@ -1546,26 +1490,6 @@ private:
         text::icon(volume_icon(v), 26, card.cx(), card.b() - 28, t.text2);
         gfx::pop_alpha();
         pop_layer();
-    }
-
-    // The level for a moment at the top right of the TV after it changed (the bar shows it itself).
-    void draw_volume_osd() {
-        const float a = std::clamp(1.0f - ((float)(ui::time() - vol_changed_) - 1.2f) / 0.3f, 0.0f, 1.0f);
-        if (a <= 0 || vol_open_) return;
-        const Theme& t = theme();
-        const float v = sound_settings::media_volume();
-        const Rect r(W - 64 - 300, 40, 300, 56);
-        const Rect bar(r.x + 62, r.cy() - 4, 150, 8);
-        gfx::push_alpha(a);
-        gfx::fill_rrect(r, 28, Color(0, 0, 0, 170));
-        text::icon(volume_icon(v), 26, r.x + 34, r.cy(), gfx::WHITE);
-        gfx::fill_rrect(bar, 4, Color(255, 255, 255, 60));
-        const float fill = bar.w * sound_settings::media_slider();
-        if (fill > 0) gfx::fill_rrect(Rect(bar.x, bar.y, std::max(bar.h, fill), bar.h), 4, t.accent);
-        gfx::fill_rect(Rect(bar.cx() - 1, bar.y - 5, 2, bar.h + 10), Color(255, 255, 255, 140));  // 100%
-        text::draw(font::small_bold, r.r() - 24, r.cy() - text::line_height(font::small_bold) * 0.5f,
-                   util::fmt("%d%%", (int)std::lround(v * 100)), gfx::WHITE, text::RIGHT);
-        gfx::pop_alpha();
     }
 };
 
@@ -1694,6 +1618,20 @@ public:
             cx += 84;
         }
         if (icon_button(id(g, "sleep"), cx, cy, 28, ic::SCHEDULE, g, 0, sleep_timer::active())) show_sleep_timer_menu();
+        {   // the sound level, under the cover: a finger drags it, left and right move it while it has the focus
+            const Rect track(ar.x + 44, 558, ar.w - 44 - 70, 28);
+            float pos = sound_settings::media_slider();  // up to 200%: 100% is halfway
+            if (slider(id(g, "volume"), track, &pos, 0.025f, g)) {
+                sound_settings::set_media_slider(pos);
+                volume_keys::changed();
+            }
+            const float vol = sound_settings::media_volume();
+            gfx::fill_rect(Rect(track.cx() - 1, track.y + 2, 2, track.h - 4), Color(255, 255, 255, 90));  // where 100% is
+            text::icon(volume_icon(vol), 26, ar.x + 14, track.cy(), vol <= 0.001f ? t.text3 : t.text2);
+            text::draw(font::small_bold, ar.r(), track.cy() - text::line_height(font::small_bold) * 0.5f,
+                       util::fmt("%d%%", (int)std::lround(vol * 100)), t.text2, text::RIGHT);
+            volume_keys::hide_level();  // shown here already
+        }
         if (split) {
             const int sound = pad_views::remote_sound();
             const char* label = sound == 1 ? tr("Sound: GamePad only") : sound == 2 ? tr("Sound: TV and GamePad") : tr("Sound: TV only");
