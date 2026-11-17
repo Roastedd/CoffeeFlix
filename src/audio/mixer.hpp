@@ -41,7 +41,8 @@ bool stream_paused();
 double stream_clock();
 // Seconds of silence inserted because the ring ran dry since the last call.
 double stream_take_underrun();
-void stream_set_volume(float v);  // 0..1
+constexpr float MAX_GAIN = 2.0f;   // the most the stream is made louder (+6 dB): above 1, peaks are rounded off
+void stream_set_volume(float v);  // 0..MAX_GAIN, linear
 
 // 16 smoothed spectrum bands (0..1) of the stream for visualizers.
 void levels(float out[16]);
@@ -55,7 +56,9 @@ void set_sfx_style(SoundStyle style);   // Subtle (the soft set) or Classic (the
 void set_sfx_volume(float v);
 void set_sfx_ticks(bool on);            // the tick when the selector moves, apart from the rest
 void set_sfx_kids(bool on);             // a kids profile: three decibels quieter
-// How loud the picture's own sound is (video, music, radio): the slider's 0..1, on the same curve.
+// How loud the picture's own sound is (video, music, radio): 0..1 on the same curve, and above 1 louder than it
+// came, up to MAX_MEDIA_VOLUME (200%, MAX_GAIN).
+constexpr float MAX_MEDIA_VOLUME = 2.0f;
 void set_media_volume(float v);
 // A multiplier on the picture's sound for fading it out (the sleep timer): 1 is as it is.
 void set_media_fade(float f);

@@ -716,8 +716,9 @@ public:
             {
                 Id iid = id(g, "mediavolume");
                 float top = row_h(64);
-                float v = sound_settings::media_volume();
-                if (slider_row(iid, Rect(x0, top, w, 64), tr("Volume"), &v, 0.05f, g)) sound_settings::set_media_volume(v);
+                float v = sound_settings::media_slider();  // up to 200%: 100% is halfway
+                if (slider_row(iid, Rect(x0, top, w, 64), tr("Volume"), &v, 0.025f, g, 0, audio::MAX_MEDIA_VOLUME))
+                    sound_settings::set_media_slider(v);
                 track(iid, top, 64);
             }
             if (updater::developer() && platform::is_wiiu()) {  // not translated: developers only

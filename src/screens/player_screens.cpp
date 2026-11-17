@@ -7,6 +7,7 @@
 #include "app/pad_views.hpp"
 #include "app/sound_settings.hpp"
 #include "app/updater.hpp"
+#include "app/volume_keys.hpp"
 #include "audio/mixer.hpp"
 #include "core/i18n.hpp"
 #include "core/sleep_timer.hpp"
@@ -29,6 +30,9 @@ namespace screens {
 namespace {
 
 using namespace ui;
+
+// The speaker for a sound level: crossed out when silent, quieter waves below half of 100%.
+int volume_icon(float v) { return v <= 0.001f ? ic::VOLUME_OFF : v < 0.5f ? ic::VOLUME_DOWN : ic::VOLUME_UP; }
 
 float view_button_width() { return std::max(168.0f, text::measure(font::body_bold, tr("View")) + 100); }
 
@@ -194,7 +198,7 @@ public:
     void on_enter() override { show_overlay(); }
 
     bool on_back() override {
-        if (menu_.open) return true;
+        if (menu_.open || vol_open_) return true;
         if (panel_open_) return true;  // channel_panel() takes B
         if (split_ && pad_tab_ != TAB_NOW) {  // on the GamePad: from the comments or what's next back to what's playing
             if (pad_tab_ == TAB_COMMENTS && comments_.back()) return true;
@@ -217,6 +221,10 @@ public:
         // hidden: A pauses, left and right skip, up and down change the channel.
         split_ = pad_views::pad_scene();
         if (split_) comments_open_ = false;  // the comments need the video's place on the screen
+        if (split_) vol_open_ = false;  // the GamePad remote has its own slider
+        // The mouse wheel, on a computer (not while a list that it scrolls is open)
+        if (in.wheel != 0 && !vol_open_ && !comments_open_ && !menu_.open && !panel_open_)
+            volume_keys::nudge(in.wheel > 0 ? 1 : -1);
 
         // With the comments open, the video "zooms out" to the top left, like YouTube's watch page.
         float ce = tween(id("vp_comments"), comments_open_ ? 1.0f : 0.0f, 9.0f);
@@ -278,7 +286,7 @@ public:
                 if (updater::developer() && pad_stats_) draw_stats(st, ce);
             }
         } else {
-            menu_open = menu_.frame() || channel_panel();
+            menu_open = menu_.frame() || channel_panel() || vol_open_;
             if (!menu_open) handle_input(in, st);
             if (ce > 0) {
                 draw_watch_info(st, ce);
@@ -290,11 +298,12 @@ public:
             if (hud_ && ui::time() - shown_at_ > HUD_SECONDS) hud_ = false;
             bool force = st == player::FAILED || st == player::ENDED || scrubbing_ || (st == player::PAUSED && !user_hid_);
             float target = force || hud_ ? 1.0f : 0.0f;
-            if (menu_open) target = panel_open_ ? 0.0f : 0.4f;  // the channels cover where the title is
+            if (menu_open && !vol_open_) target = panel_open_ ? 0.0f : 0.4f;  // the channels cover where the title is
             if (comments_open_) target = 0;
             hud_up_ = target > 0.5f;
             overlay_a_ = tween(id("vp_overlay"), target, 9.0f);
             draw_overlay(st);
+            volume_popup();
             draw_banner();
             if (!menu_open) touch_video(in);
         }
@@ -769,12 +778,17 @@ private:
         {   // the picture's sound level, at the right of the same row: a finger drags it, left and right on the D-pad move it
             const float sw = 300, sx = W - 64 - sw;
             const Rect track(sx, row + 12, sw, 28);
-            float vol = sound_settings::media_volume();
+            float pos = sound_settings::media_slider();  // up to 200%: 100% is halfway
             const Id sid = id("pad_volume");
-            if (slider(sid, track, &vol, 0.05f, id("pad_remote"), 0, false)) sound_settings::set_media_volume(vol);
+            if (slider(sid, track, &pos, 0.025f, id("pad_remote"), 0, false)) {
+                sound_settings::set_media_slider(pos);
+                volume_keys::changed();
+            }
+            const float vol = sound_settings::media_volume();
             const bool on = focused() == sid && pad_nav_;
             if (on) focus_ring(Rect(sx - 54, row - 2, sw + 130, 56), 28, 1.0f);
-            text::icon(vol <= 0.001f ? ic::VOLUME_OFF : ic::VOLUME_UP, 28, sx - 28, row + 26, vol <= 0.001f ? theme().text3 : theme().text2);
+            gfx::fill_rect(Rect(sx + sw * 0.5f - 1, row + 4, 2, 44), Color(255, 255, 255, 90));  // where 100% is
+            text::icon(volume_icon(vol), 28, sx - 28, row + 26, vol <= 0.001f ? theme().text3 : theme().text2);
             text::draw(font::caption, sx + sw + 14, row + 26 - text::line_height(font::caption) * 0.5f, util::fmt("%d%%", (int)std::lround(vol * 100)), theme().text2);
         }
     }
@@ -911,7 +925,7 @@ private:
 
     void handle_input(Input& in, player::State st) {
         if (screens::menu_active() || screens::prompt_active()) return;  // a panel (the GamePad's, say) has the D-pad
-        bool stick = std::fabs(in.lx) > 0.3f || std::fabs(in.ly) > 0.3f || std::fabs(in.rx) > 0.3f || std::fabs(in.ry) > 0.3f;
+        bool stick = std::fabs(in.lx) > 0.3f || std::fabs(in.ly) > 0.3f;  // (the right stick is the volume's)
         if (in.pressed || in.pointer_moved || stick) show_overlay();
         if (st == player::FAILED || st == player::ENDED) return;
         bool overlay_visible = overlay_a_ > 0.6f && !split_;  // on the GamePad remote, as with them hidden
@@ -1163,6 +1177,12 @@ private:
         if (icon_button(id(g, "play"), cx, cy, 34, paused || st == player::ENDED ? ic::PLAY : ic::PAUSE, g, F_DEFAULT, true)) toggle();
         if (!live && icon_button(id(g, "fwd10"), cx + 90, cy, 26, ic::FORWARD_10, g)) seek_by(10);
         float rx = W - 90;
+        {   // the sound level: opens a bar over the button (lit up while louder than it came)
+            const float v = sound_settings::media_volume();
+            vol_btn_x_ = rx, vol_btn_y_ = cy;
+            if (icon_button(id(g, "volume"), rx, cy, 26, volume_icon(v), g, 0, v > 1.001f)) open_volume();
+            rx -= 70;
+        }
         if (choose_source_) {
             if (button(id(g, "source"), Rect(90, cy - 22, 260, 44), tr("Choose source"), ic::LINK, BTN_NORMAL, g)) choose_source_();
         }
@@ -1397,6 +1417,80 @@ private:
     int ripple_dir_ = 1, ripple_amount_ = 0;
     double pulse_t_ = -10;
     bool pulse_play_ = true;
+
+    // --- The sound level ------------------------------------------------------------------------------
+    // The right stick and B with Plus or Minus work everywhere something plays (app/volume_keys); the player
+    // adds the button in its controls with an upright bar, the mouse wheel, and the GamePad remote's slider.
+    bool vol_open_ = false;      // the bar over the volume button
+    double vol_opened_ = -10;
+    double vol_touched_ = -10;   // the bar's last use: it closes by itself a while after
+    float vol_btn_x_ = W - 90, vol_btn_y_ = H - 64;
+
+    void open_volume() {
+        vol_open_ = true;
+        vol_opened_ = vol_touched_ = ui::time();
+        reset_focus();
+        audio::play(audio::SFX_OPEN, 0.6f);
+    }
+
+    void close_volume(bool sound) {
+        vol_open_ = false;
+        set_focus(id(id("vp_controls"), "volume"));
+        if (sound) audio::play(audio::SFX_BACK);
+    }
+
+    // An upright bar over the volume button: up and down (left and right too, and the wheel) move it by 5%, a
+    // finger drags it, A or B closes it, and it closes by itself after a few seconds untouched.
+    void volume_popup() {
+        if (!vol_open_) return;
+        Input& in = input();
+        const Theme& t = theme();
+        const double now = ui::time();
+        shown_at_ = now;  // the controls stay up under it
+        volume_keys::hide_level();  // the bar shows it
+        const float cw = 84, ch = 330;
+        const Rect card(std::min(vol_btn_x_ - cw * 0.5f, W - 24 - cw), vol_btn_y_ - 44 - ch, cw, ch);
+        const Rect bar(card.cx() - 7, card.y + 64, 14, card.h - 120);
+        const Rect hit(card.x - 30, card.y - 20, card.w + 60, card.h + 40);
+        push_layer();
+        const Id pid = id("vol_popup");
+        focusable(id(pid, "bar"), card, pid, F_DEFAULT | F_SILENT);  // holds the focus away from the controls
+
+        if (in.rep(BTN_UP) || in.rep(BTN_RIGHT)) volume_keys::nudge(1), vol_touched_ = now;
+        if (in.rep(BTN_DOWN) || in.rep(BTN_LEFT)) volume_keys::nudge(-1), vol_touched_ = now;
+        if (in.wheel != 0) volume_keys::nudge(in.wheel > 0 ? 1 : -1), vol_touched_ = now;
+        for (Button b : {BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT}) in.eat(b);
+        if (in.touching && hit.contains(in.touch_start_x, in.touch_start_y)) {
+            sound_settings::set_media_slider(std::clamp((bar.b() - in.ty) / bar.h, 0.0f, 1.0f));
+            volume_keys::changed();
+            vol_touched_ = now;
+        }
+        const bool fresh = now <= vol_opened_;  // the press or tap that opened it is still this frame's
+        const bool tap_outside = !fresh && in.tap && !hit.contains(in.tx, in.ty);
+        if (tap_outside) in.tap = false;
+        if (!fresh && (in.pressed_(BTN_A) || in.pressed_(BTN_B))) {
+            in.eat(BTN_A);
+            in.eat(BTN_B);
+            close_volume(true);
+        } else if (tap_outside || now - vol_touched_ > 4) {
+            close_volume(false);
+        }
+
+        const float a = anim::ease_out_cubic(std::min(1.0f, (float)(now - vol_opened_) / 0.18f));
+        const float v = sound_settings::media_volume(), fill = bar.h * sound_settings::media_slider();
+        gfx::push_alpha(a);
+        gfx::shadow(card, 22, Color(0, 0, 0, 170));
+        gfx::fill_rrect(card, 22, Color(12, 10, 16, 238));
+        text::draw(font::small_bold, card.cx(), card.y + 20, util::fmt("%d%%", (int)std::lround(v * 100)), t.text, text::CENTER);
+        gfx::fill_rrect(bar, 7, Color(255, 255, 255, 45));
+        if (fill > 0) gfx::fill_rrect(Rect(bar.x, bar.b() - std::max(bar.w, fill), bar.w, std::max(bar.w, fill)), 7, t.accent);
+        gfx::fill_rect(Rect(bar.x - 9, bar.cy() - 1, bar.w + 18, 2), Color(255, 255, 255, 110));  // 100%: as it came
+        gfx::fill_circle(bar.cx(), bar.b() - fill + 1, 12.5f, Color(0, 0, 0, 80));
+        gfx::fill_circle(bar.cx(), bar.b() - fill, 11, gfx::WHITE);
+        text::icon(volume_icon(v), 26, card.cx(), card.b() - 28, t.text2);
+        gfx::pop_alpha();
+        pop_layer();
+    }
 };
 
 // ============================================================================
@@ -1524,6 +1618,20 @@ public:
             cx += 84;
         }
         if (icon_button(id(g, "sleep"), cx, cy, 28, ic::SCHEDULE, g, 0, sleep_timer::active())) show_sleep_timer_menu();
+        {   // the sound level, under the cover: a finger drags it, left and right move it while it has the focus
+            const Rect track(ar.x + 44, 558, ar.w - 44 - 70, 28);
+            float pos = sound_settings::media_slider();  // up to 200%: 100% is halfway
+            if (slider(id(g, "volume"), track, &pos, 0.025f, g)) {
+                sound_settings::set_media_slider(pos);
+                volume_keys::changed();
+            }
+            const float vol = sound_settings::media_volume();
+            gfx::fill_rect(Rect(track.cx() - 1, track.y + 2, 2, track.h - 4), Color(255, 255, 255, 90));  // where 100% is
+            text::icon(volume_icon(vol), 26, ar.x + 14, track.cy(), vol <= 0.001f ? t.text3 : t.text2);
+            text::draw(font::small_bold, ar.r(), track.cy() - text::line_height(font::small_bold) * 0.5f,
+                       util::fmt("%d%%", (int)std::lround(vol * 100)), t.text2, text::RIGHT);
+            volume_keys::hide_level();  // shown here already
+        }
         if (split) {
             const int sound = pad_views::remote_sound();
             const char* label = sound == 1 ? tr("Sound: GamePad only") : sound == 2 ? tr("Sound: TV and GamePad") : tr("Sound: TV only");

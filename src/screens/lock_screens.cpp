@@ -29,6 +29,7 @@ constexpr Press PRESSES[] = {{'U', BTN_UP}, {'D', BTN_DOWN}, {'L', BTN_LEFT}, {'
 
 class LockScreen : public app::Screen {
 public:
+    bool raw_buttons() const override { return true; }  // B and Minus can be part of the code
     LockScreen(bool setup, std::function<void()> granted, std::function<void(bool)> done)
         : setup_(setup), granted_(std::move(granted)), done_(std::move(done)) {
         if (setup_) stage_ = CHOOSE;

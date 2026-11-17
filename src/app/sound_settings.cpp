@@ -38,10 +38,30 @@ void set_ticks(bool on) {
     store::set_bool(TICKS_KEY, on);
     apply();
 }
-float media_volume() { return (float)std::clamp<int64_t>(store::get_int(MEDIA_KEY, 100), 0, 100) / 100.0f; }
+constexpr int MEDIA_MAX_PERCENT = (int)(audio::MAX_MEDIA_VOLUME * 100);
+float media_volume() { return (float)std::clamp<int64_t>(store::get_int(MEDIA_KEY, 100), 0, MEDIA_MAX_PERCENT) / 100.0f; }
 void set_media_volume(float v) {
-    store::set_int(MEDIA_KEY, (int64_t)std::lround(std::clamp(v, 0.0f, 1.0f) * 100));
+    store::set_int(MEDIA_KEY, (int64_t)std::lround(std::clamp(v, 0.0f, audio::MAX_MEDIA_VOLUME) * 100));
     audio::set_media_volume(media_volume());
+}
+float media_slider() { return media_volume() / audio::MAX_MEDIA_VOLUME; }
+void set_media_slider(float pos) { set_media_volume(std::clamp(pos, 0.0f, 1.0f) * audio::MAX_MEDIA_VOLUME); }
+float nudge_media_volume(int steps) {
+    // On the 5% grid, whatever it was before (a finger can leave it at 73%)
+    const int pct = (int)std::lround(media_volume() * 100);
+    const int grid = steps > 0 ? pct / 5 * 5 + 5 * steps : (pct + 4) / 5 * 5 + 5 * steps;
+    set_media_volume((float)std::clamp(grid, 0, MEDIA_MAX_PERCENT) / 100.0f);
+    return media_volume();
+}
+void toggle_media_mute() {
+    static float before = 1.0f;
+    const float v = media_volume();
+    if (v > 0.001f) {
+        before = v;
+        set_media_volume(0);
+    } else {
+        set_media_volume(before > 0.001f ? before : 1.0f);
+    }
 }
 
 void apply() {
