@@ -13,6 +13,7 @@
 #include "logger/logger.hpp"
 #include "services/podcasts.hpp"
 #include "services/spotify/spotify.hpp"
+#include "services/spotify/spotify_crypto.hpp"
 #include "services/spotify/spotify_index.hpp"
 #include "services/spotify/spotify_internal.hpp"
 #include "services/spotify/spotify_proto.hpp"
@@ -312,7 +313,7 @@ std::vector<std::string> collection(const char* set, std::string& error) {
         pb_str(req, 1, user_name());
         pb_str(req, 2, set);
         if (!token.empty()) pb_str(req, 3, token);
-        pb_u32(req, 4, 300);
+        pb_u32(req, 4, 1000);
         http::Response r =
             sp_get("/collection/v2/paging", nullptr, error, &req, "application/vnd.collection-v2.spotify.proto");
         if (!r.ok()) return {};
@@ -361,6 +362,7 @@ std::vector<std::string> only(const std::vector<std::string>& uris, const char* 
 // A SelectedListContent (a playlist, or the rootlist of them): the items' URIs, and the attributes of each
 // item's playlist where there are any (meta_items, the rootlist's).
 struct ListPage {
+    std::string revision;  // the list's own (hex)
     int64_t total = 0;
     std::string name;  // the playlist's own (attributes 3 > name 1)
     std::vector<std::string> uris;
@@ -397,7 +399,11 @@ ListPage parse_list(const std::string& body) {
         }
     };
     while (rd.next(f, w)) {
-        if (f == 2 && w == 0) {
+        if (f == 1 && w == 2) {
+            std::vector<uint8_t> rev;
+            rd.read_bytes(rev);
+            p.revision = hex(rev);
+        } else if (f == 2 && w == 0) {
             uint64_t v;
             rd.vi(v);
             p.total = (int64_t)v;
@@ -509,10 +515,30 @@ Parts playlist_parts(const std::string& uri) {
         ListPage p = parse_list(r.body);
         st->total = p.total;
         st->from += p.uris.size();
+        part.revision = p.revision;
         part.items = hydrate(p.uris, error);
         part.more = !p.uris.empty() && (int64_t)st->from < p.total && st->from < MAX_ITEMS;
         return part;
     };
+}
+
+// The liked songs' URIs, newest first, and a revision for them: a fingerprint of which songs it holds (any
+// added or removed changes it; the order the service lists them in varies, so it doesn't count). Not the
+// collection's sync token: that's a time, new with every request (November 2026).
+std::vector<std::string> liked_listing(std::string& error, std::string& revision) {
+    std::vector<std::string> uris = only(collection("collection", error), "spotify:track:");
+    if (uris.size() > MAX_ITEMS) uris.resize(MAX_ITEMS);
+    if (!uris.empty()) {
+        std::vector<std::string> ids;
+        for (const std::string& u : uris) ids.push_back(u.substr(u.rfind(':') + 1));
+        std::sort(ids.begin(), ids.end());
+        std::string all;
+        for (const std::string& id : ids) all += id;
+        uint8_t md[20];
+        crypto::sha1({{reinterpret_cast<const uint8_t*>(all.data()), all.size()}}, md);
+        revision = hex(std::vector<uint8_t>(md, md + 20));
+    }
+    return uris;
 }
 
 Parts liked_parts() {
@@ -525,8 +551,7 @@ Parts liked_parts() {
     return [st](std::string& error) {
         Part part;
         if (!st->listed) {
-            st->uris = only(collection("collection", error), "spotify:track:");
-            if (st->uris.size() > MAX_ITEMS) st->uris.resize(MAX_ITEMS);
+            st->uris = liked_listing(error, part.revision);
             st->listed = true;
         }
         const size_t end = std::min(st->uris.size(), st->at + 200);
@@ -871,7 +896,10 @@ Found search_library(const std::string& query, std::string& error) {
     const std::vector<std::string> ws = words(query);
     if (ws.empty()) return f;
     std::string e;  // a list that fails to load leaves its part empty; the others still count
-    f.songs = matching(liked_songs(e), ws, 30);  // songs as rows: a few dozen, the shelves below stay in reach
+    // Songs as rows: a few dozen, the shelves below stay in reach. The liked songs as kept, when they are.
+    std::vector<Item> liked_kept;
+    std::string liked_rev;
+    f.songs = matching(index::get(LIKED, liked_rev, liked_kept) ? liked_kept : liked_songs(e), ws, 30);
     f.episodes = matching(saved_episodes(e), ws, 30);
     f.albums = matching(saved_albums(e), ws, 50);
     f.artists = matching(followed_artists(e), ws, 50);
@@ -883,6 +911,31 @@ Found search_library(const std::string& query, std::string& error) {
         if (!liked.count(s.uri) && f.in_playlists.size() < 30) f.in_playlists.push_back(std::move(s));
     if (f.empty()) error = e;
     return f;
+}
+
+// --- lists kept on the card ---------------------------------------------------------------------------
+
+const char* const LIKED = "spotify:collection";
+
+bool kept_list(const std::string& key, std::vector<Item>& items, std::string& revision) {
+    return index::get(key, revision, items);
+}
+
+std::string list_revision(const std::string& key, std::string& error) {
+    if (key == LIKED) {  // listing the songs (their ids only: a request for each thousand)
+        std::string revision;
+        liked_listing(error, revision);
+        return revision;
+    }
+    http::Response r = sp_get("/playlist/v2/playlist/" + id_of(key) + "?decorate=revision&from=0&length=1", nullptr, error);
+    return r.ok() ? parse_list(r.body).revision : "";
+}
+
+Parts list_parts(const std::string& key) { return key == LIKED ? liked_parts() : playlist_parts(key); }
+
+void keep_list(const std::string& key, const std::string& name, const std::string& revision, std::vector<Item> items) {
+    index::put(key, name, revision, std::move(items));
+    index::save();
 }
 
 }  // namespace spotify

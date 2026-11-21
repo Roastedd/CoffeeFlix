@@ -1,6 +1,6 @@
-// Keeps spotify::index (the songs of the account's playlists, for the search) up to date, in the background:
-// the list of playlists, then one playlist a step, only those whose revision changed. A step is a task of its
-// own, so the workers stay free for everything else in between.
+// Keeps spotify::index (the songs of the account's playlists and its liked songs: for the search, and to show
+// them at once) up to date, in the background: the list of playlists, then one list a step, only those whose
+// revision changed. A step is a task of its own, so the workers stay free for everything else in between.
 #pragma once
 
 namespace spotify_search_index {

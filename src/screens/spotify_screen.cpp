@@ -13,6 +13,7 @@
 #include "app/spotify_podcasts.hpp"
 #include "app/spotify_search_index.hpp"
 #include "gfx/images.hpp"
+#include "logger/logger.hpp"
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
 #include "services/podcasts.hpp"
@@ -52,6 +53,38 @@ struct Loader {
             loaded = true;
         });
     }
+    // A list kept on the card (spotify::kept_list): shown at once, then checked against what it is now and read
+    // again (and kept) if it changed. One not kept yet comes in parts, and is kept once it's all there.
+    void load_kept(std::string key, std::string name) {
+        scope.reset();
+        items.clear();
+        error.clear();
+        loading = true;
+        loaded = false;
+        key_ = std::move(key);
+        name_ = std::move(name);
+        struct Got {
+            bool found = false;
+            std::vector<Item> items;
+            std::string revision;
+        };
+        scope.run<Got>([key = key_] {
+            Got g;
+            g.found = spotify::kept_list(key, g.items, g.revision);
+            return g;
+        }, [this](Got g) {
+            if (!g.found) {
+                part_revision_.clear();
+                next_part(spotify::list_parts(key_));
+                return;
+            }
+            items = std::move(g.items);
+            loaded = true;
+            loading = false;
+            refresh(g.revision);
+        });
+    }
+
     // A long list in parts: shown from the first part, the rest coming in after it (`loading` meanwhile).
     void load_parts(spotify::Parts parts) {
         scope.reset();
@@ -69,6 +102,34 @@ struct Loader {
     }
 
 private:
+    void refresh(const std::string& kept_revision) {
+        struct Fresh {
+            bool changed = false;
+            std::vector<Item> items;
+        };
+        scope.run<Fresh>([key = key_, name = name_, kept_revision] {
+            Fresh f;
+            std::string e;
+            const std::string now = spotify::list_revision(key, e);
+            if (now.empty() || now == kept_revision) return f;
+            log_message(LOG_DEBUG, "Spotify", "A list changed since it was kept: reading it again");
+            spotify::Parts parts = spotify::list_parts(key);
+            std::string revision;
+            for (;;) {
+                spotify::Part p = parts(e);
+                if (revision.empty()) revision = p.revision;
+                for (Item& it : p.items) f.items.push_back(std::move(it));
+                if (!p.more) break;
+            }
+            if (f.items.empty() && !e.empty()) return f;
+            f.changed = true;
+            spotify::keep_list(key, name, revision.empty() ? now : revision, f.items);
+            return f;
+        }, [this](Fresh f) {
+            if (f.changed) items = std::move(f.items);
+        });
+    }
+
     void next_part(spotify::Parts parts) {
         struct Got {
             spotify::Part part;
@@ -79,13 +140,23 @@ private:
             g.part = parts(g.error);
             return g;
         }, [this, parts](Got g) {
+            if (part_revision_.empty()) part_revision_ = g.part.revision;
             for (Item& it : g.part.items) items.push_back(std::move(it));
             if (items.empty()) error = std::move(g.error);
             loaded = true;
             loading = g.part.more;
-            if (g.part.more) next_part(parts);
+            if (g.part.more) {
+                next_part(parts);
+            } else if (!key_.empty() && !items.empty() && !part_revision_.empty()) {  // all there: kept for next time
+                scope.run<bool>([key = key_, name = name_, rev = part_revision_, all = items] {
+                    spotify::keep_list(key, name, rev, all);
+                    return true;
+                }, [](bool) {});
+            }
         });
     }
+
+    std::string key_, name_, part_revision_;
 };
 
 // Plays from `index` on: the queue takes up to 1,000 of a long list around it (a queue entry is far bigger than a
@@ -228,6 +299,10 @@ public:
     ListScreen(Item head, int icon, spotify::Parts parts) : head_(std::move(head)), icon_(icon) {
         loader_.load_parts(std::move(parts));
     }
+    // A kept list (a playlist by its URI, the liked songs by spotify::LIKED): at once from the card.
+    ListScreen(Item head, int icon, const std::string& key) : head_(std::move(head)), icon_(icon) {
+        loader_.load_kept(key, head_.name);
+    }
     app::Section section() const override { return app::SEC_SPOTIFY; }
 
     void frame() override {
@@ -323,7 +398,7 @@ std::unique_ptr<app::Screen> make_list(Item head, int icon, spotify::Parts parts
 }
 
 std::unique_ptr<app::Screen> make_playlist(const Item& playlist) {
-    return make_list(playlist, ic::QUEUE_MUSIC, spotify::playlist_parts(playlist.uri));
+    return std::make_unique<ListScreen>(playlist, ic::QUEUE_MUSIC, playlist.uri);
 }
 
 std::unique_ptr<app::Screen> make_album(const Item& album) {
@@ -625,7 +700,7 @@ private:
         };
         s.on_click = [this](int i) {
             if (i == 0)
-                app::push(make_list(liked_item(), ic::FAVORITE, spotify::liked_parts()));
+                app::push(std::make_unique<ListScreen>(liked_item(), ic::FAVORITE, std::string(spotify::LIKED)));
             else
                 app::push(make_playlist(playlists_.items[i - 1]));
         };

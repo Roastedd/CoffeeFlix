@@ -76,10 +76,19 @@ std::vector<Listed> playlists_with_revisions(std::string& error);
 struct Part {
     std::vector<Item> items;
     bool more = false;
+    std::string revision;  // with the first part: the list's revision (a playlist's; the liked songs' fingerprint)
 };
 using Parts = std::function<Part(std::string& error)>;
 Parts playlist_parts(const std::string& uri);
 Parts liked_parts();
+
+// Lists kept on the card (spotify_index), to show at once: a playlist by its URI, the liked songs by LIKED.
+// Shown as kept, then checked against what the list is now (one small request) and read again if it changed.
+extern const char* const LIKED;
+bool kept_list(const std::string& key, std::vector<Item>& items, std::string& revision);  // false: not kept yet
+std::string list_revision(const std::string& key, std::string& error);                   // "" when unknown
+Parts list_parts(const std::string& key);
+void keep_list(const std::string& key, const std::string& name, const std::string& revision, std::vector<Item> items);
 // The picture Spotify's apps show for a playlist without one of its own: the covers of its first four albums
 // (one cover when there are fewer). Empty when there's nothing to show.
 std::string playlist_cover(const std::string& uri);

@@ -47,7 +47,7 @@ void next() {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));  // gently: playback and browsing come first
         std::vector<spotify::Item> items;
         std::string error;
-        spotify::Parts parts = spotify::playlist_parts(t.uri);
+        spotify::Parts parts = spotify::list_parts(t.uri);
         for (;;) {
             spotify::Part part = parts(error);
             for (spotify::Item& it : part.items) items.push_back(std::move(it));
@@ -77,11 +77,14 @@ void maybe_run(bool force) {
     g_todo.clear();
     struct Listing {
         std::vector<spotify::Listed> lists;
+        std::string liked;  // the liked songs' revision
         std::string error;
     };
     g_scope.run<Listing>([] {
         Listing l;
         l.lists = spotify::playlists_with_revisions(l.error);
+        std::string e;
+        l.liked = spotify::list_revision(spotify::LIKED, e);
         return l;
     }, [](Listing l) {
         if (l.lists.empty()) {
@@ -89,7 +92,9 @@ void maybe_run(bool force) {
             if (!l.error.empty()) log_message(LOG_WARNING, "Spotify", "Search index: %s", l.error.c_str());
             return;
         }
-        std::set<std::string> all;
+        std::set<std::string> all = {spotify::LIKED};
+        if (!l.liked.empty() && l.liked != spotify::index::revision(spotify::LIKED))  // the liked songs first
+            g_todo.push_back(Todo{spotify::LIKED, "", l.liked});
         for (const spotify::Listed& p : l.lists) {
             all.insert(p.playlist.uri);
             if (p.revision.empty() || p.revision != spotify::index::revision(p.playlist.uri))

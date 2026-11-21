@@ -77,14 +77,32 @@ std::string revision(const std::string& playlist_uri) {
     return it == g_lists.end() ? "" : it->second.revision;
 }
 
+bool get(const std::string& playlist_uri, std::string& revision, std::vector<Item>& out) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    check_user_locked();
+    auto it = g_lists.find(playlist_uri);
+    if (it == g_lists.end()) return false;
+    revision = it->second.revision;
+    out.clear();
+    out.reserve(it->second.songs.size());
+    for (const Song& s : it->second.songs) {
+        Item i;
+        i.uri = s.uri;
+        i.name = s.name;
+        i.subtitle = s.artists;
+        i.duration_ms = s.duration_ms;
+        out.push_back(std::move(i));
+    }
+    return true;
+}
+
 void put(const std::string& playlist_uri, const std::string& name, const std::string& revision, std::vector<Item> items) {
     List list;
     list.name = name;
     list.revision = revision;
     list.songs.reserve(items.size());
     for (Item& it : items)
-        if (util::starts_with(it.uri, "spotify:track:"))
-            list.songs.push_back(Song{std::move(it.uri), std::move(it.name), std::move(it.subtitle), it.duration_ms});
+        list.songs.push_back(Song{std::move(it.uri), std::move(it.name), std::move(it.subtitle), it.duration_ms});
     std::lock_guard<std::mutex> lk(g_mu);
     check_user_locked();
     g_lists[playlist_uri] = std::move(list);
@@ -167,8 +185,9 @@ std::vector<Item> search(const std::vector<std::string>& words, size_t max, std:
     std::lock_guard<std::mutex> lk(g_mu);
     check_user_locked();
     for (const auto& [uri, list] : g_lists) {
+        if (uri == LIKED) continue;  // searched as the liked songs
         for (const Song& s : list.songs) {
-            if (seen.count(s.uri)) continue;
+            if (seen.count(s.uri) || !util::starts_with(s.uri, "spotify:track:")) continue;
             const std::string text = fold(s.name + " " + s.artists);
             bool all = true;
             for (const std::string& w : words)
