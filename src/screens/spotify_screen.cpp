@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <unordered_map>
 
 #include "core/i18n.hpp"
 #include "core/qr.hpp"
@@ -10,6 +11,7 @@
 #include "core/util.hpp"
 #include "app/personal.hpp"
 #include "app/spotify_podcasts.hpp"
+#include "app/spotify_search_index.hpp"
 #include "gfx/images.hpp"
 #include "screens/screens.hpp"
 #include "screens/widgets.hpp"
@@ -50,25 +52,64 @@ struct Loader {
             loaded = true;
         });
     }
+    // A long list in parts: shown from the first part, the rest coming in after it (`loading` meanwhile).
+    void load_parts(spotify::Parts parts) {
+        scope.reset();
+        items.clear();
+        error.clear();
+        loading = true;
+        loaded = false;
+        next_part(std::move(parts));
+    }
     void reset() {
         scope.reset();
         items.clear();
         error.clear();
         loading = loaded = false;
     }
+
+private:
+    void next_part(spotify::Parts parts) {
+        struct Got {
+            spotify::Part part;
+            std::string error;
+        };
+        scope.run<Got>([parts] {
+            Got g;
+            g.part = parts(g.error);
+            return g;
+        }, [this, parts](Got g) {
+            for (Item& it : g.part.items) items.push_back(std::move(it));
+            if (items.empty()) error = std::move(g.error);
+            loaded = true;
+            loading = g.part.more;
+            if (g.part.more) next_part(parts);
+        });
+    }
 };
 
+// Plays from `index` on: the queue takes up to 1,000 of a long list around it (a queue entry is far bigger than a
+// list's), or with `shuffle` up to 1,000 of all of it, mixed.
 void play_items(const std::vector<Item>& items, int index, bool shuffle) {
     if (items.empty()) return;
-    std::vector<player::Source> q;
-    q.reserve(items.size());
-    for (const Item& it : items) q.push_back(spotify::source(it));
-    index = std::clamp(index, 0, (int)q.size() - 1);
-    if (shuffle && q.size() > 1) {
+    constexpr int WINDOW = 500;
+    const int n = (int)items.size();
+    index = std::clamp(index, 0, n - 1);
+    std::vector<int> pick;
+    if (shuffle) {
+        for (int i = 0; i < n; i++) pick.push_back(i);
         std::mt19937 g(std::random_device{}());
-        std::shuffle(q.begin(), q.end(), g);
+        std::shuffle(pick.begin(), pick.end(), g);
+        if ((int)pick.size() > 2 * WINDOW) pick.resize(2 * WINDOW);
         index = 0;
+    } else {
+        const int lo = std::max(0, index - WINDOW), hi = std::min(n, index + WINDOW);
+        for (int i = lo; i < hi; i++) pick.push_back(i);
+        index -= lo;
     }
+    std::vector<player::Source> q;
+    q.reserve(pick.size());
+    for (int i : pick) q.push_back(spotify::source(items[i]));
     play_audio_queue(std::move(q), index);
 }
 
@@ -85,18 +126,31 @@ CardInfo card(const Item& it, int icon) {
 }
 
 std::unique_ptr<app::Screen> make_list(Item head, int icon, std::function<std::vector<Item>(std::string&)> load);
+std::unique_ptr<app::Screen> make_list(Item head, int icon, spotify::Parts parts);
+std::unique_ptr<app::Screen> make_playlist(const Item& playlist);
 std::unique_ptr<app::Screen> make_album(const Item& album);
 std::unique_ptr<app::Screen> make_artist(const Item& artist);
 
-// Songs or episodes, one row each; rows off screen are only kept for moving between them.
+// Songs or episodes, one row each. A long list has only the rows around the view (and the one in focus) taking
+// part each frame: thousands of them would cost a Wii U's frame. Moving on brings the next in as the page scrolls.
 float item_rows(Id g, float x0, float y, const std::vector<Item>& items, Page& page) {
     const Theme& t = theme();
-    for (size_t i = 0; i < items.size(); i++) {
+    constexpr float ROW = 62, AROUND = 600;
+    static std::unordered_map<Id, size_t> focused_row;  // by list: the row last in focus
+    const size_t n = items.size();
+    const size_t first = y < -AROUND ? (size_t)((-AROUND - y) / ROW) : 0;
+    const size_t last = std::min(n, (size_t)std::max(0.0f, (H + AROUND - y) / ROW) + 1);
+    auto fr = focused_row.find(g);
+    for (size_t i = 0; i < n; i++) {
+        if ((i < first || i >= last) && !(fr != focused_row.end() && fr->second == i)) continue;
         const Item& s = items[i];
-        Rect r(x0, y, W - x0 - 60, 56);
+        Rect r(x0, y + ROW * i, W - x0 - 60, 56);
         Id rid = id(g, (int64_t)i);
         ui::Item it = focusable(rid, r, g);
-        if (it.focused) page.focus_range(r.y + page.scroll() - 10, r.b() + page.scroll() + 10);
+        if (it.focused) {
+            page.focus_range(r.y + page.scroll() - 10, r.b() + page.scroll() + 10);
+            focused_row[g] = i;
+        }
         if (r.b() > -60 && r.y < H + 60) {
             Rect br = r.offset(bump_x(rid), bump_y(rid));
             gfx::fill_rrect(br, 12, gfx::lerp(Color(255, 255, 255, i % 2 ? 6 : 14), t.surface_focus, it.f));
@@ -111,9 +165,8 @@ float item_rows(Id g, float x0, float y, const std::vector<Item>& items, Page& p
                            text::RIGHT);
         }
         if (it.clicked) play_items(items, (int)i, false);
-        y += 62;
     }
-    return y;
+    return y + ROW * n;
 }
 
 // Cover, name, what it is; Play and Shuffle. Returns where the list goes.
@@ -157,7 +210,12 @@ float list_body(Id g, float x0, float y, Loader& l, Page& page, int icon, const 
                     l.error.empty() ? empty : tr("Couldn't load this"), l.error.c_str());
         return y + 200;
     }
-    return item_rows(id(g, "rows"), x0, y, l.items, page);
+    y = item_rows(id(g, "rows"), x0, y, l.items, page);
+    if (l.loading) {  // more on the way
+        loading_indicator(x0 + 40, y + 20);
+        y += 80;
+    }
+    return y;
 }
 
 // A playlist, the liked songs, the saved episodes or an album: its songs.
@@ -167,13 +225,16 @@ public:
         : head_(std::move(head)), icon_(icon) {
         loader_.load(std::move(load));
     }
+    ListScreen(Item head, int icon, spotify::Parts parts) : head_(std::move(head)), icon_(icon) {
+        loader_.load_parts(std::move(parts));
+    }
     app::Section section() const override { return app::SEC_SPOTIFY; }
 
     void frame() override {
         const float x0 = content_x();
         const Id g = id("sp_list");
         page_.begin(id(g, "page"));
-        float y = list_header(g, x0, page_.y(52), head_, icon_, loader_.items, loader_.loaded);
+        float y = list_header(g, x0, page_.y(52), head_, icon_, loader_.items, loader_.loaded && !loader_.loading);
         y = list_body(g, x0, y, loader_, page_, icon_, tr("Nothing here yet"));
         page_.end(y + page_.scroll() + 20);
         hint_bar({{"A", tr("Play")}, {"B", tr("Back")}});
@@ -257,6 +318,14 @@ std::unique_ptr<app::Screen> make_list(Item head, int icon, std::function<std::v
     return std::make_unique<ListScreen>(std::move(head), icon, std::move(load));
 }
 
+std::unique_ptr<app::Screen> make_list(Item head, int icon, spotify::Parts parts) {
+    return std::make_unique<ListScreen>(std::move(head), icon, std::move(parts));
+}
+
+std::unique_ptr<app::Screen> make_playlist(const Item& playlist) {
+    return make_list(playlist, ic::QUEUE_MUSIC, spotify::playlist_parts(playlist.uri));
+}
+
 std::unique_ptr<app::Screen> make_album(const Item& album) {
     return make_list(album, ic::ALBUM, [uri = album.uri](std::string& error) {
         spotify::Album a;
@@ -320,8 +389,12 @@ public:
         if (search_bar(id(top, "bar"), Rect(x0, y, W - x0 - 60, 56), query_, tr("Search your Spotify library"), top))
             ask(query_);
         y += 72;
-        text::draw_fit(font::small, x0 + 4, y, W - x0 - 64,
-                       tr("Searches your library: Spotify's own search isn't open to CoffeeFlix."), t.text3);
+        const std::string note =
+            spotify_search_index::running() && spotify_search_index::total() > 0
+                ? util::fmt(tr("Your playlists are still being read for the search (%d of %d)"), spotify_search_index::done(),
+                            spotify_search_index::total())
+                : std::string(tr("Searches your library: Spotify's own search isn't open to CoffeeFlix."));
+        text::draw_fit(font::small, x0 + 4, y, W - x0 - 64, note, t.text3);
         y += 40;
         if (!loaded_) {
             loading_indicator(x0 + 40, y + 20);
@@ -332,9 +405,10 @@ public:
             y += 200;
         } else {
             y = rows(id(g, "songs"), x0, y, tr("Liked Songs"), found_.songs);
+            y = rows(id(g, "inpl"), x0, y, tr("In your playlists"), found_.in_playlists);
             y = rows(id(g, "eps"), x0, y, tr("Your Episodes"), found_.episodes);
             y += shelf_of(id(g, "pl"), x0, y, tr("Playlists"), found_.playlists, ic::QUEUE_MUSIC, [](const Item& it) {
-                app::push(make_list(it, ic::QUEUE_MUSIC, [uri = it.uri](std::string& e) { return spotify::playlist_items(uri, e); }));
+                app::push(make_playlist(it));
             });
             y += shelf_of(id(g, "al"), x0, y, tr("Albums"), found_.albums, ic::ALBUM, [](const Item& it) { app::push(make_album(it)); });
             y += shelf_of(id(g, "ar"), x0, y, tr("Artists"), found_.artists, ic::PERSON, [](const Item& it) { app::push(make_artist(it)); });
@@ -456,6 +530,7 @@ private:
                 asked_ = true;
                 if (spotify_podcasts::choice() == spotify_podcasts::UNASKED) ask_podcasts();
                 else spotify_podcasts::maybe_sync();
+                spotify_search_index::maybe_run();
             }
         }
         const Theme& t = theme();
@@ -473,6 +548,11 @@ private:
             if (it.f > 0.01f) gfx::fill_rrect(ur, 10, gfx::lerp(Color(0, 0, 0, 0), t.surface_focus, it.f));
             text::draw_fit(font::small, x0 + 4, y + 60, 500, shown, gfx::lerp(t.text3, gfx::rgb(0x15121A), it.f));
             if (it.clicked) show_user_ = !show_user_;
+        }
+        if (spotify_search_index::running() && spotify_search_index::total() > 0) {  // the search index, coming along
+            const std::string p = util::fmt(tr("Preparing your playlists for the search\xE2\x80\xA6 %d/%d"),
+                                            spotify_search_index::done(), spotify_search_index::total());
+            text::draw_fit(font::small, W - 60 - 28 - 28 - 24, y + 66, 420, p, t.text3, text::RIGHT);
         }
         const Id top = id(g, "top");
         if (icon_button(id(top, "account"), W - 60 - 28, y + 32, 28, ic::ACCOUNT_CIRCLE, top, 0, true)) account_menu();
@@ -545,10 +625,9 @@ private:
         };
         s.on_click = [this](int i) {
             if (i == 0)
-                app::push(make_list(liked_item(), ic::FAVORITE, [](std::string& e) { return spotify::liked_songs(e); }));
+                app::push(make_list(liked_item(), ic::FAVORITE, spotify::liked_parts()));
             else
-                app::push(make_list(playlists_.items[i - 1], ic::QUEUE_MUSIC,
-                                    [uri = playlists_.items[i - 1].uri](std::string& e) { return spotify::playlist_items(uri, e); }));
+                app::push(make_playlist(playlists_.items[i - 1]));
         };
         return y + grid(gid, x0, y, s, &page_) + 16;
     }
@@ -665,6 +744,7 @@ private:
     void account_menu() {
         std::vector<MenuItem> items;
         items.push_back({tr("Sign out"), ic::LOGOUT, [] {
+                             spotify_search_index::stop();
                              spotify::sign_out();
                              toast(tr("Signed out of Spotify"), ic::LOGOUT);
                          }});

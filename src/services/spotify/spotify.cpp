@@ -15,6 +15,7 @@
 #include "logger/logger.hpp"
 #include "services/spotify/spotify_ap.hpp"
 #include "services/spotify/spotify_crypto.hpp"
+#include "services/spotify/spotify_index.hpp"
 #include "services/spotify/spotify_internal.hpp"
 #include "services/spotify/spotify_proto.hpp"
 
@@ -682,6 +683,7 @@ std::string user_name() { return store::get_str("sp_user"); }
 
 void sign_out() {
     forget_library();
+    index::forget();
     {
         std::lock_guard<std::mutex> lk(g_ap_mu);
         g_ap.reset();

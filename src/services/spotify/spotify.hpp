@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -63,6 +64,22 @@ Item latest_episode(const std::string& show_uri);
 // `searched` (optional) is set false when the search itself failed: then it may yet be found.
 bool find_feed(const Item& show, podcasts::Show& out, bool* searched = nullptr);
 std::vector<Item> playlist_items(const std::string& uri, std::string& error);  // its songs and episodes
+// The playlists with each one's revision, which changes whenever the playlist does (for the search index).
+struct Listed {
+    Item playlist;
+    std::string revision;
+};
+std::vector<Listed> playlists_with_revisions(std::string& error);
+
+// A long list in parts, for showing the first of it at once: each call brings the next (on a worker, one at a
+// time); `more` false with the last. Up to 10,000 items (Spotify's limit for a playlist).
+struct Part {
+    std::vector<Item> items;
+    bool more = false;
+};
+using Parts = std::function<Part(std::string& error)>;
+Parts playlist_parts(const std::string& uri);
+Parts liked_parts();
 // The picture Spotify's apps show for a playlist without one of its own: the covers of its first four albums
 // (one cover when there are fewer). Empty when there's nothing to show.
 std::string playlist_cover(const std::string& uri);
@@ -84,8 +101,10 @@ bool artist(const std::string& uri, Artist& out, std::string& error);
 // playlists and podcasts. Every word of `query` has to be in a name or what's under it (any case).
 struct Found {
     std::vector<Item> songs, episodes, albums, artists, playlists, podcasts;
+    std::vector<Item> in_playlists;  // songs of the playlists (spotify_index), not among `songs`
     bool empty() const {
-        return songs.empty() && episodes.empty() && albums.empty() && artists.empty() && playlists.empty() && podcasts.empty();
+        return songs.empty() && episodes.empty() && albums.empty() && artists.empty() && playlists.empty() &&
+               podcasts.empty() && in_playlists.empty();
     }
 };
 Found search_library(const std::string& query, std::string& error);

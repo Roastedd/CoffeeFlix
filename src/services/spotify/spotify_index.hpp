@@ -1,0 +1,31 @@
+// The songs of the account's playlists, kept for the search (Spotify's own search isn't open to this client):
+// each playlist with its revision, so only the ones that changed are read again. Kept on the card, for the
+// account it was made for. Thread-safe.
+#pragma once
+
+#include <set>
+#include <string>
+#include <vector>
+
+#include "services/spotify/spotify.hpp"
+
+namespace spotify::index {
+
+// The playlist's revision when it was indexed ("" when it isn't).
+std::string revision(const std::string& playlist_uri);
+void put(const std::string& playlist_uri, const std::string& name, const std::string& revision, std::vector<Item> items);
+// Drops playlists that are gone from the account.
+void keep_only(const std::set<std::string>& playlist_uris);
+void save();
+// Signing out: the index goes, on the card too.
+void forget();
+
+size_t songs();     // indexed, all playlists together
+size_t playlists();
+
+// Songs whose name or artists hold every word (already folded to lower case), each once, as found in the first
+// playlist that has it: the subtitle says which ("Artist · in Playlist").
+std::vector<Item> search(const std::vector<std::string>& words, size_t max,
+                         std::string (*fold)(const std::string&));
+
+}  // namespace spotify::index

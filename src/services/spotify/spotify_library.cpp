@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <set>
 #include <mutex>
 
 #include "core/i18n.hpp"
@@ -12,6 +13,7 @@
 #include "logger/logger.hpp"
 #include "services/podcasts.hpp"
 #include "services/spotify/spotify.hpp"
+#include "services/spotify/spotify_index.hpp"
 #include "services/spotify/spotify_internal.hpp"
 #include "services/spotify/spotify_proto.hpp"
 
@@ -23,7 +25,7 @@ namespace {
 
 // ExtensionKind
 constexpr int ARTIST_V4 = 8, ALBUM_V4 = 9, TRACK_V4 = 10, SHOW_V4 = 11, EPISODE_V4 = 12;
-constexpr size_t MAX_ITEMS = 2000;  // of a playlist or the liked songs: more would take long to load on a Wii U
+constexpr size_t MAX_ITEMS = 10000;  // of a playlist (Spotify's own limit) or the liked songs
 
 int64_t sint(uint64_t v) { return (int64_t)(int32_t)((v >> 1) ^ (~(v & 1) + 1)); }
 
@@ -363,6 +365,7 @@ struct ListPage {
     std::string name;  // the playlist's own (attributes 3 > name 1)
     std::vector<std::string> uris;
     std::vector<Item> meta;  // name, image, count, owner
+    std::vector<std::string> revisions;  // each meta item's playlist's revision (hex), "" when not given
 };
 
 ListPage parse_list(const std::string& body) {
@@ -420,9 +423,14 @@ ListPage parse_list(const std::string& body) {
                     PRd meta;
                     contents.enter(meta);
                     Item it;
+                    std::string revision;
                     uint64_t v;
                     while (meta.next(f, w)) {
-                        if (f == 2 && w == 2) {
+                        if (f == 1 && w == 2) {  // revision: changes whenever the playlist does
+                            std::vector<uint8_t> rev;
+                            meta.read_bytes(rev);
+                            revision = hex(rev);
+                        } else if (f == 2 && w == 2) {
                             PRd a;
                             meta.enter(a);
                             attributes(a, it);
@@ -437,6 +445,7 @@ ListPage parse_list(const std::string& body) {
                         }
                     }
                     p.meta.push_back(std::move(it));
+                    p.revisions.push_back(std::move(revision));
                 } else {
                     contents.skip(w);
                 }
@@ -452,42 +461,91 @@ std::string id_of(const std::string& uri) { return uri.substr(uri.rfind(':') + 1
 
 }  // namespace
 
-static std::vector<Item> playlists_uncached(std::string& error) {
+std::vector<Listed> playlists_with_revisions(std::string& error) {
     http::Response r = sp_get("/playlist/v2/user/" + util::url_encode(user_name()) +
                                   "/rootlist?decorate=revision,attributes,length,owner,status_code&from=0&length=500",
                               nullptr, error);
     if (!r.ok()) return {};
     ListPage p = parse_list(r.body);
-    std::vector<Item> out;
-    const bool paired = p.meta.size() == p.uris.size();
+    std::vector<Listed> out;
+    const bool paired = p.meta.size() == p.uris.size() && p.revisions.size() == p.uris.size();
     if (!paired) log_message(LOG_WARNING, "Spotify", "Rootlist: %zu items, %zu descriptions", p.uris.size(), p.meta.size());
     for (size_t i = 0; i < p.uris.size(); i++) {
         if (!util::starts_with(p.uris[i], "spotify:playlist:")) continue;  // folders' start and end
-        Item it = paired ? p.meta[i] : Item();
-        if (it.year < 0) continue;  // deleted, or private to someone else: Spotify's apps leave it out too
-        it.uri = p.uris[i];
+        Listed l;
+        if (paired) l.playlist = p.meta[i], l.revision = p.revisions[i];
+        if (l.playlist.year < 0) continue;  // deleted, or private to someone else: Spotify's apps leave it out too
+        l.playlist.uri = p.uris[i];
         // The owner: a username, which is an id more often than a name (the name isn't in the rootlist). Only
         // Spotify's own playlists say whose they are.
-        it.subtitle = it.subtitle == "spotify" ? "Spotify" : "";
-        if (it.name.empty()) it.name = tr("Playlist");
-        out.push_back(std::move(it));
+        l.playlist.subtitle = l.playlist.subtitle == "spotify" ? "Spotify" : "";
+        if (l.playlist.name.empty()) l.playlist.name = tr("Playlist");
+        out.push_back(std::move(l));
     }
     return out;
 }
 
-static std::vector<Item> playlist_items_uncached(const std::string& uri, std::string& error) {
-    std::vector<std::string> uris;
-    for (size_t from = 0; uris.size() < MAX_ITEMS;) {
-        http::Response r = sp_get("/playlist/v2/playlist/" + id_of(uri) +
-                                      "?decorate=revision,attributes,length&from=" + std::to_string(from) + "&length=100",
+static std::vector<Item> playlists_uncached(std::string& error) {
+    std::vector<Item> out;
+    for (Listed& l : playlists_with_revisions(error)) out.push_back(std::move(l.playlist));
+    return out;
+}
+
+Parts playlist_parts(const std::string& uri) {
+    struct State {
+        std::string id;
+        size_t from = 0;
+        int64_t total = -1;
+    };
+    auto st = std::make_shared<State>();
+    st->id = id_of(uri);
+    return [st](std::string& error) {
+        Part part;
+        if (st->from >= MAX_ITEMS || (st->total >= 0 && (int64_t)st->from >= st->total)) return part;
+        http::Response r = sp_get("/playlist/v2/playlist/" + st->id + "?decorate=revision,attributes,length&from=" +
+                                      std::to_string(st->from) + "&length=100",
                                   nullptr, error);
-        if (!r.ok()) return {};
+        if (!r.ok()) return part;
         ListPage p = parse_list(r.body);
-        for (std::string& u : p.uris) uris.push_back(std::move(u));
-        from += p.uris.size();
-        if (p.uris.empty() || (int64_t)from >= p.total) break;
+        st->total = p.total;
+        st->from += p.uris.size();
+        part.items = hydrate(p.uris, error);
+        part.more = !p.uris.empty() && (int64_t)st->from < p.total && st->from < MAX_ITEMS;
+        return part;
+    };
+}
+
+Parts liked_parts() {
+    struct State {
+        bool listed = false;
+        std::vector<std::string> uris;
+        size_t at = 0;
+    };
+    auto st = std::make_shared<State>();
+    return [st](std::string& error) {
+        Part part;
+        if (!st->listed) {
+            st->uris = only(collection("collection", error), "spotify:track:");
+            if (st->uris.size() > MAX_ITEMS) st->uris.resize(MAX_ITEMS);
+            st->listed = true;
+        }
+        const size_t end = std::min(st->uris.size(), st->at + 200);
+        part.items = hydrate(std::vector<std::string>(st->uris.begin() + st->at, st->uris.begin() + end), error);
+        st->at = end;
+        part.more = st->at < st->uris.size();
+        return part;
+    };
+}
+
+static std::vector<Item> playlist_items_uncached(const std::string& uri, std::string& error) {
+    std::vector<Item> out;
+    Parts next = playlist_parts(uri);
+    for (;;) {
+        Part part = next(error);
+        for (Item& it : part.items) out.push_back(std::move(it));
+        if (!part.more) break;
     }
-    return hydrate(uris, error);
+    return out;
 }
 
 std::string playlist_cover(const std::string& uri) {
@@ -813,12 +871,16 @@ Found search_library(const std::string& query, std::string& error) {
     const std::vector<std::string> ws = words(query);
     if (ws.empty()) return f;
     std::string e;  // a list that fails to load leaves its part empty; the others still count
-    f.songs = matching(liked_songs(e), ws, 100);
-    f.episodes = matching(saved_episodes(e), ws, 50);
+    f.songs = matching(liked_songs(e), ws, 30);  // songs as rows: a few dozen, the shelves below stay in reach
+    f.episodes = matching(saved_episodes(e), ws, 30);
     f.albums = matching(saved_albums(e), ws, 50);
     f.artists = matching(followed_artists(e), ws, 50);
     f.playlists = matching(playlists(e), ws, 50);
     f.podcasts = matching(followed_shows(e), ws, 50);
+    std::set<std::string> liked;
+    for (const Item& s : f.songs) liked.insert(s.uri);
+    for (Item& s : index::search(ws, 60, fold))
+        if (!liked.count(s.uri) && f.in_playlists.size() < 30) f.in_playlists.push_back(std::move(s));
     if (f.empty()) error = e;
     return f;
 }
