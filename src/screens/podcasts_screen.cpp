@@ -1,4 +1,5 @@
 // Podcasts: subscriptions, charts, search and show pages.
+#include "app/spotify_podcasts.hpp"
 #include "core/i18n.hpp"
 #include "core/store.hpp"
 #include "core/tasks.hpp"
@@ -201,6 +202,7 @@ public:
         std::string cc = util::lower(store::get_str("radio_country", "US"));
         top_.load([cc] { return podcasts::top(cc); });
         if (podcasts::has_taste()) mine_.load([] { return podcasts::for_you(); });
+        spotify_podcasts::maybe_sync();  // the podcasts followed on Spotify, when that's on
     }
     app::Section section() const override { return app::SEC_PODCASTS; }
 

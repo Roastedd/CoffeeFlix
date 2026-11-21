@@ -17,6 +17,7 @@
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
 #include "services/navidrome.hpp"
+#include "services/spotify/spotify.hpp"
 #include "services/podcasts.hpp"
 #include "services/radio.hpp"
 #include "services/twitch.hpp"
@@ -329,6 +330,8 @@ private:
              app::SEC_JELLYFIN, 0x7E57C2},
             {"Navidrome", navidrome::signed_in() ? tr("Your music library") : tr("Connect your server"), ic::LIBRARY_MUSIC,
              app::SEC_NAVIDROME, 0x00ACC1},
+            {"Spotify", spotify::signed_in() ? tr("Your music and podcasts") : tr("Sign in with your phone"), ic::HEADPHONES,
+             app::SEC_SPOTIFY, 0x1DB954},
             {"Twitch", tr("Live streams"), ic::LIVE_TV, app::SEC_TWITCH, 0x9146FF},
             {tr("Radio"), tr("40,000 stations"), ic::RADIO, app::SEC_RADIO, 0xFB8C00},
             {tr("Podcasts"), tr("Shows and episodes"), ic::PODCASTS, app::SEC_PODCASTS, 0xD81B60},

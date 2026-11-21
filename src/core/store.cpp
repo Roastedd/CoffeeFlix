@@ -56,6 +56,7 @@ const char* const USER_SETTINGS[] = {"jf_server",        "jf_server_name",  "jf_
                                      "yt_account_photo", "yt_history_sync", "yt_ratings",
                                      "nd_server",        "nd_server_name",  "nd_user",          "nd_token",
                                      "nd_salt",          "nd_bitrate",
+                                     "sp_user",          "sp_auth",         "sp_auth_type",     "sp_device_id",
 };
 const char* const USER_FAVORITES[] = {"yt_account_channel",
 };

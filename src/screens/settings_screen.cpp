@@ -12,6 +12,7 @@
 #include "app/personal.hpp"
 #include "app/photo_frame.hpp"
 #include "app/sound_settings.hpp"
+#include "app/spotify_podcasts.hpp"
 #include "app/updater.hpp"
 #include "core/settings_import.hpp"
 #include "core/speedtest.hpp"
@@ -31,6 +32,7 @@
 #include "screens/widgets.hpp"
 #include "services/jellyfin.hpp"
 #include "services/navidrome.hpp"
+#include "services/spotify/spotify.hpp"
 #include "services/yt_account.hpp"
 #include "services/yt_recs.hpp"
 #include "screens/youtube_common.hpp"
@@ -865,6 +867,33 @@ public:
                                           : tr("Not connected");
                 if (value_row(iid, Rect(x0, top, w, 64), "Navidrome", v.c_str(), ic::LIBRARY_MUSIC, g)) navidrome_account_menu();
                 track(iid, top, 64);
+            }
+            {
+                Id iid = id(g, "sp");
+                float top = row_h(64);
+                std::string v = spotify::signed_in() ? tr("Signed in") : tr("Not connected");
+                if (value_row(iid, Rect(x0, top, w, 64), "Spotify", v.c_str(), ic::HEADPHONES, g)) {
+                    if (app::section_visible(app::SEC_SPOTIFY)) app::open_section(app::SEC_SPOTIFY);
+                    else app::push(make_spotify());
+                }
+                track(iid, top, 64);
+            }
+            if (spotify::signed_in()) {
+                Id iid = id(g, "sp_pod");
+                float top = row_h(82);
+                bool v = spotify_podcasts::choice() == spotify_podcasts::ON;
+                if (toggle_row(iid, Rect(x0, top, w, 82), tr("Spotify podcasts in CoffeeFlix"),
+                               tr("Subscribe in Podcasts to the shows you follow on Spotify"), &v, g)) {
+                    if (v) {
+                        spotify_podcasts::turn_on();
+                    } else {
+                        show_menu(tr("Spotify podcasts in CoffeeFlix"), tr("Its subscriptions:"),
+                                  {{tr("Keep the subscriptions"), ic::CHECK, [] { spotify_podcasts::turn_off(false); }, ""},
+                                   {tr("Remove them"), ic::DELETE, [] { spotify_podcasts::turn_off(true); },
+                                    tr("Only the ones it added: your own stay")}});
+                    }
+                }
+                track(iid, top, 82);
             }
             {
                 Id iid = id(g, "history");

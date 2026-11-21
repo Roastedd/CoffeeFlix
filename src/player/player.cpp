@@ -45,6 +45,7 @@ extern "C" {
 #include "player/h264_packet.hpp"
 #include "player/orientation.hpp"
 #include "player/smb_io.hpp"
+#include "player/spotify_io.hpp"
 #include "player/subtitles.hpp"
 #include "services/smb.hpp"
 
@@ -470,6 +471,7 @@ bool developer() { return store::get_bool("update_dev_unlocked", false) && store
 void free_custom_io(AVIOContext* pb) {
     smb_io_free(pb);
     http_io_free(pb);
+    spotify_io_free(pb);
 }
 
 void close_input(AVFormatContext** fmt) {
@@ -486,7 +488,15 @@ AVFormatContext* open_input(Session& s, const std::string& url, Input& in) {
     const bool rtmp = util::starts_with(url, "rtmp://") || util::starts_with(url, "rtmps://");  // playlist streams
     in.network = network;
     in.remote = network || rtmp || smb::is_url(url);
-    if (smb::is_url(url)) {  // FFmpeg has no SMB protocol: custom I/O
+    if (network && !s.src.audio_key.empty()) {  // an encrypted file (Spotify): decrypted as it's read
+        std::string err;
+        if (!(fmt->pb = spotify_io_open(url, s.src.audio_key, &s.abort, err))) {
+            avformat_free_context(fmt);
+            if (!s.abort) set_error(s, err);
+            return nullptr;
+        }
+        fmt->flags |= AVFMT_FLAG_CUSTOM_IO;
+    } else if (smb::is_url(url)) {  // FFmpeg has no SMB protocol: custom I/O
         std::string err;
         if (!(fmt->pb = smb_io_open(url, &s.abort, err))) {
             avformat_free_context(fmt);
