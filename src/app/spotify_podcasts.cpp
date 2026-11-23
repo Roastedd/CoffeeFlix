@@ -26,6 +26,7 @@ constexpr const char* AT_KEY = "sp_podcast_sync_at";   // unix time of the last 
 // What the syncs saw: show URI -> {"f": its feed ("" none: only on Spotify), "a": 1 when the sync subscribed it}.
 constexpr const char* MAP_KEY = "sp_podcast_map";
 constexpr int64_t EVERY = 6 * 3600;
+constexpr int64_t RETRY = 10 * 60;  // after a search that didn't get through
 
 struct Entry {
     std::string feed;
@@ -64,6 +65,7 @@ struct Plan {
     std::vector<podcasts::Show> subscribe;
     std::vector<std::string> unsubscribe;  // feeds
     int only_spotify = 0;
+    int failed = 0;  // searches that didn't get through: those shows are tried again soon
 };
 
 // Worker: what changed on Spotify since `map`. Network only; the store is left to the main thread.
@@ -84,7 +86,13 @@ Plan plan(Map map, std::set<std::string> subscribed) {
         if (searches++ > 0) std::this_thread::sleep_for(std::chrono::seconds(3));
         podcasts::Show feed;
         bool searched = true;
-        if (spotify::find_feed(show, feed, &searched)) {
+        bool found = spotify::find_feed(show, feed, &searched);
+        if (!found && !searched) {  // the network gone for a moment: once more
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            searched = true;
+            found = spotify::find_feed(show, feed, &searched);
+        }
+        if (found) {
             Entry e{feed.feed_url, false};
             if (!subscribed.count(feed.feed_url)) {
                 p.subscribe.push_back(feed);
@@ -94,7 +102,9 @@ Plan plan(Map map, std::set<std::string> subscribed) {
             map[show.uri] = e;
         } else if (searched) {
             map[show.uri] = Entry{"", false};  // only on Spotify (or not surely the same): asked again if unfollowed
-        }                                       // a failed search: tried again next time
+        } else {
+            p.failed++;  // not in the map: tried again next time
+        }
     }
     for (auto it = map.begin(); it != map.end();) {
         if (now.count(it->first)) {
@@ -161,9 +171,9 @@ void maybe_sync(bool force) {
         for (const std::string& feed : p.unsubscribe)
             if (podcasts::is_subscribed(feed)) unsubscribe(feed), removed++;
         save_map(p.map);
-        store::set_int(AT_KEY, now);
-        log_message(LOG_OK, "Spotify", "Podcast sync: %d subscribed, %d unsubscribed, %d only on Spotify", added, removed,
-                    p.only_spotify);
+        store::set_int(AT_KEY, p.failed ? now - EVERY + RETRY : now);
+        log_message(LOG_OK, "Spotify", "Podcast sync: %d subscribed, %d unsubscribed, %d only on Spotify, %d not reached",
+                    added, removed, p.only_spotify, p.failed);
         if (added && removed)
             ui::toast(util::fmt(tr("Spotify: %d podcasts added, %d removed"), added, removed), ic::PODCASTS);
         else if (added)
