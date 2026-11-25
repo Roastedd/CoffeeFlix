@@ -81,6 +81,7 @@ const RailEntry RAIL[] = {
     {SEC_YOUTUBE, ic::SMART_DISPLAY, "YouTube"},
     {SEC_JELLYFIN, ic::VIDEO_LIBRARY, "Jellyfin"},
     {SEC_NAVIDROME, ic::LIBRARY_MUSIC, "Navidrome"},
+    {SEC_SPOTIFY, ic::HEADPHONES, "Spotify"},
     {SEC_TWITCH, ic::LIVE_TV, "Twitch"},
     {SEC_RADIO, ic::RADIO, N_("Radio")},
     {SEC_PODCASTS, ic::PODCASTS, N_("Podcasts")},

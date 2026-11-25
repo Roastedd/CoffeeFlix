@@ -55,6 +55,7 @@ struct Source {
     std::string direct_url;      // where `url` is known to redirect to (a source's probe): asked first, `url` if it fails
     bool chunked_http = false;   // download http(s) files through libcurl in ranged chunks (YouTube, media servers)
     bool http_only = false;      // untrusted remote playlists may only open HTTP(S) resources
+    std::vector<uint8_t> audio_key;  // `url` is a file encrypted with this AES key: Spotify's (spotify_io.hpp)
     int sustainable_bitrate = 0; // optional automatic selection ceiling from measured host capacity
     double start = 0;            // seconds
     bool live = false;           // no seeking, unknown duration

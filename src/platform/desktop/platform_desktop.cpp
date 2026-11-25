@@ -324,6 +324,14 @@ void poll(RawInput& raw) {
                         size_t n = g_text.size() - 1;
                         while (n > 0 && ((unsigned char)g_text[n] & 0xC0) == 0x80) n--;
                         g_text.resize(n);
+                    } else if (e.key.keysym.sym == SDLK_v && (e.key.keysym.mod & (KMOD_CTRL | KMOD_GUI)) &&
+                               SDL_HasClipboardText()) {  // paste: one line of it
+                        if (char* clip = SDL_GetClipboardText()) {
+                            std::string s = clip;
+                            SDL_free(clip);
+                            s = s.substr(0, s.find_first_of("\r\n"));
+                            g_text += s;
+                        }
                     }
                     if (g_text_state != TEXT_ACTIVE) SDL_StopTextInput();
                 }

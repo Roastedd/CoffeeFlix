@@ -86,6 +86,8 @@ std::unique_ptr<app::Screen> make_jellyfin_item(const jellyfin::Item& item);
 void jellyfin_account_menu();
 // The Navidrome accounts menu: switch, add another, sign out (opens sign-in when there are none).
 void navidrome_account_menu();
+// Spotify (services/spotify), an optional section: signing in, then the account's library.
+std::unique_ptr<app::Screen> make_spotify();
 std::unique_ptr<app::Screen> make_podcast_show(const std::string& feed_url, const std::string& title,
                                                const std::string& author, const std::string& artwork);
 

@@ -11,6 +11,7 @@ std::unique_ptr<app::Screen> make_section_root(app::Section s) {
         case app::SEC_YOUTUBE: return make_youtube();
         case app::SEC_JELLYFIN: return make_jellyfin();
         case app::SEC_NAVIDROME: return make_navidrome();
+        case app::SEC_SPOTIFY: return make_spotify();
         case app::SEC_TWITCH: return make_twitch();
         case app::SEC_RADIO: return make_radio();
         case app::SEC_PODCASTS: return make_podcasts();
